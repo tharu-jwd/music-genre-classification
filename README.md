@@ -1,89 +1,374 @@
-# DNN Project — Wearable Sensor Fusion for Human Activity Recognition
+# 🎵 Concept-Guided Explainable Music Genre Classification
 
-Semester DNN research project. See `docs/project-guidelines.md` for the full course
-brief and `docs/research-ideas.pdf` for the original 10 candidate directions this
-was chosen from (idea #4: wearable sensor fusion).
+> Learning interpretable music representations through concept-guided embeddings for multi-label genre classification.
 
-## 1. Dataset
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11-blue.svg">
+  <img src="https://img.shields.io/badge/PyTorch-2.x-red.svg">
+  <img src="https://img.shields.io/badge/Librosa-Latest-orange.svg">
+  <img src="https://img.shields.io/badge/Research-Deep%20Learning-green.svg">
+  <img src="https://img.shields.io/badge/Status-Active%20Development-yellow.svg">
+</p>
 
-**PAMAP2** (Physical Activity Monitoring), downloaded from the link in
-`docs/initial-datasets.pdf`. Lives at `data/pamap2+physical+activity+monitoring/` locally
-(gitignored — 1.8GB, not pushed to GitHub; only an empty `data/.gitkeep` is tracked
-so the folder structure survives a fresh clone).
+---
 
-- 9 subjects, 3 wearable IMU sensors (wrist, chest, ankle) at 100Hz + a heart-rate
-  monitor at ~9Hz
-- 18 activities (walking, running, cycling, ironing, vacuuming, rope jumping, etc.)
-- `Protocol/` = required 12-activity protocol, all 9 subjects. `Optional/` = 6 extra
-  activities, only some subjects did them — **not** a clean subject × activity grid
-- 54 columns per row: timestamp, activityID, heart rate, then 3×17 columns for
-  hand/chest/ankle IMU blocks (temperature, accel ±16g, accel ±6g, gyro, magnetometer,
-  orientation — orientation columns are invalid/unused per the dataset's own readme)
-- Free/open, CC BY 4.0, no credentialing needed
-- No physical equipment needed on our end — data was already collected by the
-  original researchers (DFKI); we only work with the downloaded files
+# 📖 Overview
 
-## 2. Missing-data findings (from exploring the raw files)
+Music genre classification is traditionally treated as a black-box deep learning problem, where neural networks directly predict genres from audio without providing interpretable reasoning.
 
-Across all 14 files (3,850,505 rows total):
+This research proposes a **Concept-Guided Explainable Deep Learning Framework** that learns human-understandable musical concepts before performing genre classification.
 
-- **90.87% of rows are missing a heart-rate value** — this is *not* real data loss.
-  It's a sample-rate mismatch: HR is logged at ~9Hz but every row is timestamped on
-  the 100Hz IMU clock, so ~91/100 rows simply fall between two real HR readings.
-  Fixed trivially with forward-fill/resampling — not a genuine problem.
-- **Excluding heart rate, real IMU sensor dropout is rare**: ~0.86% of rows on a
-  representative subject file. When a sensor does drop a reading, the *whole*
-  packet for that sensor goes NaN at once (all 17 columns together), not individual
-  channels independently.
-- Dropout isn't evenly spread across sensors: **hand ≈0.37%, ankle ≈0.35%, chest
-  ≈0.11%** (of all rows, dataset-wide) — chest is the most reliable sensor.
-- **No naturally occurring case where all 3 IMUs drop out at the same timestamp** —
-  so testing "what if a sensor fails" requires synthetically zeroing out a sensor
-  stream ourselves; it doesn't happen organically in this data.
+Instead of predicting genres directly, the model first learns embeddings representing musical concepts such as
 
-## 3. Research plan
+- 🎸 Instrumentation
+- 🥁 Rhythm
+- 🎹 Timbre
+- 🎼 Harmony
 
-Course requirement (`docs/project-guidelines.md`): the contribution must be on the
-**DNN side** (architecture / training objective / representation learning /
-efficiency), not the data science side.
+These learned concept embeddings are then fused into a unified music representation for final multi-label genre prediction.
 
-**Core contribution — placement-aware sensor fusion:**
-Baseline = one small CNN per sensor location (hand/chest/ankle) → naive
-concatenation → classifier. Proposed improvement = a fusion layer that *learns*
-how much to weight each sensor per activity (e.g. trust ankle more for walking,
-wrist more for ironing), instead of combining them equally.
+The goal is to improve both **classification performance** and **model interpretability**.
 
-**Planned experiments:**
+---
 
-1. **Missing-sensor robustness** — synthetically zero out one IMU stream at test
-   time (justified by the finding above that this doesn't happen naturally) and
-   compare how much the baseline vs. the proposed fusion model degrades.
-2. **Class imbalance check** — rare activities (rope jumping, soccer) have far
-   fewer samples than common ones (sitting, walking). Report per-activity F1, not
-   just overall accuracy, and try a class-weighted/focal loss as the "new training
-   objective" angle.
-3. **Subject-independent generalization (LOSO)** — Leave-One-Subject-Out
-   cross-validation instead of a random split, so the model is tested on people
-   it's never seen rather than memorizing individual movement styles.
-4. **(Bonus) Efficiency for on-device deployment** — since this is wearable data,
-   measure model size/inference speed as a proxy for real smartwatch feasibility
-   (no physical device needed — this is standard practice, not a real deployment
-   test).
-
-## 4. Repo structure
+# 🧠 Proposed Architecture
 
 ```
-docs/
-  project-guidelines.md      course brief / requirements
-  research-ideas.pdf         original 10 candidate project directions
-  initial-datasets.pdf       dataset reference for all 10 ideas (sources, licenses, access notes)
-  contributor-logs/          per-member work logs
-data/
-  pamap2+.../                 the actual dataset (gitignored, local only)
+                         MP3 Audio
+                             │
+                             ▼
+                    librosa.load()
+                             │
+                 15-second segmentation
+                             │
+                             ▼
+               Log-Mel Spectrogram Windows
+                             │
+                             ▼
+                  Shared CNN Encoder
+                             │
+        ┌──────────┬──────────┬──────────┬──────────┐
+        ▼          ▼          ▼          ▼
+ Instrument     Rhythm     Timbre     Harmony
+ Embedding     Embedding   Embedding  Embedding
+        │          │          │          │
+        └──────────┴──────────┴──────────┘
+                     Concatenation
+                           │
+                           ▼
+                 Attention-based Pooling
+                           │
+                           ▼
+                 Music Representation
+                           │
+                           ▼
+             Multi-label Genre Classification
 ```
 
-## 5. Kaggle access
+---
 
-Not needed for PAMAP2 (direct UCI download), but set up for other ideas' datasets
-that are Kaggle-hosted. Token lives at `~/.kaggle/kaggle.json` (chmod 600, not in
-this repo). Setup steps are in `docs/initial-datasets.pdf`.
+# 🔬 Research Objectives
+
+The objectives of this research are
+
+- Learn meaningful concept embeddings from music audio.
+- Improve genre classification through intermediate musical concepts.
+- Provide explainable representations rather than black-box predictions.
+- Investigate the contribution of different musical concepts through ablation studies.
+- Evaluate concept-guided learning against conventional end-to-end CNN models.
+
+---
+
+# 📂 Dataset
+
+**Dataset**
+
+MTG-Jamendo Dataset
+
+Contains
+
+- Multi-label genre annotations
+- Instrument annotations
+- Artist metadata
+- Album metadata
+- Audio recordings
+
+Repository preprocessing converts each song into
+
+```
+Song
+│
+├── stacked Mel spectrogram (.npy)
+│
+└── metadata
+```
+
+Each stacked Mel contains multiple **15-second** windows.
+
+Example
+
+```
+(12, 128, 469)
+
+12 windows
+128 Mel bins
+469 time frames
+```
+
+---
+
+# ⚙️ Preprocessing Pipeline
+
+Each MP3 is decoded **exactly once**.
+
+```
+MP3
+ │
+ ▼
+librosa.load()
+ │
+ ▼
+Normalize Audio
+ │
+ ▼
+Split into 15-second windows
+ │
+ ▼
+Log-Mel Spectrogram
+ │
+ ▼
+Stack windows
+ │
+ ▼
+Song.npy
+ │
+ ▼
+Delete MP3
+```
+
+This design avoids repeatedly decoding the same audio for different experiments.
+
+---
+
+# 🏗 Repository Structure
+
+```
+.
+├── dataset/
+│   ├── logmel_songs/
+│   ├── song_manifest.csv
+│   ├── label_schema.json
+│   └── logs/
+│
+├── notebooks/
+│   ├── 01_preprocessing.ipynb
+│   ├── 02_instrument_embedding.ipynb
+│   ├── 03_rhythm_embedding.ipynb
+│   ├── 04_timbre_embedding.ipynb
+│   ├── 05_harmony_embedding.ipynb
+│   └── 06_genre_classifier.ipynb
+│
+├── models/
+│
+├── experiments/
+│
+├── results/
+│
+└── README.md
+```
+
+---
+
+# 🎯 Concept Learning
+
+The proposed model learns four independent concept spaces.
+
+## Instrument Embedding
+
+Learns instrument-family representations.
+
+Examples
+
+- Guitar
+- Strings
+- Keyboard
+- Brass
+- Woodwinds
+- Percussion
+- Voice
+- Electronic
+
+---
+
+## Rhythm Embedding
+
+Learns rhythmic characteristics including
+
+- Tempo
+- Beat strength
+- Onset density
+- Beat interval statistics
+
+---
+
+## Timbre Embedding
+
+Learns spectral properties including
+
+- Spectral centroid
+- Bandwidth
+- Contrast
+- Flatness
+- RMS energy
+- Spectral flux
+
+---
+
+## Harmony Embedding
+
+Learns harmonic information using
+
+- Chroma
+- Tonnetz
+
+---
+
+# 🧪 Training Strategy
+
+Training proceeds in multiple stages.
+
+```
+Stage 1
+↓
+
+Instrument Representation Learning
+
+↓
+
+Stage 2
+
+Rhythm Representation Learning
+
+↓
+
+Stage 3
+
+Timbre Representation Learning
+
+↓
+
+Stage 4
+
+Harmony Representation Learning
+
+↓
+
+Stage 5
+
+Joint Concept-Guided Fine-tuning
+
+↓
+
+Final Genre Classification
+```
+
+---
+
+# 📈 Evaluation
+
+Evaluation metrics include
+
+- Macro F1-score
+- Micro F1-score
+- Mean Average Precision (mAP)
+- Precision
+- Recall
+- BCE Loss
+
+Embedding quality will additionally be analyzed using
+
+- UMAP
+- t-SNE
+- PCA
+
+---
+
+# 📊 Experiment Tracking
+
+Experiments are tracked using
+
+- MLflow
+- TensorBoard
+- CSV logs
+
+Each experiment records
+
+- Hyperparameters
+- Training history
+- Validation metrics
+- Model checkpoints
+- Embedding visualizations
+
+---
+
+# 💻 Technology Stack
+
+- Python
+- PyTorch
+- Librosa
+- NumPy
+- Pandas
+- MLflow
+- TensorBoard
+- Google Colab
+
+---
+
+# 🚀 Current Progress
+
+- Dataset preprocessing
+- Song-level Mel spectrogram generation
+- Instrument concept learning
+- Shared CNN encoder
+
+### Planned
+
+- Rhythm concept head
+- Timbre concept head
+- Harmony concept head
+- Attention-based MIL pooling
+- Joint concept-guided learning
+- Explainability analysis
+- Ablation study
+
+---
+
+# 📚 Citation
+
+If you use this repository in academic work, please cite the corresponding publication once available.
+
+---
+
+# 📄 License
+
+This repository is intended for academic research and educational purposes.
+
+Please respect the licensing terms of the MTG-Jamendo dataset.
+
+---
+
+# 👨‍💻 Author
+
+**Senindu Dinapura**
+
+Research in Explainable Artificial Intelligence (XAI), Music Information Retrieval (MIR), Deep Learning, and Representation Learning.
+
+---
+
+## ⭐ Acknowledgements
+
+- MTG-Jamendo Dataset
+- Music Technology Group (Universitat Pompeu Fabra)
+- PyTorch
+- Librosa
+- Google Colab
