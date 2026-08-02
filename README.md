@@ -357,8 +357,12 @@ Please respect the licensing terms of the MTG-Jamendo dataset.
 
 ---
 
-# 👨‍💻 Author
+# 👨‍💻 Authors
 
+**Tharupahan Jayawardhana**
+**Dehan Wijesinghe**
+**Thevindu Fernando**
+**Anupama Wickramaratne**
 **Senindu Dinapura**
 
 Research in Explainable Artificial Intelligence (XAI), Music Information Retrieval (MIR), Deep Learning, and Representation Learning.
