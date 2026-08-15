@@ -326,20 +326,20 @@ Each experiment records
 
 # 🚀 Current Progress
 
-- Dataset preprocessing
-- Song-level Mel spectrogram generation
-- Instrument concept learning
-- Shared CNN encoder
+- Dataset preprocessing / mel shard workflow (Drive + Colab)
+- CNN baseline (genre + instrument) on MTG-Jamendo **split-0**
+- Stage 1 instrument embedding (MIL + attention) — pending three bug-fix re-verification
+- Phase 2 team workflow, Drive layout, and code scaffolds on branch `thevindu-branch`
 
-### Planned
+### Phase 2 focus (→ 23 Aug)
 
-- Rhythm concept head
-- Timbre concept head
-- Harmony concept head
-- Attention-based MIL pooling
-- Joint concept-guided learning
-- Explainability analysis
-- Ablation study
+- Re-verify Stage 1 fixes (`best_macro_map`, split leakage, mel path fallback)
+- Rhythm / timbre / harmony **librosa** features (Members 2–3)
+- Fusion (linear + attention) + multi-label genre classifier (Member 1)
+- Ablations vs baseline 0.7260 ROC-AUC / 0.1592 PR-AUC (Member 4)
+- Explainability eval + Phase 2 short paper (Member 5)
+
+See [`docs/phase2-workflow.md`](docs/phase2-workflow.md) for the full plan and checklist.
 
 ---
 
