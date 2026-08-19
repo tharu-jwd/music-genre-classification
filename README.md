@@ -154,28 +154,28 @@ This design avoids repeatedly decoding the same audio for different experiments.
 
 ```
 .
-├── dataset/
-│   ├── logmel_songs/
-│   ├── song_manifest.csv
-│   ├── label_schema.json
-│   └── logs/
-│
-├── notebooks/
+├── BaselineModels/          # early Colab baseline experiments
+├── docs/                    # guidelines, Phase 2 plan, Kaggle plan
+├── scripts/                 # Colab helpers + feature/stage2 Python scaffolds
+├── notebooks/               # full Kaggle staged pipeline (00 → 09)
+│   ├── 00_kaggle_data_download.ipynb
 │   ├── 01_preprocessing.ipynb
-│   ├── 02_instrument_embedding.ipynb
-│   ├── 03_rhythm_embedding.ipynb
-│   ├── 04_timbre_embedding.ipynb
-│   ├── 05_harmony_embedding.ipynb
-│   └── 06_genre_classifier.ipynb
-│
-├── models/
-│
+│   ├── 02_cnn_baseline.ipynb
+│   ├── 03_instrument_embedding.ipynb
+│   ├── 04_rhythm_features.ipynb
+│   ├── 05_timbre_features.ipynb
+│   ├── 06_harmony_features.ipynb
+│   ├── 07_fusion_genre_classifier.ipynb
+│   ├── 08_ablations_and_tuning.ipynb
+│   └── 09_explainability_eval.ipynb
+├── models/                  # (optional local mirrors of checkpoints)
 ├── experiments/
-│
 ├── results/
-│
 └── README.md
 ```
+
+Large mel shards and checkpoints live on **Kaggle output / Drive**, not in Git.  
+Pipeline plan: [`docs/kaggle-pipeline-plan.md`](docs/kaggle-pipeline-plan.md).
 
 ---
 

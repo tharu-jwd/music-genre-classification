@@ -20,9 +20,19 @@
   - `scripts/stage2/fusion_and_genre_classifier.py` — Member 1 linear + attention fusion and 87-tag genre head.
 - Role going forward (Member 5): own canonical notebooks + `.tex`/`.bib`, explainability eval, Phase 2 short paper assembly as results land.
 
+## 19 Aug 2026 — Full Kaggle staged pipeline notebooks
+
+- Wrote `docs/kaggle-pipeline-plan.md` (download strategy, cache-as-dataset workflow, stage map).
+- Generated complete `notebooks/` pipeline **00 → 09**:
+  - data download, preprocessing, CNN baseline, Stage 1 instrument MIL,
+  - rhythm/timbre/harmony features, Stage 2 fusion+genre, ablations, explainability.
+- Updated root `README.md` repository structure to match real folders + Kaggle plan link.
+- Added `notebooks/README.md` run-order index.
+
 ## Next (toward 23 Aug)
 
-- [ ] Team completes §0 verification on canonical Stage 1 notebook / patched code on Drive.
-- [ ] Confirm one-time Drive setup (mels + `patched_baseline_code`) is done by any member.
-- [ ] Track incoming Stage 2 metrics / ablations for the 4-page Phase 2 paper.
-- [ ] Qualitative explainability pass on held-out tracks once fusion checkpoint exists.
+- [ ] Upload/run `00` on Kaggle (Internet on); Save output as dataset cache.
+- [ ] Run `01`→`03`, then `04`–`06` in parallel, then `07`→`09`.
+- [ ] Team completes §0 verification against `03_instrument_embedding` bug-fix cells.
+- [ ] Track Stage 2 metrics / ablations for the 4-page Phase 2 paper.
+- [ ] Fill `09_qualitative_listening.csv` once fusion checkpoint exists.
