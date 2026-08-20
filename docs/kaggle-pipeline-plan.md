@@ -50,8 +50,7 @@ CDN (same as official MTG release):
 https://cdn.freesound.org/mtg-jamendo/raw_30s/melspecs/raw_30s_melspecs-XX.tar
 ```
 
-**Phase 2 default:** shards `00`, `01`, `02` (enough for pipeline + paper runs).  
-Expand later with `03+` for Phase 3.
+**Phase 2 default:** shards **00–09** (10 tars). Not full MP3s. See [`kaggle-how-to.md`](kaggle-how-to.md).
 
 ### 2.3 Recommended Kaggle workflow
 

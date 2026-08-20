@@ -24,8 +24,9 @@
 
 - Wrote `docs/kaggle-pipeline-plan.md` (download strategy, cache-as-dataset workflow, stage map).
 - Generated complete `notebooks/` pipeline **00 → 09**:
-  - data download, preprocessing, CNN baseline, Stage 1 instrument MIL,
+  - data download (**mel shards 00–09**), preprocessing with kernel-output attach, CNN baseline, Stage 1 instrument MIL,
   - rhythm/timbre/harmony features, Stage 2 fusion+genre, ablations, explainability.
+- Documented Kaggle Save Version → Add Input chain in `docs/kaggle-how-to.md`.
 - Updated root `README.md` repository structure to match real folders + Kaggle plan link.
 - Added `notebooks/README.md` run-order index.
 

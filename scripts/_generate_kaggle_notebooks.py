@@ -52,12 +52,35 @@ def write(name: str, cells: list[dict]) -> None:
 KAGGLE_SETUP = """\
 ## Kaggle setup (every notebook)
 
-1. **Settings → Internet → On** (right sidebar). Without this you get `Could not resolve host: github.com`.
-2. **Add Data** (if this is not notebook `00` in the same session):
-   - Attach the dataset you saved from notebook `00` (`mtg-instrument-cache`), **or**
-   - Keep running inside the **same** Kaggle notebook after `00` (same `/kaggle/working`).
-3. Each Kaggle notebook starts with an **empty** `/kaggle/working`. Files from a previous notebook are gone unless you attached them under `/kaggle/input`.
-4. This bootstrap cell **auto-finds** files in `/kaggle/working` and `/kaggle/input`, copies a cache into working if needed, and **re-downloads annotations** if split TSVs are missing.
+### A. Settings
+1. Right sidebar → **Internet → On** (required for downloads).
+2. **GPU**: Off for `00`/`01`/`04`–`06`. **GPU (T4)** on for `02`/`03`/`07`.
+
+### B. How data moves (do not skip)
+Kaggle **does not** keep `/kaggle/working` when you open a *new* notebook.
+
+**After notebook 00 finishes:**
+1. **Save Version** (top-right) → **Save & Run All** (or Quick Save if already finished).
+2. Open **Advanced** → tick **Always save output**.
+3. Wait until the version is **Success**.
+4. Note the kernel slug (yours is **`thevifernando/dnn-download-data-1`**).
+
+**In the next notebook (01, then 02, …):**
+1. **Add Input** (right sidebar) → **Your notebooks** / **Notebook Output**.
+2. Select **`dnn-download-data-1`** (latest successful version).
+3. Files appear at `/kaggle/input/dnn-download-data-1/` (**read-only**).
+4. This bootstrap **reads mels from that input** (does **not** copy 10 shards — they would overflow disk).
+5. It **writes** new files (manifest, features, checkpoints) to `/kaggle/working/MTG_Instrument`.
+6. **Save Version + save output** again so the *next* notebook can **Add Input** *this* notebook too (chain: 00 → 01 → 02 …).
+
+### C. CLI (laptop only — not needed on Kaggle)
+```bash
+kaggle kernels output thevifernando/dnn-download-data-1 -p ./from_00
+```
+On Kaggle you **Add Input** instead of this command.
+
+### D. GitHub
+Commit **notebooks only** to `thevindu-branch`. Do **not** git-push the `.npy` shards (too large). Data stays on Kaggle output.
 """
 
 SHARED_BOOTSTRAP = r'''
@@ -66,6 +89,7 @@ import os, json, random, re, shutil, socket, urllib.request
 import numpy as np
 import pandas as pd
 
+KERNEL_SLUG = "dnn-download-data-1"  # notebook 00 Kaggle slug — change if yours differs
 WORKING_ROOT = Path("/kaggle/working/MTG_Instrument")
 INPUT_BASE = Path("/kaggle/input")
 RAW_ANN = "https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data"
@@ -146,19 +170,33 @@ def discover_input_root() -> Path | None:
     return None
 
 
-def copy_cache_into_working(src: Path) -> None:
-    """/kaggle/input is read-only — copy into working so later cells can write."""
-    WORKING_ROOT.mkdir(parents=True, exist_ok=True)
-    print(f"Copying cache {src} → {WORKING_ROOT} (may take a few minutes)...")
-    for item in src.iterdir():
-        dest = WORKING_ROOT / item.name
-        if dest.exists():
+def find_mel_dir() -> Path:
+    """Prefer attached kernel output (read-only). Never copy 10 shards into working."""
+    bases = [
+        Path(f"/kaggle/input/{KERNEL_SLUG}") / "MTG_Instrument" / "dataset" / "logmel_songs",
+        Path(f"/kaggle/input/{KERNEL_SLUG}") / "dataset" / "logmel_songs",
+        WORKING_ROOT / "dataset" / "logmel_songs",
+    ]
+    kernel = Path(f"/kaggle/input/{KERNEL_SLUG}")
+    extra = []
+    if INPUT_BASE.exists():
+        extra.append(INPUT_BASE)
+    if kernel.exists():
+        extra.append(kernel)
+    for b in bases:
+        if b.exists() and next(b.rglob("*.npy"), None) is not None:
+            return b
+    for b in extra:
+        hit = next(b.rglob("*.npy"), None) if b.exists() else None
+        if hit is None:
             continue
-        if item.is_dir():
-            shutil.copytree(item, dest)
-        else:
-            shutil.copy2(item, dest)
-    print("Copy done.")
+        p = hit.parent
+        for _ in range(6):
+            if p.name == "logmel_songs":
+                return p
+            p = p.parent
+        return hit.parent
+    return WORKING_ROOT / "dataset" / "logmel_songs"
 
 
 def ensure_annotations(ann_dir: Path) -> Path:
@@ -245,40 +283,39 @@ def load_split_ids(split: str, subset: str = "genre") -> set[str]:
 
 ONLINE = check_internet()
 print("Internet reachable:", ONLINE)
-
-input_root = discover_input_root()
-print("Discovered /kaggle/input cache:", input_root)
-
-if input_root is not None and not (WORKING_ROOT / "annotations").exists() and not (WORKING_ROOT / "dataset" / "song_manifest.csv").exists():
-    # If input looks like MTG_Instrument, copy it; if it looks like MTG data/, copy into annotations
-    if (input_root / "dataset").exists() or (input_root / "annotations").exists():
-        copy_cache_into_working(input_root)
-    elif (input_root / "splits").exists() or (input_root / "autotagging_genre.tsv").exists():
-        dest = WORKING_ROOT / "annotations"
-        dest.mkdir(parents=True, exist_ok=True)
-        for rel in NEEDED_ANN:
-            s = input_root / rel
-            if not s.exists():
-                s = input_root / Path(rel).name
-            if s.exists():
-                d = dest / rel
-                d.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(s, d)
-                print("copied", d)
+print("KERNEL_SLUG =", KERNEL_SLUG)
+print("/kaggle/input folders:", list(INPUT_BASE.iterdir()) if INPUT_BASE.exists() else "n/a")
 
 ROOT = WORKING_ROOT
 ROOT.mkdir(parents=True, exist_ok=True)
-MEL_DIR = ROOT / "dataset" / "logmel_songs"
+MEL_DIR = find_mel_dir()
 ANN_DIR = ROOT / "annotations"
+# if annotations only exist on the attached kernel, point there (read-only is OK)
+for cand in [
+    Path(f"/kaggle/input/{KERNEL_SLUG}") / "MTG_Instrument" / "annotations",
+    Path(f"/kaggle/input/{KERNEL_SLUG}") / "annotations",
+]:
+    if (cand / "splits" / "split-0" / "autotagging_genre-train.tsv").exists():
+        ANN_DIR = cand
+        break
 FEAT_DIR = ROOT / "features"
 CKPT_DIR = ROOT / "checkpoints"
 RESULTS_DIR = ROOT / "results"
 MANIFEST = ROOT / "dataset" / "song_manifest.csv"
+att_manifest = _find_file("song_manifest.csv", [INPUT_BASE, Path("/kaggle/working")])
+if not MANIFEST.exists() and att_manifest is not None:
+    MANIFEST.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(att_manifest, MANIFEST)
+        print("Copied song_manifest.csv from", att_manifest)
+    except OSError:
+        MANIFEST = att_manifest
 
-for p in [MEL_DIR, ANN_DIR, FEAT_DIR, CKPT_DIR, RESULTS_DIR, ROOT / "dataset"]:
+for p in [ROOT / "dataset", ROOT / "annotations", FEAT_DIR, CKPT_DIR, RESULTS_DIR]:
     p.mkdir(parents=True, exist_ok=True)
 
-ANN_DIR = ensure_annotations(ANN_DIR)
+# Small TSVs: copy/wget into working. Large mels stay on /kaggle/input.
+ANN_DIR = ensure_annotations(ROOT / "annotations")
 
 print("ROOT     =", ROOT)
 print("MEL_DIR  =", MEL_DIR, "npy=", len(list(MEL_DIR.rglob('*.npy'))))
@@ -290,9 +327,11 @@ print("MANIFEST =", MANIFEST, "exists=", MANIFEST.exists())
 INTRO_00 = """\
 # 00 — Kaggle Data Download (MTG-Jamendo)
 
-**Goal:** Download official split-0 annotations + log-mel shards into `/kaggle/working/MTG_Instrument`.
+**Goal:** Download official split-0 annotations + **mel shards 00–09** (10 shards) into `/kaggle/working/MTG_Instrument`.
 
-**After this notebook:** *Save Version → Save output* and turn it into a private dataset (`mtg-instrument-cache`). Attach that dataset in notebooks 01–09.
+This is **not** the full MTG-Jamendo MP3 set. It is 10 log-mel shards + labels — enough for Phase 2.
+
+**After this notebook (required):** Save Version with **output** so `01` can **Add Input → dnn-download-data-1**.
 """
 
 
@@ -347,26 +386,34 @@ print("\\n✓ split-0 genre/instrument TSVs are present")
 '''
         ),
         md(
-            """## Step 3 — Download mel-spectrogram shards 00–02
+            """## Step 3 — Download mel shards **00–09** (10 files)
 
-These tars are large. Needs Internet to `cdn.freesound.org`.
+Each tar is extracted then **deleted** to save disk. `/kaggle/working` is ~20GB — if a later shard fails with “No space left”, stop, Save Version with what you have, or split remaining shards into a second download kernel.
 
-If you already attached a cache that contains `dataset/logmel_songs/*.npy`, this cell skips shards that have a `.shard_XX_done` marker."""
+Needs Internet to `cdn.freesound.org`. Already-done shards (`.shard_XX_done`) are skipped."""
         ),
         code(
             r'''
-import subprocess
+import subprocess, shutil
+
+def free_gb(path="/kaggle/working"):
+    u = shutil.disk_usage(path)
+    print(f"disk free: {u.free/1e9:.1f} GB  used: {u.used/1e9:.1f} GB")
+    return u.free / 1e9
+
+free_gb()
+SHARDS = list(range(10))  # 00 .. 09
+print("Will download shards:", [f"{i:02d}" for i in SHARDS])
 
 if not check_internet("cdn.freesound.org") and not check_internet():
     npy = list(MEL_DIR.rglob("*.npy"))
     if not npy:
         raise RuntimeError(
             "Internet is OFF and no .npy mels were found.\\n"
-            "Enable Internet, or Add Data with extracted mels under dataset/logmel_songs."
+            "Enable Internet, or Add Input with extracted mels."
         )
     print(f"Offline: using {len(npy)} existing .npy files")
 else:
-    SHARDS = [0, 1, 2]
     BASE_URL = "https://cdn.freesound.org/mtg-jamendo/raw_30s/melspecs"
     MEL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -378,6 +425,8 @@ else:
         if marker.exists() and any(MEL_DIR.rglob("*.npy")):
             print(f"shard {i:02d} already done — skip")
             return
+        if free_gb() < 2.5:
+            raise RuntimeError(f"Less than 2.5 GB free — cannot download shard {i:02d}. Save Version now.")
         if not tar_path.exists():
             print(f"Downloading {url} ...")
             subprocess.check_call(["wget", "-q", "-O", str(tar_path), url])
@@ -386,6 +435,7 @@ else:
         tar_path.unlink(missing_ok=True)
         marker.write_text("ok")
         print(f"shard {i:02d} ready")
+        free_gb()
 
     for i in SHARDS:
         download_shard(i)
@@ -395,10 +445,16 @@ print(f"Total .npy files under MEL_DIR: {npy_count}")
 assert npy_count > 0, "No mel .npy found — check download / internet"
 '''
         ),
-        md("## Step 4 — Save a summary\n\n**Save Version → Save output** after this, then Add that dataset in notebook 01."),
+        md("""## Step 4 — Summary, then persist output
+
+1. Confirm `n_npy` > 0 and shards 0–9 listed.  
+2. **Save Version** → enable **Always save output**.  
+3. Open **01_preprocessing** as a **new** Kaggle notebook.  
+4. **Add Input → Notebook Output → `dnn-download-data-1`**.  
+5. Run 01. Repeat Save+Add Input for 02, 03, …"""),
         code(
             r'''
-SHARDS = [0, 1, 2]
+SHARDS = list(range(10))
 summary = {
     "root": str(ROOT),
     "mel_dir": str(MEL_DIR),
@@ -409,7 +465,7 @@ summary = {
 }
 (RESULTS_DIR / "00_download_summary.json").write_text(json.dumps(summary, indent=2))
 print(json.dumps(summary, indent=2))
-print("\\nNext: Save Version (with output) → then run 01_preprocessing.ipynb with that dataset attached.")
+print("\\nNEXT: Save Version (save output) → new notebook 01 → Add Input → dnn-download-data-1")
 '''
         ),
     ],
@@ -422,9 +478,11 @@ write(
         md(
             """# 01 — Preprocessing & Song Manifest
 
-Build `dataset/song_manifest.csv`: every available mel file joined to official **split-0** train/val/test.
+Join every mel `.npy` from **shards 00–09** to official **split-0**.
 
-**This is the notebook that failed** if you started a *new* Kaggle session: `/kaggle/working` is empty, so `autotagging_genre-train.tsv` is gone. The bootstrap cell now **re-downloads** those TSVs (Internet ON) or copies them from **Add Data**."""
+**Before Run All:** Add Input → Notebook Output → **`dnn-download-data-1`**.
+
+Mels stay under `/kaggle/input/dnn-download-data-1/` (read-only). This notebook writes `song_manifest.csv` to `/kaggle/working`."""
         ),
         md(KAGGLE_SETUP),
         md("## Step 0 — Bootstrap paths + recover split files\n\nIf `split-0 train exists: True` at the end, you are good. If False, enable Internet and re-run."),
