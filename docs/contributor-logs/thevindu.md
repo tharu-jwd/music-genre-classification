@@ -28,7 +28,8 @@
   - rhythm/timbre/harmony features, Stage 2 fusion+genre, ablations, explainability.
 - Documented Kaggle Save Version → Add Input chain in `docs/kaggle-how-to.md`.
 - Updated root `README.md` repository structure to match real folders + Kaggle plan link.
-- Added `notebooks/README.md` run-order index.
+- Split pipelines: `notebooks/colab/` (Drive) and `notebooks/kaggle/` (Add Input).
+- Generated Colab 00–09 (`00_download_to_drive.ipynb` … `09_explainability_eval.ipynb`).
 
 ## Next (toward 23 Aug)
 
