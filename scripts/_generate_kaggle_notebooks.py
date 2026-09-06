@@ -1316,7 +1316,185 @@ def mel_proxy_features(S: np.ndarray) -> dict:
     return row
 '''
 
-feature_nb("04", "Rhythm Feature Extraction", "rhythm", extract_rhythm, "rhythm")
+KAGGLE_04_EXTRACT = r'''
+import subprocess
+from tqdm.auto import tqdm
+
+if not MANIFEST.exists():
+    raise FileNotFoundError("Run notebook 01 first.")
+manifest = pd.read_csv(MANIFEST)
+manifest["song_id"] = manifest["song_id"].astype(str).map(lambda s: normalize_track_id(s) or s)
+
+AB_DIR = ROOT / "dataset" / "acousticbrainz"
+AB_DIR.mkdir(parents=True, exist_ok=True)
+# Prefer already-unpacked JSON attached via Add Input
+for cand in [
+    Path(f"/kaggle/input/{KERNEL_SLUG}") / "MTG_Instrument" / "dataset" / "acousticbrainz",
+    Path(f"/kaggle/input/{KERNEL_SLUG}") / "dataset" / "acousticbrainz",
+]:
+    if cand.exists() and next(cand.rglob("*.json"), None) is not None:
+        AB_DIR = cand
+        print("Using attached AcousticBrainz at", AB_DIR)
+        break
+
+AB_SHARDS = list(range(10))
+AB_URL = "https://cdn.freesound.org/mtg-jamendo/raw_30s/acousticbrainz"
+
+
+def download_ab_shards():
+    n_json = len(list(AB_DIR.rglob("*.json")))
+    if n_json > 0:
+        print(f"AcousticBrainz already present: {n_json} JSON under {AB_DIR}")
+        return
+    if not check_internet("cdn.freesound.org") and not check_internet():
+        raise RuntimeError(
+            "No AcousticBrainz JSON and Internet is OFF. Enable Internet, or attach unpacked "
+            "raw_30s acousticbrainz shards under dataset/acousticbrainz."
+        )
+    dest = ROOT / "dataset" / "acousticbrainz"
+    dest.mkdir(parents=True, exist_ok=True)
+    print("Downloading AcousticBrainz shards 00–09 to", dest)
+    for i in AB_SHARDS:
+        marker = dest / f".ab_shard_{i:02d}_done"
+        if marker.exists():
+            print(f"AB shard {i:02d} already done — skip")
+            continue
+        tar_name = f"raw_30s_acousticbrainz-{i:02d}.tar.gz"
+        tar_path = dest / tar_name
+        url = f"{AB_URL}/{tar_name}"
+        print("Downloading", url)
+        subprocess.check_call(["wget", "-q", "-O", str(tar_path), url])
+        subprocess.check_call(["tar", "-xzf", str(tar_path), "-C", str(dest)])
+        tar_path.unlink(missing_ok=True)
+        marker.write_text("ok")
+        print(f"AB shard {i:02d} saved")
+    return dest
+
+
+def index_ab_json(root: Path) -> dict:
+    idx = {}
+    for p in root.rglob("*.json"):
+        sid = normalize_track_id(p.stem)
+        if sid:
+            idx[sid] = p
+    return idx
+
+
+def _scalar(v):
+    if v is None:
+        return None
+    if isinstance(v, dict):
+        return _scalar(v["mean"]) if "mean" in v else None
+    if isinstance(v, (list, tuple)):
+        return None
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if np.isnan(x) else x
+
+
+def rhythm_from_ab(doc: dict):
+    block = doc.get("rhythm")
+    if not isinstance(block, dict):
+        return None
+    bpm = _scalar(block.get("bpm"))
+    if bpm is None:
+        return None
+    beats_pos = block.get("beats_position")
+    if not isinstance(beats_pos, (list, tuple)):
+        beats_pos = []
+    beats_count = _scalar(block.get("beats_count"))
+    if beats_count is None and beats_pos:
+        beats_count = float(len(beats_pos))
+    intervals = np.diff(np.asarray(beats_pos, dtype=np.float64)) if len(beats_pos) > 1 else None
+    return {
+        "bpm": bpm,
+        "beats_count": beats_count,
+        "beats_loudness_mean": _scalar(block.get("beats_loudness")),
+        "bpm_histogram_first_peak_bpm": _scalar(block.get("bpm_histogram_first_peak_bpm")),
+        "bpm_histogram_first_peak_spread": _scalar(block.get("bpm_histogram_first_peak_spread")),
+        "bpm_histogram_first_peak_weight": _scalar(block.get("bpm_histogram_first_peak_weight")),
+        "onset_rate": _scalar(block.get("onset_rate")),
+        "danceability": _scalar(block.get("danceability")),
+        "beat_interval_mean": float(np.mean(intervals)) if intervals is not None else None,
+        "beat_interval_std": float(np.std(intervals)) if intervals is not None else None,
+    }
+
+
+maybe = download_ab_shards()
+if maybe is not None:
+    AB_DIR = maybe
+ab_index = index_ab_json(AB_DIR)
+print("AcousticBrainz JSON indexed:", len(ab_index), "at", AB_DIR)
+
+rows, missing = [], []
+for _, rec in tqdm(manifest.iterrows(), total=len(manifest), desc="rhythm"):
+    sid = str(rec["song_id"])
+    path = ab_index.get(sid)
+    if path is None:
+        missing.append({"song_id": sid, "reason": "no_acousticbrainz_json"})
+        continue
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        feat = rhythm_from_ab(doc)
+        if feat is None:
+            missing.append({"song_id": sid, "reason": "json_missing_rhythm.bpm", "path": str(path)})
+            continue
+        feat.update({"song_id": sid, "source": "acousticbrainz", "split": rec["split"]})
+        rows.append(feat)
+    except Exception as e:
+        missing.append({"song_id": sid, "reason": str(e), "path": str(path)})
+
+n_mels = int(len(manifest))
+n_ab_disk = int(len(ab_index))
+n_written = int(len(rows))
+n_excluded = int(len(missing))
+print(f"songs with mels (manifest):     {n_mels}")
+print(f"AcousticBrainz JSON on disk:    {n_ab_disk}")
+print(f"overlap written to CSV:         {n_written}")
+print(f"excluded (no/invalid AB JSON):  {n_excluded}")
+if n_written == 0:
+    raise RuntimeError("No overlapping AcousticBrainz rhythm rows.")
+
+df = pd.DataFrame(rows)
+out = FEAT_DIR / "rhythm"
+out.mkdir(parents=True, exist_ok=True)
+df.to_csv(out / "rhythm_song.csv", index=False)
+(RESULTS_DIR / "04_missing_acousticbrainz.json").write_text(json.dumps(missing, indent=2))
+summary = {
+    "n_manifest_mels": n_mels,
+    "n_acousticbrainz_json": n_ab_disk,
+    "n_overlap_written": n_written,
+    "n_excluded": n_excluded,
+    "source": "acousticbrainz",
+}
+(RESULTS_DIR / "04_rhythm_summary.json").write_text(json.dumps(summary, indent=2))
+print("wrote", out / "rhythm_song.csv", "rows=", n_written)
+print(json.dumps(summary, indent=2))
+df.head()
+'''
+
+write(
+    "04_rhythm_features.ipynb",
+    [
+        md(
+            """# 04 — Rhythm Feature Extraction
+
+Writes `features/rhythm/rhythm_song.csv` from **AcousticBrainz / Essentia** JSON
+(`rhythm.bpm`, beat stats, histogram peaks). Mel-proxy tempo is **not** used.
+
+Needs notebook 01. Downloads acousticbrainz shards **00–09** if JSON is not already attached."""
+        ),
+        md(KAGGLE_SETUP),
+        md("## Step 0 — Packages"),
+        code("""!pip install -q tqdm"""),
+        md("## Step 1 — Bootstrap paths"),
+        code(SHARED_BOOTSTRAP),
+        md("## Step 2 — AcousticBrainz rhythm fields"),
+        code(KAGGLE_04_EXTRACT),
+    ],
+)
 feature_nb("05", "Timbre Feature Extraction", "timbre", extract_timbre, "timbre")
 feature_nb("06", "Harmony Feature Extraction", "harmony", extract_harmony, "harmony")
 
@@ -1369,11 +1547,19 @@ def load_feat(sub):
     return df.set_index("song_id")
 
 rhythm, timbre, harmony = load_feat("rhythm"), load_feat("timbre"), load_feat("harmony")
+if "source" in rhythm.columns and (rhythm["source"] == "mel_proxy").any():
+    raise RuntimeError("rhythm_song.csv still has mel_proxy placeholders — re-run notebook 04 (AcousticBrainz)")
 
 def num_cols(df):
     return [c for c in df.columns if c not in ("song_id", "source", "split") and pd.api.types.is_numeric_dtype(df[c])]
 
 r_cols, t_cols, h_cols = num_cols(rhythm), num_cols(timbre), num_cols(harmony)
+n_before = len(manifest)
+have = set(inst_map) & set(rhythm.index) & set(timbre.index) & set(harmony.index)
+manifest = manifest[manifest["song_id"].isin(have)].copy()
+print(f"Stage 2 overlap: {len(manifest)} / {n_before} songs have instrument+rhythm+timbre+harmony")
+if manifest.empty:
+    raise RuntimeError("No overlapping songs — run 03–06 (04 must be AcousticBrainz)")
 ids = manifest["song_id"].astype(str).tolist()
 id_to_idx = {s: i for i, s in enumerate(ids)}
 
@@ -1616,53 +1802,128 @@ On held-out **split-0 test** tracks:
         code("""!pip install -q matplotlib tqdm"""),
         md("## Step 1 — Bootstrap paths"),
         code(SHARED_BOOTSTRAP),
-        md("## Step 2 — Sample test song IDs and locate Stage 2 checkpoints"),
+        md("## Step 2 — Guard: refuse to run without a trained Stage 2 checkpoint"),
         code(
             r'''
+CKPT_PATH = CKPT_DIR / "stage2" / "best_attention.pt"
+if not CKPT_PATH.exists() or CKPT_PATH.stat().st_size == 0:
+    raise FileNotFoundError(
+        "Notebook 09 refuses placeholder attention. Train notebook 07 first so this exists and is non-empty:\n"
+        f"  {CKPT_PATH}\n"
+        "07 must be trained AFTER notebook 04 writes AcousticBrainz rhythm features."
+    )
+rhythm_csv = FEAT_DIR / "rhythm" / "rhythm_song.csv"
+if not rhythm_csv.exists():
+    raise FileNotFoundError("Run notebook 04 first (AcousticBrainz rhythm).")
+_rcheck = pd.read_csv(rhythm_csv)
+if "source" in _rcheck.columns and (_rcheck["source"] == "mel_proxy").any():
+    raise RuntimeError("rhythm_song.csv still has mel_proxy rows — re-run notebook 04, then re-train 07.")
+print("checkpoint OK", CKPT_PATH, "bytes=", CKPT_PATH.stat().st_size)
+'''
+        ),
+        md("## Step 3 — Real Stage 2 attention on held-out test songs"),
+        code(
+            r'''
+import matplotlib.pyplot as plt
+import torch, torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
+
 if not MANIFEST.exists():
     raise FileNotFoundError("Run notebook 01 first.")
 manifest = pd.read_csv(MANIFEST)
 manifest["song_id"] = manifest["song_id"].astype(str).map(lambda s: normalize_track_id(s) or s)
+E = np.load(FEAT_DIR / "instrument" / "instrument_embeddings.npy")
+inst_ids = json.loads((FEAT_DIR / "instrument" / "song_ids.json").read_text())
+inst_map = {normalize_track_id(s) or str(s): E[i] for i, s in enumerate(inst_ids)}
+
+def load_feat(sub):
+    p = FEAT_DIR / sub / f"{sub}_song.csv"
+    if not p.exists():
+        raise FileNotFoundError(p)
+    df = pd.read_csv(p)
+    df["song_id"] = df["song_id"].astype(str).map(lambda s: normalize_track_id(s) or s)
+    return df.set_index("song_id")
+
+rhythm, timbre, harmony = load_feat("rhythm"), load_feat("timbre"), load_feat("harmony")
+
+def num_cols(df):
+    return [c for c in df.columns if c not in ("song_id", "source", "split") and pd.api.types.is_numeric_dtype(df[c])]
+
+r_cols, t_cols, h_cols = num_cols(rhythm), num_cols(timbre), num_cols(harmony)
+have = set(inst_map) & set(rhythm.index) & set(timbre.index) & set(harmony.index)
+manifest = manifest[manifest["song_id"].isin(have)].copy()
 test_ids = manifest.loc[manifest["split"] == "test", "song_id"].astype(str).head(12).tolist()
+if not test_ids:
+    raise RuntimeError("No overlapping test songs with all four concepts.")
 print("sample test songs:", test_ids)
-print("stage2 ckpts:", list((CKPT_DIR / "stage2").glob("best_*.pt")))
-'''
-        ),
-        md("## Step 3 — Mean concept attention plot (replace placeholder with real `attn_weights` from notebook 07)"),
-        code(
-            r'''
-import matplotlib.pyplot as plt
+
+class DS(Dataset):
+    def __init__(self, song_ids):
+        self.ids = list(song_ids)
+    def __len__(self):
+        return len(self.ids)
+    def __getitem__(self, i):
+        sid = self.ids[i]
+        inst = inst_map[sid].astype(np.float32)
+        r = rhythm.loc[sid, r_cols].astype(np.float32).fillna(0).values
+        t = timbre.loc[sid, t_cols].astype(np.float32).fillna(0).values
+        h = harmony.loc[sid, h_cols].astype(np.float32).fillna(0).values
+        return torch.tensor(inst), torch.tensor(r), torch.tensor(t), torch.tensor(h), sid
+
+class AttentionFusion(nn.Module):
+    def __init__(self, d_i, d_r, d_t, d_h, token=64, fused=128, n_tags=87):
+        super().__init__()
+        self.p_i = nn.Linear(d_i, token)
+        self.p_r = nn.Linear(d_r, token)
+        self.p_t = nn.Linear(d_t, token)
+        self.p_h = nn.Linear(d_h, token)
+        self.attn = nn.MultiheadAttention(token, 1, batch_first=True)
+        self.out = nn.Sequential(nn.Linear(token, fused), nn.ReLU(), nn.Dropout(0.2))
+        self.head = nn.Linear(fused, n_tags)
+    def forward(self, inst, r, t, h):
+        tok = torch.stack([self.p_i(inst), self.p_r(r), self.p_t(t), self.p_h(h)], 1)
+        o, w = self.attn(tok, tok, tok, need_weights=True)
+        return self.head(self.out(o.mean(1))), w
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+state = torch.load(CKPT_PATH, map_location=DEVICE, weights_only=False)
+n_tags = len(state.get("tags") or []) or 87
+model = AttentionFusion(64, len(r_cols), len(t_cols), len(h_cols), n_tags=n_tags).to(DEVICE)
+model.load_state_dict(state["model"])
+model.eval()
 
 concept_names = ["instrument", "rhythm", "timbre", "harmony"]
-rng = np.random.default_rng(0)
-attn = rng.dirichlet(np.ones(4), size=max(len(test_ids), 1))
-attn_df = pd.DataFrame(attn, columns=concept_names)
-attn_df.insert(0, "song_id", test_ids + [""] * (len(attn_df) - len(test_ids)))
-attn_df = attn_df.head(len(test_ids))
-attn_df.to_csv(RESULTS_DIR / "09_attention_weights_sample.csv", index=False)
+attn_rows = []
+with torch.no_grad():
+    for inst, r, t, h, sid in DataLoader(DS(test_ids), batch_size=8, num_workers=0):
+        _, w = model(inst.to(DEVICE), r.to(DEVICE), t.to(DEVICE), h.to(DEVICE))
+        weights = w.mean(dim=1).cpu().numpy()
+        for i, song in enumerate(sid):
+            row = {"song_id": str(song)}
+            row.update({c: float(weights[i, j]) for j, c in enumerate(concept_names)})
+            attn_rows.append(row)
 
+attn_df = pd.DataFrame(attn_rows)
+attn_df.to_csv(RESULTS_DIR / "09_attention_weights_sample.csv", index=False)
 fig, ax = plt.subplots(figsize=(8, 4))
-ax.bar(concept_names, attn[: len(test_ids)].mean(0) if test_ids else attn.mean(0))
+ax.bar(concept_names, attn_df[concept_names].mean(0).values)
 ax.set_ylabel("mean attention")
-ax.set_title("Concept attention (sample test subset)")
+ax.set_title("Mean concept attention (Stage 2, test sample)")
 fig.tight_layout()
 fig.savefig(RESULTS_DIR / "09_mean_attention.png", dpi=150)
 plt.show()
 attn_df.head()
 '''
         ),
-        md("## Step 4 — Occlusion + qualitative listening templates (fill by hand / model hooks)"),
+        md("## Step 4 — Qualitative listening templates (human labels only — model side is real)"),
         code(
             r'''
-concept_names = ["instrument", "rhythm", "timbre", "harmony"]
-rows = [{"occluded_concept": c, "delta_macro_pr_auc": None, "notes": "wire Stage2 checkpoint"} for c in concept_names]
 qual = []
 for sid in test_ids[:5]:
-    top = concept_names[int(attn_df.loc[attn_df.song_id == sid, concept_names].values.argmax())] if sid in set(attn_df.song_id) else ""
+    top = concept_names[int(attn_df.loc[attn_df.song_id == sid, concept_names].values.argmax())]
     qual.append({"song_id": sid, "audible_dominant_concept": "", "model_top_concept": top, "agree": "", "comment": ""})
-pd.DataFrame(rows).to_csv(RESULTS_DIR / "09_occlusion_template.csv", index=False)
 pd.DataFrame(qual).to_csv(RESULTS_DIR / "09_qualitative_listening.csv", index=False)
-print("Wrote templates under", RESULTS_DIR)
+print("Wrote real attention + listening template under", RESULTS_DIR)
 '''
         ),
     ],
