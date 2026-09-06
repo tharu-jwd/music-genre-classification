@@ -80,13 +80,15 @@ print("Drive ready:", DRIVE_ROOT)
 
 PATHS = r'''
 from pathlib import Path
-import os, json, random, re, shutil, socket, urllib.request
+import os, json, random, re, shutil, socket, time, urllib.request
 import numpy as np
 import pandas as pd
 
 DRIVE_ROOT = Path(os.environ.get("MTG_ROOT", "/content/drive/MyDrive/MTG_Instrument"))
 ROOT = DRIVE_ROOT
 MEL_DIR = ROOT / "dataset" / "logmel_songs"
+MEL_CACHE = Path("/content/mel_cache")
+MEL_CACHE.mkdir(parents=True, exist_ok=True)
 ANN_DIR = ROOT / "annotations"
 FEAT_DIR = ROOT / "features"
 CKPT_DIR = ROOT / "checkpoints"
@@ -173,6 +175,53 @@ def iter_tsv_rows(path: Path):
             else:
                 row["TAGS"] = ""
             yield row
+
+
+def load_mel_npy(mel_abs, retries=5, pause=2.0):
+    """Load mel from Drive with retries; cache on Colab disk to avoid FUSE drops."""
+    mel_abs = Path(mel_abs)
+    sid = normalize_track_id(mel_abs.stem) or mel_abs.stem.replace("/", "_")
+    cached = MEL_CACHE / f"{sid}.npy"
+    if cached.exists():
+        try:
+            return np.load(cached)
+        except (OSError, ValueError):
+            cached.unlink(missing_ok=True)
+
+    last_err = None
+    for attempt in range(retries):
+        try:
+            arr = np.load(mel_abs, mmap_mode=None)
+            arr = np.asarray(arr, dtype=np.float32)
+            np.save(cached, arr)
+            return arr
+        except (OSError, ValueError) as e:
+            last_err = e
+            if attempt + 1 < retries:
+                time.sleep(pause * (attempt + 1))
+    nbytes = mel_abs.stat().st_size if mel_abs.exists() else "missing"
+    raise RuntimeError(
+        f"Bad/truncated mel — re-download its shard in notebook 00: {mel_abs} "
+        f"({nbytes} bytes on Drive). {last_err}"
+    ) from last_err
+
+
+def scan_bad_mels(df, label="manifest"):
+    from tqdm.auto import tqdm
+
+    bad = []
+    for _, row in tqdm(df.iterrows(), total=len(df), desc=f"scan {label}"):
+        try:
+            load_mel_npy(row["mel_abs"])
+        except Exception as e:
+            bad.append({"song_id": str(row["song_id"]), "mel_abs": row["mel_abs"], "error": str(e)})
+    if bad:
+        out = RESULTS_DIR / f"bad_mels_{label}.json"
+        out.write_text(json.dumps(bad, indent=2))
+        print(f"WARNING: {len(bad)} bad mels → {out}")
+    else:
+        print(f"scan {label}: all {len(df)} mels OK (cache: {MEL_CACHE})")
+    return bad
 
 
 ensure_annotations()
@@ -319,7 +368,7 @@ manifest = mel_df[mel_df["split"] != "unused"].copy()
 MANIFEST.parent.mkdir(parents=True, exist_ok=True)
 manifest.to_csv(MANIFEST, index=False)
 print("Wrote", MANIFEST, "rows=", len(manifest))
-sample = np.load(manifest.iloc[0]["mel_abs"])
+sample = load_mel_npy(manifest.iloc[0]["mel_abs"])
 print("example shape", sample.shape)
 (RESULTS_DIR / "01_manifest_summary.json").write_text(json.dumps({
     "n_manifest": int(len(manifest)),
@@ -394,29 +443,54 @@ print("Y", Y.shape, "pos", float(Y.mean()))
         code(
             r'''
 class MelGenreDataset(Dataset):
-    def __init__(self, df, Y, id_to_idx, max_windows=12):
-        self.df, self.Y, self.id_to_idx, self.max_windows = df.reset_index(drop=True), Y, id_to_idx, max_windows
+    def __init__(self, df, Y, id_to_idx, max_windows=12, n_mels=96, n_frames=1366):
+        self.df = df.reset_index(drop=True)
+        self.Y, self.id_to_idx = Y, id_to_idx
+        self.max_windows, self.n_mels, self.n_frames = max_windows, n_mels, n_frames
+
     def __len__(self):
         return len(self.df)
+
+    def _fix2d(self, x):
+        """Every song must become (n_mels, n_frames) or the batch cannot stack."""
+        x = np.asarray(x, dtype=np.float32)
+        while x.ndim > 2:
+            x = np.squeeze(x, axis=0)
+        if x.ndim != 2:
+            raise ValueError(f"expected 2D mel, got {x.shape}")
+        if x.shape[0] != self.n_mels and x.shape[1] == self.n_mels:
+            x = x.T
+        if x.shape[0] > self.n_mels:
+            x = x[: self.n_mels]
+        elif x.shape[0] < self.n_mels:
+            x = np.pad(x, ((0, self.n_mels - x.shape[0]), (0, 0)))
+        if x.shape[1] > self.n_frames:
+            x = x[:, : self.n_frames]
+        elif x.shape[1] < self.n_frames:
+            x = np.pad(x, ((0, 0), (0, self.n_frames - x.shape[1])))
+        if x.shape != (self.n_mels, self.n_frames):
+            raise RuntimeError(f"mel fix failed: {x.shape}")
+        return x
+
     def __getitem__(self, i):
         row = self.df.iloc[i]
-        x = np.load(row["mel_abs"])
+        x = load_mel_npy(row["mel_abs"])
         if x.ndim == 2:
             x = x[None, ...]
         W = x.shape[0]
-        if W >= self.max_windows:
-            x = x[:self.max_windows]
-        else:
-            x = np.concatenate([x, np.zeros((self.max_windows - W, *x.shape[1:]), x.dtype)], 0)
+        x = x[: self.max_windows] if W >= self.max_windows else np.concatenate(
+            [x, np.zeros((self.max_windows - W, *x.shape[1:]), x.dtype)], 0
+        )
+        x = self._fix2d(x.mean(0))
         y = self.Y[self.id_to_idx[str(row["song_id"])]]
-        return torch.tensor(x.mean(0, keepdims=True), dtype=torch.float32), torch.tensor(y)
+        return torch.tensor(x[None], dtype=torch.float32), torch.tensor(y)
 
 id_to_idx = {s: i for i, s in enumerate(song_ids)}
 
 def make_loader(split, bs=16, shuffle=False):
     sub = manifest[manifest["split"] == split]
     assert set(sub["split"].unique()) == {split}
-    return DataLoader(MelGenreDataset(sub, Y, id_to_idx), batch_size=bs, shuffle=shuffle, num_workers=2)
+    return DataLoader(MelGenreDataset(sub, Y, id_to_idx), batch_size=bs, shuffle=shuffle, num_workers=0)
 
 class BaselineCNN(nn.Module):
     def __init__(self, n_tags):
@@ -455,6 +529,14 @@ def evaluate(loader):
     return {"macro_roc_auc": nan_safe(yt, yp, "roc"), "macro_pr_auc": nan_safe(yt, yp, "pr")}
 
 train_loader, val_loader, test_loader = make_loader("train", shuffle=True), make_loader("validation"), make_loader("test")
+_x, _y = next(iter(train_loader))
+print("preflight batch", tuple(_x.shape), "expect (bs, 1, 96, 1366)")
+assert _x.shape[1:] == (1, 96, 1366), f"re-run this entire cell — got {_x.shape}"
+SCAN_MELS = False
+if SCAN_MELS:
+    bad = scan_bad_mels(manifest, "all")
+    if bad:
+        raise RuntimeError(f"{len(bad)} bad mels — see {RESULTS_DIR}/bad_mels_all.json")
 best_macro_map = 0.0
 ckpt = CKPT_DIR / "baseline"; ckpt.mkdir(parents=True, exist_ok=True)
 hist = []
@@ -507,6 +589,7 @@ if not MANIFEST.exists():
 manifest = pd.read_csv(MANIFEST)
 manifest["song_id"] = manifest["song_id"].astype(str).map(lambda s: normalize_track_id(s) or s)
 EMBED_DIM, MAX_WINDOWS = 64, 12
+N_MELS, N_FRAMES = 96, 1366
 song_ids = manifest["song_id"].astype(str).tolist()
 id_to_idx = {s: i for i, s in enumerate(song_ids)}
 
@@ -533,26 +616,62 @@ for sid, tags in rows.items():
     for t in tags: Y[i, tag_to_idx[t]] = 1.0
 
 class WindowMIL(Dataset):
-    def __init__(self, df):
+    def __init__(self, df, max_windows=MAX_WINDOWS, n_mels=N_MELS, n_frames=N_FRAMES):
         self.df = df.reset_index(drop=True)
-    def __len__(self): return len(self.df)
+        self.max_windows, self.n_mels, self.n_frames = max_windows, n_mels, n_frames
+
+    def __len__(self):
+        return len(self.df)
+
+    def _fix2d(self, x):
+        """Force every window to exactly (n_mels, n_frames)."""
+        x = np.asarray(x, dtype=np.float32)
+        while x.ndim > 2:
+            x = np.squeeze(x, axis=0)
+        if x.ndim != 2:
+            raise ValueError(f"expected 2D mel window, got {x.shape}")
+        if x.shape[0] != self.n_mels and x.shape[1] == self.n_mels:
+            x = x.T
+        if x.shape[0] > self.n_mels:
+            x = x[: self.n_mels]
+        elif x.shape[0] < self.n_mels:
+            x = np.pad(x, ((0, self.n_mels - x.shape[0]), (0, 0)))
+        if x.shape[1] > self.n_frames:
+            x = x[:, : self.n_frames]
+        elif x.shape[1] < self.n_frames:
+            x = np.pad(x, ((0, 0), (0, self.n_frames - x.shape[1])))
+        if x.shape != (self.n_mels, self.n_frames):
+            raise RuntimeError(f"mel fix failed: {x.shape}")
+        return x
+
     def __getitem__(self, i):
         row = self.df.iloc[i]
-        x = np.load(row["mel_abs"])
-        if x.ndim == 2: x = x[None, ...]
-        W = x.shape[0]
-        if W >= MAX_WINDOWS:
-            x, mask = x[:MAX_WINDOWS], np.ones(MAX_WINDOWS, np.float32)
+        raw = load_mel_npy(row["mel_abs"])
+        if raw.ndim == 2:
+            raw = raw[None, ...]
+        W = raw.shape[0]
+        if W >= self.max_windows:
+            windows, mask = raw[: self.max_windows], np.ones(self.max_windows, np.float32)
         else:
-            x = np.concatenate([x, np.zeros((MAX_WINDOWS-W, *x.shape[1:]), x.dtype)])
-            mask = np.array([1]*W+[0]*(MAX_WINDOWS-W), np.float32)
+            windows = np.concatenate(
+                [raw, np.zeros((self.max_windows - W, *raw.shape[1:]), raw.dtype)]
+            )
+            mask = np.array([1] * W + [0] * (self.max_windows - W), np.float32)
+        out = np.zeros((self.max_windows, self.n_mels, self.n_frames), np.float32)
+        for j, w in enumerate(windows):
+            out[j] = self._fix2d(w)
         y = Y[id_to_idx[str(row["song_id"])]]
-        return torch.tensor(x[:, None], dtype=torch.float32), torch.tensor(mask), torch.tensor(y), str(row["song_id"])
+        return (
+            torch.from_numpy(out[:, None]),
+            torch.from_numpy(mask),
+            torch.from_numpy(y),
+            str(row["song_id"]),
+        )
 
 def make_loader(split, bs=8, shuffle=False):
     sub = manifest[manifest.split==split]
     assert set(sub.split.unique())=={split}
-    return DataLoader(WindowMIL(sub), batch_size=bs, shuffle=shuffle, num_workers=2)
+    return DataLoader(WindowMIL(sub), batch_size=bs, shuffle=shuffle, num_workers=0)
 
 class Stage1(nn.Module):
     def __init__(self, n_tags, emb=EMBED_DIM):
@@ -591,6 +710,14 @@ def eval_split(dl):
     return macro_map(np.concatenate(ys), np.concatenate(ps))
 
 tr, va, te = make_loader("train", shuffle=True), make_loader("validation"), make_loader("test")
+_x, _m, _y, _ = next(iter(tr))
+print("preflight batch", tuple(_x.shape), "expect (bs, 12, 1, 96, 1366)")
+assert _x.shape[2:] == (1, N_MELS, N_FRAMES), f"re-run this entire cell — got {_x.shape}"
+SCAN_MELS = False
+if SCAN_MELS:
+    bad = scan_bad_mels(manifest, "all")
+    if bad:
+        raise RuntimeError(f"{len(bad)} bad mels — see {RESULTS_DIR}/bad_mels_all.json")
 best_macro_map = 0.0
 ckpt = CKPT_DIR/"stage1"; ckpt.mkdir(parents=True, exist_ok=True)
 for epoch in range(1, 9):
@@ -610,7 +737,7 @@ state = torch.load(ckpt/"best.pt", map_location=DEVICE, weights_only=False)
 model.load_state_dict(state["model"]); model.eval()
 embeds, ids = [], []
 with torch.no_grad():
-    for x,mask,y,sid in tqdm(DataLoader(WindowMIL(manifest), batch_size=8)):
+    for x,mask,y,sid in tqdm(DataLoader(WindowMIL(manifest), batch_size=8, num_workers=0)):
         _, z, _ = model(x.to(DEVICE), mask.to(DEVICE))
         embeds.append(z.cpu().numpy()); ids.extend(list(sid))
 E = np.concatenate(embeds, 0)
@@ -639,7 +766,7 @@ rows = []
 for _, rec in tqdm(manifest.iterrows(), total=len(manifest)):
     sid = str(rec["song_id"])
     try:
-        S = np.load(rec["mel_abs"])
+        S = load_mel_npy(rec["mel_abs"])
         if S.ndim == 3:
             S = S.mean(0)
         feat = mel_proxy_features(S)
@@ -788,7 +915,7 @@ class DS(Dataset):
 
 def loader(split, bs=32, shuffle=False):
     sub = manifest[manifest.split==split]
-    return DataLoader(DS(sub), batch_size=bs, shuffle=shuffle)
+    return DataLoader(DS(sub), batch_size=bs, shuffle=shuffle, num_workers=0)
 
 class AttentionFusion(nn.Module):
     def __init__(self, d_i,d_r,d_t,d_h, token=64, fused=128, n_tags=87):
