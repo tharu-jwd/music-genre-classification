@@ -1,1 +1,0 @@
-- initial research of 10 ideas and their datasets

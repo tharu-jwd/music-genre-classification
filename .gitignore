@@ -4,3 +4,19 @@ data/*
 .claude/settings.local.json
 *.pyc
 __pycache__/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+.vscode/
+
+# Generated research artifacts belong in Drive/Kaggle, not Git.
+checkpoints/
+features/
+results/
+models/
+mlruns/
+*.pt
+*.pth
+*.ckpt
