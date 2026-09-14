@@ -1,30 +1,32 @@
 # Development guide
 
-## Source of truth
+## Notebook source of truth
 
-The Python files in `scripts/` generate the committed notebooks. Pipeline changes must be made there first:
+The files in `scripts/` generate the committed Colab and Kaggle notebooks:
 
 ```bash
 python3 scripts/generate_colab_notebooks.py
 python3 scripts/generate_kaggle_notebooks.py
 ```
 
-Commit the generator and its regenerated notebooks together. Direct notebook edits are acceptable for exploration, but must be transferred back to the generator before merging.
+Change generators first and commit regenerated notebooks with them. Do not create notebook-only forks.
+
+## Architecture boundaries
+
+- Existing notebooks are baseline and target-preparation workflows.
+- Do not add proposed-model claims until matching executable code exists.
+- Shared neural components should move into importable Python modules as the proposed model is implemented.
+- Keep runtime-specific storage/bootstrap logic in notebooks, not inside model classes.
 
 ## Validation before merging
 
-1. Run Python syntax compilation on both generators.
-2. Regenerate both notebook sets.
-3. Regenerate again and confirm `git diff` is unchanged; generation must be deterministic.
-4. Parse every notebook as JSON.
-5. Confirm generated code cells have no committed outputs or execution counts.
-6. Search documentation and notebook instructions for obsolete branch names, deadlines, user-specific paths, and inconsistent shard counts.
-7. For model changes, run the affected notebook on a small subset before a full experiment.
+1. Compile Python modules and generators.
+2. Regenerate notebooks twice and confirm deterministic output.
+3. Parse every notebook as JSON and Python syntax.
+4. Confirm execution outputs are stripped.
+5. Run a small data/model smoke test.
+6. Check documentation for outdated paths, notebook names, and implementation claims.
 
-## Branch policy
+`main` is the integration baseline. Data, targets, checkpoints, and results remain outside Git.
 
-`main` is the integration baseline. Develop changes on focused branches, keep generated data out of Git, and merge only when documentation reflects the actual implementation.
-
-## Dependencies
-
-The generator scripts require only Python's standard library. Notebook runtime packages are listed in `requirements.txt`; hosted runtimes provide their own appropriate PyTorch build.
+The generators use only the Python standard library. Runtime packages used inside notebooks are listed in `requirements.txt`; Colab and Kaggle provide the platform-appropriate PyTorch build.

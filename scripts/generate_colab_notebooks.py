@@ -71,7 +71,7 @@ if not Path("/content/drive/MyDrive").exists():
 else:
     print("Drive already mounted")
 
-for sub in ["dataset/logmel_songs", "annotations", "features", "checkpoints", "results"]:
+for sub in ["dataset/logmel_songs", "annotations", "features", "checkpoints", "results/baselines", "results/proposed"]:
     (DRIVE_ROOT / sub).mkdir(parents=True, exist_ok=True)
 
 os.environ["MTG_ROOT"] = str(DRIVE_ROOT)
@@ -93,6 +93,8 @@ ANN_DIR = ROOT / "annotations"
 FEAT_DIR = ROOT / "features"
 CKPT_DIR = ROOT / "checkpoints"
 RESULTS_DIR = ROOT / "results"
+BASELINE_RESULTS_DIR = RESULTS_DIR / "baselines"
+BASELINE_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 MANIFEST = ROOT / "dataset" / "song_manifest.csv"
 RAW_ANN = "https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data"
 NEEDED_ANN = [
@@ -382,9 +384,9 @@ print("Next: 02 (GPU) or 03 / 04 / 05 / 06 in parallel.")
 
 
 write(
-    "02_cnn_baseline.ipynb",
+    "02_direct_cnn_baseline.ipynb",
     [
-        md("# 02 — CNN Baseline (Colab + Drive)\n\nMulti-label genre CNN on Drive mels. **Runtime → GPU**.\n\nNeeds: notebook 00 + 01 (`song_manifest.csv`).\n\nSaves: `checkpoints/baseline/best.pt` and `results/02_baseline_test.json`."),
+        md("# 02 — Direct CNN Baseline (Colab + Drive)\n\nDirect multi-label genre prediction from log-Mels. **Runtime → GPU**.\n\nNeeds: notebook 00 + 01 (`song_manifest.csv`).\n\nSaves: `checkpoints/baselines/direct_cnn/best.pt` and `results/baselines/02_baseline_test.json`."),
         md(COLAB_SETUP),
         code("""!pip install -q scikit-learn tqdm"""),
         md("## Mount Drive"),
@@ -538,7 +540,7 @@ if SCAN_MELS:
     if bad:
         raise RuntimeError(f"{len(bad)} bad mels — see {RESULTS_DIR}/bad_mels_all.json")
 best_macro_map = 0.0
-ckpt = CKPT_DIR / "baseline"; ckpt.mkdir(parents=True, exist_ok=True)
+ckpt = CKPT_DIR / "baselines" / "direct_cnn"; ckpt.mkdir(parents=True, exist_ok=True)
 hist = []
 for epoch in range(1, 11):
     model.train(); total = 0
@@ -558,8 +560,8 @@ state = torch.load(ckpt/"best.pt", map_location=DEVICE, weights_only=False)
 model.load_state_dict(state["model"])
 test_m = evaluate(test_loader)
 print("TEST split-0", test_m)
-pd.DataFrame(hist).to_csv(RESULTS_DIR/"02_baseline_history.csv", index=False)
-(RESULTS_DIR/"02_baseline_test.json").write_text(json.dumps(test_m, indent=2))
+pd.DataFrame(hist).to_csv(BASELINE_RESULTS_DIR/"02_baseline_history.csv", index=False)
+(BASELINE_RESULTS_DIR/"02_baseline_test.json").write_text(json.dumps(test_m, indent=2))
 '''
         ),
     ],
@@ -567,9 +569,9 @@ pd.DataFrame(hist).to_csv(RESULTS_DIR/"02_baseline_history.csv", index=False)
 
 
 write(
-    "03_instrument_embedding.ipynb",
+    "03_instrument_pretraining.ipynb",
     [
-        md("# 03 — Stage 1 Instrument Embedding (Colab + Drive)\n\nMIL + attention → 64-d song embedding. **GPU On**.\n\nNeeds: 00 + 01. Writes `features/instrument/` on Drive."),
+        md("# 03 — Instrument Pretraining (Colab + Drive)\n\nMIL + attention → 64-d instrument embedding. This can initialize the proposed shared encoder. **GPU On**.\n\nNeeds: 00 + 01. Writes `features/instrument/` and `checkpoints/pretraining/instrument/` on Drive."),
         md(COLAB_SETUP),
         code("""!pip install -q scikit-learn tqdm"""),
         md("## Mount Drive"),
@@ -673,7 +675,7 @@ def make_loader(split, bs=8, shuffle=False):
     assert set(sub.split.unique())=={split}
     return DataLoader(WindowMIL(sub), batch_size=bs, shuffle=shuffle, num_workers=0)
 
-class Stage1(nn.Module):
+class InstrumentMIL(nn.Module):
     def __init__(self, n_tags, emb=EMBED_DIM):
         super().__init__()
         self.cnn = nn.Sequential(nn.Conv2d(1,32,3,padding=1), nn.ReLU(), nn.MaxPool2d(2),
@@ -689,7 +691,7 @@ class Stage1(nn.Module):
         z = (H * w.unsqueeze(-1)).sum(1)
         return self.head(z), z, w
 
-model = Stage1(Y.shape[1]).to(DEVICE)
+model = InstrumentMIL(Y.shape[1]).to(DEVICE)
 opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 crit = nn.BCEWithLogitsLoss()
 
@@ -719,7 +721,7 @@ if SCAN_MELS:
     if bad:
         raise RuntimeError(f"{len(bad)} bad mels — see {RESULTS_DIR}/bad_mels_all.json")
 best_macro_map = 0.0
-ckpt = CKPT_DIR/"stage1"; ckpt.mkdir(parents=True, exist_ok=True)
+ckpt = CKPT_DIR/"pretraining"/"instrument"; ckpt.mkdir(parents=True, exist_ok=True)
 for epoch in range(1, 9):
     model.train(); total=0
     for x,mask,y,_ in tqdm(tr, leave=False):
@@ -937,9 +939,9 @@ df.to_csv(out / "__SUB___song.csv", index=False)
 print("wrote", out, len(df))
 '''.replace("__EXTRACT__", extract_fn).replace("__SUB__", out_sub)
     write(
-        f"{num}_{kind}_features.ipynb",
+        f"{num}_{kind}_targets.ipynb",
         [
-            md(f"# {num} — {title} (Colab + Drive)\n\nWrites `features/{out_sub}/{out_sub}_song.csv` on Drive. GPU Off. Needs 00+01."),
+            md(f"# {num} — {title} (Colab + Drive)\n\nCreates supervision targets for the proposed concept branch and descriptor inputs for the retained baseline. Writes `features/{out_sub}/{out_sub}_song.csv` on Drive. GPU Off. Needs 00+01."),
             md(COLAB_SETUP),
             code("""!pip install -q librosa soundfile tqdm"""),
             md("## Mount Drive"),
@@ -952,13 +954,13 @@ print("wrote", out, len(df))
 
 
 write(
-    "04_rhythm_features.ipynb",
+    "04_rhythm_targets.ipynb",
     [
         md(
-            "# 04 — Rhythm Features (Colab + Drive)\n\n"
+            "# 04 — Rhythm Supervision Targets (Colab + Drive)\n\n"
             "Writes `features/rhythm/rhythm_song.csv` from **AcousticBrainz / Essentia** JSON "
             "(not a mel-proxy). GPU Off. Needs 00+01.\n\n"
-            "Downloads `raw_30s_acousticbrainz-00..09` (same shard range as notebook 00) into "
+            "Downloads AcousticBrainz shards 00–02 by default (matching notebook 00) into "
             "`dataset/acousticbrainz/` if JSON files are not already on Drive."
         ),
         md(COLAB_SETUP),
@@ -972,7 +974,7 @@ write(
 )
 feature_nb(
     "05",
-    "Timbre Features",
+    "Timbre Supervision Targets",
     "timbre",
     '''
 def mel_proxy_features(S):
@@ -990,7 +992,7 @@ def mel_proxy_features(S):
 )
 feature_nb(
     "06",
-    "Harmony Features",
+    "Harmony Supervision Targets",
     "harmony",
     '''
 def mel_proxy_features(S):
@@ -1006,9 +1008,9 @@ def mel_proxy_features(S):
 
 
 write(
-    "07_fusion_genre_classifier.ipynb",
+    "07_descriptor_fusion_baseline.ipynb",
     [
-        md("# 07 — Stage 2 Fusion + Genre (Colab + Drive)\n\nNeeds 01 + 03 + 04 + 05 + 06 on Drive. **GPU On**.\n\nWrites `checkpoints/stage2/` and test JSON."),
+        md("# 07 — Descriptor-Fusion Baseline (Colab + Drive)\n\nCombines the learned instrument embedding with rhythm, timbre, and harmony descriptors. This is a comparison baseline, not the proposed four-branch model.\n\nNeeds 01 + 03 + 04 + 05 + 06 on Drive. **GPU On**.\n\nWrites `checkpoints/baselines/descriptor_fusion/` and test JSON."),
         md(COLAB_SETUP),
         code("""!pip install -q scikit-learn tqdm"""),
         md("## Mount Drive"),
@@ -1049,7 +1051,7 @@ r_cols, t_cols, h_cols = ncols(rhythm), ncols(timbre), ncols(harmony)
 n_before = len(manifest)
 have = set(inst_map) & set(rhythm.index) & set(timbre.index) & set(harmony.index)
 manifest = manifest[manifest["song_id"].isin(have)].copy()
-print(f"Stage 2 overlap: {len(manifest)} / {n_before} songs have instrument+rhythm+timbre+harmony")
+print(f"Descriptor baseline overlap: {len(manifest)} / {n_before} songs have all four concepts")
 if manifest.empty:
     raise RuntimeError("No overlapping songs — run 03–06 (04 must be AcousticBrainz, not mel-proxy)")
 ids = manifest["song_id"].astype(str).tolist()
@@ -1123,7 +1125,7 @@ def evaluate(dl):
 
 tr,va,te = loader("train", shuffle=True), loader("validation"), loader("test")
 best_macro_map=0.0
-ckpt=CKPT_DIR/"stage2"; ckpt.mkdir(parents=True, exist_ok=True)
+ckpt=CKPT_DIR/"baselines"/"descriptor_fusion"; ckpt.mkdir(parents=True, exist_ok=True)
 hist=[]
 for epoch in range(1,16):
     model.train(); total=0
@@ -1140,8 +1142,8 @@ state=torch.load(ckpt/f"best_{FUSION}.pt", map_location=DEVICE, weights_only=Fal
 model.load_state_dict(state["model"])
 test_m=evaluate(te)
 print("TEST split-0", test_m)
-pd.DataFrame(hist).to_csv(RESULTS_DIR/f"07_stage2_{FUSION}_history.csv", index=False)
-(RESULTS_DIR/f"07_stage2_{FUSION}_test.json").write_text(json.dumps(test_m, indent=2))
+pd.DataFrame(hist).to_csv(BASELINE_RESULTS_DIR/f"07_descriptor_fusion_{FUSION}_history.csv", index=False)
+(BASELINE_RESULTS_DIR/f"07_descriptor_fusion_{FUSION}_test.json").write_text(json.dumps(test_m, indent=2))
 '''
         ),
     ],
@@ -1149,40 +1151,25 @@ pd.DataFrame(hist).to_csv(RESULTS_DIR/f"07_stage2_{FUSION}_history.csv", index=F
 
 
 write(
-    "08_ablations_and_tuning.ipynb",
+    "08_baseline_evaluation.ipynb",
     [
-        md("# 08 — Ablations (Colab + Drive)\n\nReads `results/` JSONs from 02 and 07. GPU optional."),
+        md("# 08 — Baseline Evaluation (Colab + Drive)\n\nCompares recorded test metrics from the direct CNN and descriptor-fusion baselines. It does not claim to evaluate the proposed model."),
         md(COLAB_SETUP),
         md("## Mount Drive"),
         code(MOUNT),
         code(PATHS),
         code(
             r'''
-baseline_ref = {"macro_roc_auc": 0.7260, "macro_pr_auc": 0.1592}
-rows = [{"model": "CNN baseline (paper ref)", **baseline_ref}]
-for f in sorted(RESULTS_DIR.glob("02_baseline_test.json")) + sorted(RESULTS_DIR.glob("07_stage2_*_test.json")):
+result_files = sorted(BASELINE_RESULTS_DIR.glob("02_baseline_test.json")) + sorted(BASELINE_RESULTS_DIR.glob("07_descriptor_fusion_*_test.json"))
+if not result_files:
+    raise FileNotFoundError("Run notebooks 02 and 07 before comparing baseline metrics.")
+rows = []
+for f in result_files:
     rows.append({"model": f.stem, **json.loads(f.read_text())})
 tbl = pd.DataFrame(rows)
-tbl.to_csv(RESULTS_DIR/"08_core_comparison.csv", index=False)
-print("Wrote", RESULTS_DIR/"08_core_comparison.csv")
+tbl.to_csv(BASELINE_RESULTS_DIR/"08_core_comparison.csv", index=False)
+print("Wrote", BASELINE_RESULTS_DIR/"08_core_comparison.csv")
 tbl
-'''
-        ),
-        code(
-            r'''
-import time, torch, torch.nn as nn
-class Tiny(nn.Module):
-    def __init__(self, d, n=87):
-        super().__init__(); self.fc=nn.Linear(d,n)
-    def forward(self,x): return self.fc(x)
-rows=[{"config":n,"params":sum(p.numel() for p in Tiny(d).parameters())} for n,d in [("full_concat",64+5+6+18),("inst64",64)]]
-x=torch.randn(32,64+5+6+18); m=Tiny(64+5+6+18)
-t0=time.time()
-with torch.no_grad():
-    for _ in range(50): _=m(x)
-ms=(time.time()-t0)/50*1000
-pd.DataFrame(rows).assign(batch_infer_ms=ms).to_csv(RESULTS_DIR/"08_compute.csv", index=False)
-print("08_compute.csv", ms)
 '''
         ),
     ],
@@ -1197,7 +1184,7 @@ from torch.utils.data import DataLoader, Dataset
 if not MANIFEST.exists():
     raise FileNotFoundError("Run 01 first")
 
-CKPT_PATH = CKPT_DIR / "stage2" / "best_attention.pt"
+CKPT_PATH = CKPT_DIR / "baselines" / "descriptor_fusion" / "best_attention.pt"
 if not CKPT_PATH.exists() or CKPT_PATH.stat().st_size == 0:
     raise FileNotFoundError(
         "Notebook 09 refuses placeholder attention. Train notebook 07 first so this exists and is non-empty:\n"
@@ -1318,34 +1305,34 @@ with torch.no_grad():
             attn_rows.append(row)
 
 attn_df = pd.DataFrame(attn_rows)
-attn_df.to_csv(RESULTS_DIR / "09_attention_weights_sample.csv", index=False)
+attn_df.to_csv(BASELINE_RESULTS_DIR / "09_attention_weights_sample.csv", index=False)
 fig, ax = plt.subplots(figsize=(8, 4))
 ax.bar(concept_names, attn_df[concept_names].mean(0).values)
-ax.set_title("Mean concept attention (Stage 2, test sample)")
+ax.set_title("Mean concept attention (descriptor-fusion baseline)")
 ax.set_ylabel("mean attention")
 fig.tight_layout()
-fig.savefig(RESULTS_DIR / "09_mean_attention.png", dpi=150)
+fig.savefig(BASELINE_RESULTS_DIR / "09_mean_attention.png", dpi=150)
 plt.show()
 qual = []
 for sid in test_ids[:5]:
     top = concept_names[int(attn_df.loc[attn_df.song_id == sid, concept_names].values.argmax())]
     qual.append({"song_id": sid, "audible_dominant_concept": "", "model_top_concept": top, "agree": "", "comment": ""})
-pd.DataFrame(qual).to_csv(RESULTS_DIR / "09_qualitative_listening.csv", index=False)
-print("Wrote real attention under", RESULTS_DIR)
+pd.DataFrame(qual).to_csv(BASELINE_RESULTS_DIR / "09_qualitative_listening.csv", index=False)
+print("Wrote real attention under", BASELINE_RESULTS_DIR)
 attn_df
 '''
 
 
 write(
-    "09_explainability_eval.ipynb",
+    "09_baseline_explainability.ipynb",
     [
-        md("# 09 — Explainability (Colab + Drive)\n\nNeeds 01 + **trained notebook 07** (`checkpoints/stage2/best_attention.pt`). GPU Off.\n\nLoads the Stage 2 model and writes **real** per-concept attention — not placeholders."),
+        md("# 09 — Descriptor-Fusion Baseline Analysis (Colab + Drive)\n\nNeeds 01 + **trained notebook 07** (`checkpoints/baselines/descriptor_fusion/best_attention.pt`). GPU Off.\n\nExports the baseline's per-concept attention for comparison with the future proposed model."),
         md(COLAB_SETUP),
         code("""!pip install -q matplotlib tqdm"""),
         md("## Mount Drive"),
         code(MOUNT),
         code(PATHS),
-        md("## Guard + real Stage 2 attention"),
+        md("## Guard + descriptor-fusion baseline attention"),
         code(COLAB_09_EVAL),
     ],
 )

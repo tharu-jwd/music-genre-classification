@@ -1,54 +1,52 @@
 # Concept-Guided Music Genre Classification
 
-This repository contains the current research pipeline for explainable, multi-label music genre classification on the MTG-Jamendo dataset.
+This project is developing an explainable, multi-label music genre classifier for the MTG-Jamendo dataset.
 
-The system represents a song using four musical concepts:
+The research target is a neural network that learns four musical concepts from the same song representation:
 
-- **Instrumentation** — a learned 64-dimensional song embedding from an attention-based multiple-instance learning model.
-- **Rhythm** — tempo and beat descriptors from AcousticBrainz/Essentia metadata.
-- **Timbre** — spectral descriptors extracted from audio when available, with a log-Mel approximation for the notebook-only workflow.
-- **Harmony** — chroma and Tonnetz descriptors extracted from audio when available, with a log-Mel approximation for the notebook-only workflow.
+- instruments — what is playing;
+- rhythm — the beat and tempo;
+- timbre — the character of the sound;
+- harmony — how notes and chords relate.
 
-These representations are joined by either a linear projection or single-head attention and passed to a multi-label genre classifier.
+The model will learn how much each concept matters, combine them, and predict every genre that fits the song.
 
-```text
-MTG-Jamendo log-Mel songs
-          │
-          ├── CNN baseline ────────────────────────> genre scores
-          │
-          └── instrument MIL embedding (64-d)
-                    + rhythm descriptors
-                    + timbre descriptors
-                    + harmony descriptors
-                              │
-                         concept fusion
-                              │
-                         genre scores
-```
+<p align="center">
+  <img src="docs/diagrams/proposed-concept-guided-architecture.png" alt="Proposed concept-guided architecture" width="1100">
+</p>
 
-## Start here
+## What exists today
 
-Choose exactly one hosted workflow:
+The proposed architecture is the target, not a completed implementation. The repository currently provides the data pipeline and two comparison baselines:
 
-- **Google Colab:** follow [notebooks/colab/README.md](notebooks/colab/README.md).
-- **Kaggle:** follow [notebooks/kaggle/README.md](notebooks/kaggle/README.md).
+1. **Direct CNN baseline** — predicts genres directly from log-Mel spectrograms.
+2. **Descriptor-fusion baseline** — combines a learned instrument embedding with rhythm, timbre, and harmony descriptors.
 
-Both workflows use the same numbered stages. Do not mix their intermediate paths or storage mechanisms.
+The existing concept extraction work is still useful: instrument pretraining can initialize the shared encoder, while rhythm, timbre, and harmony descriptors become supervision targets for the proposed concept branches.
 
-| Notebook | Purpose | Main output |
-|---|---|---|
-| `00` | Download annotations and log-Mel shards | Dataset cache |
-| `01` | Build the manifest with official `split-0` | `song_manifest.csv` |
-| `02` | Train the direct CNN genre baseline | Baseline checkpoint and metrics |
-| `03` | Train instrument MIL and export embeddings | 64-d instrument vectors |
-| `04` | Extract rhythm descriptors | `rhythm_song.csv` |
-| `05` | Extract timbre descriptors | `timbre_song.csv` |
-| `06` | Extract harmony descriptors | `harmony_song.csv` |
-| `07` | Train concept fusion and genre classifier | Stage 2 checkpoint and metrics |
-| `08` | Collect comparisons and experiment plans | Comparison tables |
-| `09` | Export attention summaries for test songs | Attention figure and review table |
+See [current status](docs/current-status.md), [baseline architecture](docs/baseline-architecture.md), [proposed architecture](docs/proposed-architecture.md), and the [implementation roadmap](docs/roadmap.md).
 
-The dependency order is `00 → 01 → 02/03 → 04/05/06 → 07 → 08/09`. Notebooks `04`, `05`, and `06` can run independently after `01`.
+## Notebook pipeline
+
+Choose one runtime and stay with it:
+
+- [Google Colab](notebooks/colab/README.md) stores artifacts in Google Drive.
+- [Kaggle](notebooks/kaggle/README.md) passes saved notebook outputs between stages.
+
+| Notebook | Role |
+|---|---|
+| `00_download_*` | Download annotations and log-Mel shards |
+| `01_preprocessing` | Build the official `split-0` manifest |
+| `02_direct_cnn_baseline` | Train baseline A |
+| `03_instrument_pretraining` | Learn the instrument representation and reusable encoder |
+| `04_rhythm_targets` | Prepare rhythm supervision targets |
+| `05_timbre_targets` | Prepare timbre supervision targets |
+| `06_harmony_targets` | Prepare harmony supervision targets |
+| `07_descriptor_fusion_baseline` | Train baseline B |
+| `08_baseline_evaluation` | Compare recorded baseline metrics |
+| `09_baseline_explainability` | Inspect descriptor-fusion attention |
+
+The proposed-model training and evaluation notebooks will be added only when their implementation exists; the repository does not contain empty placeholder notebooks.
 
 ## Repository structure
 
@@ -56,52 +54,35 @@ The dependency order is `00 → 01 → 02/03 → 04/05/06 → 07 → 08/09`. Not
 .
 ├── README.md
 ├── requirements.txt
-├── data/
-│   └── .gitkeep                 # local data is ignored
+├── data/                              # ignored local datasets
 ├── docs/
-│   ├── architecture.md
+│   ├── baseline-architecture.md
+│   ├── proposed-architecture.md
 │   ├── current-status.md
+│   ├── roadmap.md
 │   ├── data-layout.md
 │   ├── development.md
+│   ├── project-guidelines.md
 │   ├── kaggle-how-to.md
-│   └── project-guidelines.md
+│   └── diagrams/
+│       └── proposed-concept-guided-architecture.png
 ├── notebooks/
-│   ├── README.md
-│   ├── colab/                   # Google Drive workflow, 00–09
-│   └── kaggle/                  # Kaggle output workflow, 00–09
+│   ├── colab/                         # generated Colab workflow
+│   └── kaggle/                        # generated Kaggle workflow
 └── scripts/
     ├── generate_colab_notebooks.py
     └── generate_kaggle_notebooks.py
 ```
 
-The generator scripts are the source of truth for notebook code. When changing pipeline logic, edit a generator and regenerate its notebooks; do not maintain a notebook-only fork.
+The generator scripts are the source of truth for notebook code. Change a generator and regenerate its notebook set; do not maintain notebook-only forks.
 
-## Data and evaluation rules
+## Non-negotiable evaluation rules
 
-- Report metrics only on the official MTG-Jamendo `split-0` test set.
-- Select checkpoints using validation data only. Never use test data for model selection.
-- Exclude undefined per-tag values from macro metrics instead of converting them to zero.
-- Join all feature sources using the normalized `song_id`.
-- Keep downloaded data, generated features, checkpoints, and notebook outputs outside Git.
-- The default baseline downloads shards `00–02`. Increase the `SHARDS` lists only when the selected platform has enough storage, and use the same shard set for log-Mels and AcousticBrainz.
+- Use the official MTG-Jamendo `split-0` partitions.
+- Select models using validation data only.
+- Evaluate the test partition only after model selection.
+- Exclude undefined per-tag values from macro metrics rather than replacing them with zero.
+- Record the tag order and normalization statistics in checkpoints.
+- Keep datasets, extracted targets, checkpoints, and results outside Git.
 
-See [docs/architecture.md](docs/architecture.md) for the model and data contracts, [docs/data-layout.md](docs/data-layout.md) for artifact locations, and [docs/current-status.md](docs/current-status.md) for an honest implementation status.
-
-## Development
-
-Generate both notebook sets with Python 3.11 or newer:
-
-```bash
-python3 scripts/generate_colab_notebooks.py
-python3 scripts/generate_kaggle_notebooks.py
-```
-
-The generated notebooks intentionally contain no committed execution output. Training happens on Colab or Kaggle, and resulting artifacts must be persisted using that platform’s storage workflow.
-
-Dependencies used by the notebooks are listed in `requirements.txt`. PyTorch installation differs by CPU/CUDA platform, so hosted notebooks rely on the runtime-provided PyTorch build.
-
-## Project status
-
-The pipeline through Stage 2 training is implemented. It has not been validated end-to-end from the committed repository because datasets, checkpoints, and run outputs are not versioned here. Full ablation training and concept-occlusion evaluation remain planned work; they are not presented as completed results.
-
-This repository is for academic research. Use MTG-Jamendo data according to its own license and terms.
+The default development subset uses shards `00–02`. Expand log-Mel and AcousticBrainz shards together when more storage is available.

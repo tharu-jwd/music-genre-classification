@@ -1,6 +1,6 @@
 # Data and artifact layout
 
-Large artifacts are excluded from Git. Each runtime uses the same logical tree under a different root.
+Large artifacts are excluded from Git. Both hosted runtimes use this logical tree:
 
 ```text
 MTG_Instrument/
@@ -10,23 +10,26 @@ MTG_Instrument/
 │   ├── acousticbrainz/
 │   └── song_manifest.csv
 ├── features/
-│   ├── instrument/
-│   ├── rhythm/
-│   ├── timbre/
-│   └── harmony/
+│   ├── instrument/                   # pretrained embeddings
+│   ├── rhythm/                       # baseline inputs + proposed targets
+│   ├── timbre/                       # baseline inputs + proposed targets
+│   └── harmony/                      # baseline inputs + proposed targets
 ├── checkpoints/
-│   ├── baseline/
-│   ├── stage1/
-│   └── stage2/
+│   ├── baselines/
+│   │   ├── direct_cnn/
+│   │   └── descriptor_fusion/
+│   ├── pretraining/
+│   │   └── instrument/
+│   └── proposed/
 └── results/
+    ├── baselines/
+    └── proposed/
 ```
 
 | Runtime | Root |
 |---|---|
 | Colab | `/content/drive/MyDrive/MTG_Instrument` |
 | Kaggle writable output | `/kaggle/working/MTG_Instrument` |
-| Kaggle prior-stage input | discovered below `/kaggle/input` |
+| Kaggle previous-stage input | discovered below `/kaggle/input` |
 
-Kaggle inputs are read-only. Save each stage as a notebook output and attach that output to dependent stages. Colab writes persistent artifacts directly to Drive and may cache individual mel arrays on the VM for faster reads.
-
-The baseline subset uses mel and AcousticBrainz shards `00`, `01`, and `02`. If the subset is expanded, both sources must use matching shard indices.
+Kaggle inputs are read-only. Colab persists directly to Drive. The default development subset uses matching log-Mel and AcousticBrainz shards `00–02`.

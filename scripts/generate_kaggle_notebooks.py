@@ -348,6 +348,7 @@ for cand in [
 FEAT_DIR = ROOT / "features"
 CKPT_DIR = ROOT / "checkpoints"
 RESULTS_DIR = ROOT / "results"
+BASELINE_RESULTS_DIR = RESULTS_DIR / "baselines"
 MANIFEST = ROOT / "dataset" / "song_manifest.csv"
 att_manifest = _find_file("song_manifest.csv", [INPUT_BASE, Path("/kaggle/working")])
 if not MANIFEST.exists() and att_manifest is not None:
@@ -358,7 +359,7 @@ if not MANIFEST.exists() and att_manifest is not None:
     except OSError:
         MANIFEST = att_manifest
 
-for p in [ROOT / "dataset", ROOT / "annotations", FEAT_DIR, CKPT_DIR, RESULTS_DIR]:
+for p in [ROOT / "dataset", ROOT / "annotations", FEAT_DIR, CKPT_DIR, BASELINE_RESULTS_DIR, RESULTS_DIR / "proposed"]:
     p.mkdir(parents=True, exist_ok=True)
 
 # Restore the small artifacts produced by attached earlier stages. Large mel
@@ -369,8 +370,8 @@ attached_artifacts = {
     "rhythm_song.csv": FEAT_DIR / "rhythm" / "rhythm_song.csv",
     "timbre_song.csv": FEAT_DIR / "timbre" / "timbre_song.csv",
     "harmony_song.csv": FEAT_DIR / "harmony" / "harmony_song.csv",
-    "best_attention.pt": CKPT_DIR / "stage2" / "best_attention.pt",
-    "best_linear.pt": CKPT_DIR / "stage2" / "best_linear.pt",
+    "best_attention.pt": CKPT_DIR / "baselines" / "descriptor_fusion" / "best_attention.pt",
+    "best_linear.pt": CKPT_DIR / "baselines" / "descriptor_fusion" / "best_linear.pt",
 }
 for name, destination in attached_artifacts.items():
     if destination.exists():
@@ -382,9 +383,9 @@ for name, destination in attached_artifacts.items():
         print("Recovered", destination.relative_to(ROOT), "from", source)
 
 if INPUT_BASE.exists():
-    for pattern in ("02_baseline_*.json", "07_stage2_*.json", "07_stage2_*_history.csv"):
+    for pattern in ("02_baseline_*.json", "07_descriptor_fusion_*.json", "07_descriptor_fusion_*_history.csv"):
         for source in INPUT_BASE.rglob(pattern):
-            destination = RESULTS_DIR / source.name
+            destination = BASELINE_RESULTS_DIR / source.name
             if not destination.exists():
                 shutil.copy2(source, destination)
 
@@ -642,7 +643,7 @@ print("example shape:", sample.shape, "dtype:", sample.dtype)
     "split_counts": manifest["split"].value_counts().to_dict(),
     "example_shape": list(sample.shape),
 }, indent=2))
-print("Next: 02_cnn_baseline.ipynb")
+print("Next: 02_direct_cnn_baseline.ipynb")
 '''
         ),
     ],
@@ -650,10 +651,10 @@ print("Next: 02_cnn_baseline.ipynb")
 
 
 write(
-    "02_cnn_baseline.ipynb",
+    "02_direct_cnn_baseline.ipynb",
     [
         md(
-            """# 02 — CNN Baseline (Genre Multi-label)
+            """# 02 — Direct CNN Baseline
 
 Train a compact CNN on log-mel for **multi-label genre**.
 
@@ -827,7 +828,7 @@ criterion = nn.BCEWithLogitsLoss()
 print(model)
 '''
         ),
-        md("## Step 5 — Train; save **best val** checkpoint\n\n`best_macro_map` is assigned **inside** the `if val improves` branch (Stage 1 / baseline bug-fix)."),
+        md("## Step 5 — Train; save the **best validation** checkpoint"),
         code(
             r'''
 def nan_safe_macro_auc(y_true, y_prob, kind="roc"):
@@ -873,7 +874,7 @@ def train_one_epoch(loader):
 
 EPOCHS = 10
 best_macro_map = 0.0
-ckpt_dir = CKPT_DIR / "baseline"
+ckpt_dir = CKPT_DIR / "baselines" / "direct_cnn"
 ckpt_dir.mkdir(parents=True, exist_ok=True)
 history = []
 
@@ -892,8 +893,8 @@ state = torch.load(ckpt_dir / "best.pt", map_location=DEVICE, weights_only=False
 model.load_state_dict(state["model"])
 test_m = evaluate(test_loader)
 print("TEST (split-0 only):", test_m)
-pd.DataFrame(history).to_csv(RESULTS_DIR / "02_baseline_history.csv", index=False)
-(RESULTS_DIR / "02_baseline_test.json").write_text(json.dumps(test_m, indent=2))
+pd.DataFrame(history).to_csv(BASELINE_RESULTS_DIR / "02_baseline_history.csv", index=False)
+(BASELINE_RESULTS_DIR / "02_baseline_test.json").write_text(json.dumps(test_m, indent=2))
 '''
         ),
     ],
@@ -901,12 +902,12 @@ pd.DataFrame(history).to_csv(RESULTS_DIR / "02_baseline_history.csv", index=Fals
 
 
 write(
-    "03_instrument_embedding.ipynb",
+    "03_instrument_pretraining.ipynb",
     [
         md(
-            """# 03 — Stage 1: Instrument Embedding (MIL + Attention)
+            """# 03 — Instrument Pretraining (MIL + Attention)
 
-Learn a **64-d song-level instrument embedding** with attention pooling over 15s windows.
+Learn a **64-d song-level instrument embedding** with attention pooling over 15s windows. The trained CNN can initialize the proposed shared encoder.
 
 **Bug-fix checklist (must hold here):**
 1. `best_macro_map` updated inside the checkpoint-save branch
@@ -1077,7 +1078,7 @@ class AttnPool(nn.Module):
         return z, w
 
 
-class Stage1Model(nn.Module):
+class InstrumentMILModel(nn.Module):
     def __init__(self, n_tags, emb=EMBED_DIM):
         super().__init__()
         self.enc = WindowEncoder(emb)
@@ -1089,7 +1090,7 @@ class Stage1Model(nn.Module):
         z, attn = self.pool(H, mask)
         return self.head(z), z, attn
 
-model = Stage1Model(n_tags=Y.shape[1]).to(DEVICE)
+model = InstrumentMILModel(n_tags=Y.shape[1]).to(DEVICE)
 opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 criterion = nn.BCEWithLogitsLoss()
 '''
@@ -1130,7 +1131,7 @@ if SCAN_MELS:
         raise RuntimeError(f"{len(bad)} bad mels — see {RESULTS_DIR}/bad_mels_all.json")
 EPOCHS = 8
 best_macro_map = 0.0
-ckpt_dir = CKPT_DIR / "stage1"
+ckpt_dir = CKPT_DIR / "pretraining" / "instrument"
 ckpt_dir.mkdir(parents=True, exist_ok=True)
 
 for epoch in range(1, EPOCHS + 1):
@@ -1226,12 +1227,12 @@ print("wrote", out, "n=", len(df))
 '''.replace("__EXTRACT_FN__", extract_fn).replace("__OUT_SUB__", out_sub)
 
     write(
-        f"{num}_{kind}_features.ipynb",
+        f"{num}_{kind}_targets.ipynb",
         [
             md(
                 f"""# {num} — {title}
 
-Extract **{kind}** features per song (`song_id` aligned with the Stage 1 manifest).
+Extract **{kind}** supervision targets per song (`song_id` aligned with the shared manifest).
 
 On Kaggle, raw MP3s are optional. By default these descriptors are approximated from the available log-Mels. Attach audio under `/kaggle/input/mtg-jamendo-audio` to use waveform-based librosa features."""
             ),
@@ -1240,7 +1241,7 @@ On Kaggle, raw MP3s are optional. By default these descriptors are approximated 
             code("""!pip install -q librosa soundfile tqdm"""),
             md("## Step 1 — Bootstrap paths"),
             code(SHARED_BOOTSTRAP),
-            md(f"## Step 2 — Extract {kind} and write `features/{out_sub}/{out_sub}_song.csv`"),
+            md(f"## Step 2 — Create {kind} targets and write `features/{out_sub}/{out_sub}_song.csv`"),
             code(body),
         ],
     )
@@ -1499,10 +1500,10 @@ df.head()
 '''
 
 write(
-    "04_rhythm_features.ipynb",
+    "04_rhythm_targets.ipynb",
     [
         md(
-            """# 04 — Rhythm Feature Extraction
+            """# 04 — Rhythm Supervision Targets
 
 Writes `features/rhythm/rhythm_song.csv` from **AcousticBrainz / Essentia** JSON
 (`rhythm.bpm`, beat stats, histogram peaks). Mel-proxy tempo is **not** used.
@@ -1518,17 +1519,17 @@ Needs notebook 01. Downloads AcousticBrainz shards **00–02** by default if JSO
         code(KAGGLE_04_EXTRACT),
     ],
 )
-feature_nb("05", "Timbre Feature Extraction", "timbre", extract_timbre, "timbre")
-feature_nb("06", "Harmony Feature Extraction", "harmony", extract_harmony, "harmony")
+feature_nb("05", "Timbre Supervision Targets", "timbre", extract_timbre, "timbre")
+feature_nb("06", "Harmony Supervision Targets", "harmony", extract_harmony, "harmony")
 
 
 write(
-    "07_fusion_genre_classifier.ipynb",
+    "07_descriptor_fusion_baseline.ipynb",
     [
         md(
-            """# 07 — Stage 2: Fusion + Multi-label Genre Classifier
+            """# 07 — Descriptor-Fusion Baseline
 
-Needs: Stage 1 embeddings + rhythm/timbre/harmony CSVs.
+Combines the learned instrument embedding with rhythm/timbre/harmony descriptors. This is a comparison baseline, not the proposed four-branch model.
 
 - Fusion A: concat → linear
 - Fusion B: single-head attention over the 4 concept tokens
@@ -1556,7 +1557,7 @@ manifest["song_id"] = manifest["song_id"].astype(str).map(lambda s: normalize_tr
 
 inst_dir = FEAT_DIR / "instrument"
 if not (inst_dir / "instrument_embeddings.npy").exists():
-    raise FileNotFoundError("Missing Stage 1 embeddings — run notebook 03.")
+    raise FileNotFoundError("Missing instrument embeddings — run notebook 03.")
 E = np.load(inst_dir / "instrument_embeddings.npy")
 inst_ids = json.loads((inst_dir / "song_ids.json").read_text())
 inst_map = {normalize_track_id(s) or str(s): E[i] for i, s in enumerate(inst_ids)}
@@ -1580,7 +1581,7 @@ r_cols, t_cols, h_cols = num_cols(rhythm), num_cols(timbre), num_cols(harmony)
 n_before = len(manifest)
 have = set(inst_map) & set(rhythm.index) & set(timbre.index) & set(harmony.index)
 manifest = manifest[manifest["song_id"].isin(have)].copy()
-print(f"Stage 2 overlap: {len(manifest)} / {n_before} songs have instrument+rhythm+timbre+harmony")
+print(f"Descriptor baseline overlap: {len(manifest)} / {n_before} songs have all four concepts")
 if manifest.empty:
     raise RuntimeError("No overlapping songs — run 03–06 (04 must be AcousticBrainz)")
 ids = manifest["song_id"].astype(str).tolist()
@@ -1704,7 +1705,7 @@ def evaluate(dl):
 
 train_dl, val_dl, test_dl = loader("train", shuffle=True), loader("validation"), loader("test")
 best_macro_map = 0.0
-ckpt = CKPT_DIR / "stage2"
+ckpt = CKPT_DIR / "baselines" / "descriptor_fusion"
 ckpt.mkdir(parents=True, exist_ok=True)
 hist = []
 for epoch in range(1, 16):
@@ -1730,8 +1731,8 @@ state = torch.load(ckpt / f"best_{FUSION}.pt", map_location=DEVICE, weights_only
 model.load_state_dict(state["model"])
 test_m = evaluate(test_dl)
 print("TEST split-0", test_m)
-pd.DataFrame(hist).to_csv(RESULTS_DIR / f"07_stage2_{FUSION}_history.csv", index=False)
-(RESULTS_DIR / f"07_stage2_{FUSION}_test.json").write_text(json.dumps(test_m, indent=2))
+pd.DataFrame(hist).to_csv(BASELINE_RESULTS_DIR / f"07_descriptor_fusion_{FUSION}_history.csv", index=False)
+(BASELINE_RESULTS_DIR / f"07_descriptor_fusion_{FUSION}_test.json").write_text(json.dumps(test_m, indent=2))
 '''
         ),
     ],
@@ -1739,16 +1740,12 @@ pd.DataFrame(hist).to_csv(RESULTS_DIR / f"07_stage2_{FUSION}_history.csv", index
 
 
 write(
-    "08_ablations_and_tuning.ipynb",
+    "08_baseline_evaluation.ipynb",
     [
         md(
-            """# 08 — Ablations, Tuning & Computational Analysis
+            """# 08 — Baseline Evaluation
 
-1. Stage 2 vs CNN baseline (0.7260 / 0.1592 paper ref)
-2. Concept-count: instrument → +rhythm → +timbre → full four
-3. Fusion-type: linear vs attention
-4. LR × batch-size sweep plan
-5. Params / latency"""
+Compare recorded test metrics from the direct CNN and descriptor-fusion baselines. This notebook does not claim to evaluate the proposed model."""
         ),
         md(KAGGLE_SETUP),
         md("## Step 0 — Packages"),
@@ -1758,50 +1755,15 @@ write(
         md("## Step 2 — Collect metrics already written by notebooks 02 and 07"),
         code(
             r'''
-baseline_ref = {"macro_roc_auc": 0.7260, "macro_pr_auc": 0.1592}
-rows = [{"model": "CNN baseline (paper ref, full set)", **baseline_ref}]
-for f in sorted(RESULTS_DIR.glob("02_baseline_test.json")) + sorted(RESULTS_DIR.glob("07_stage2_*_test.json")):
+result_files = sorted(BASELINE_RESULTS_DIR.glob("02_baseline_test.json")) + sorted(BASELINE_RESULTS_DIR.glob("07_descriptor_fusion_*_test.json"))
+if not result_files:
+    raise FileNotFoundError("Run notebooks 02 and 07 before comparing baseline metrics.")
+rows = []
+for f in result_files:
     rows.append({"model": f.stem, **json.loads(f.read_text())})
 ablation_table = pd.DataFrame(rows)
-ablation_table.to_csv(RESULTS_DIR / "08_core_comparison.csv", index=False)
+ablation_table.to_csv(BASELINE_RESULTS_DIR / "08_core_comparison.csv", index=False)
 ablation_table
-'''
-        ),
-        md("## Step 3 — Parameter count + dummy latency (replace with real Stage 2 model when wired)"),
-        code(
-            r'''
-import time, torch, torch.nn as nn
-
-class Tiny(nn.Module):
-    def __init__(self, d, n=87):
-        super().__init__()
-        self.fc = nn.Linear(d, n)
-
-    def forward(self, x):
-        return self.fc(x)
-
-param_rows = []
-for name, dims in [("full_concat", 64 + 5 + 6 + 18), ("inst64", 64)]:
-    m = Tiny(dims)
-    param_rows.append({"config": name, "params": sum(p.numel() for p in m.parameters())})
-
-m = Tiny(64 + 5 + 6 + 18)
-x = torch.randn(32, 64 + 5 + 6 + 18)
-t0 = time.time()
-with torch.no_grad():
-    for _ in range(50):
-        _ = m(x)
-latency_ms = (time.time() - t0) / 50 * 1000
-pd.DataFrame(param_rows).assign(batch_infer_ms=latency_ms).to_csv(RESULTS_DIR / "08_compute.csv", index=False)
-print("wrote 08_compute.csv infer_ms", latency_ms)
-'''
-        ),
-        md("## Step 4 — Hyperparameter sweep **plan** (fill after plugging the Stage 2 train loop)"),
-        code(
-            r'''
-sweep = [{"lr": lr, "batch_size": bs, "status": "todo — reuse notebook 07 train loop"} for lr in [1e-3, 3e-4] for bs in [16, 32, 64]]
-pd.DataFrame(sweep).to_csv(RESULTS_DIR / "08_sweep_plan.csv", index=False)
-pd.DataFrame(sweep)
 '''
         ),
     ],
@@ -1809,26 +1771,27 @@ pd.DataFrame(sweep)
 
 
 write(
-    "09_explainability_eval.ipynb",
+    "09_baseline_explainability.ipynb",
     [
         md(
-            """# 09 — Explainability Evaluation
+            """# 09 — Descriptor-Fusion Baseline Analysis
 
 On held-out **split-0 test** tracks:
 
 1. Attention over {Instrument, Rhythm, Timbre, Harmony}
-2. Occlusion Δ macro PR when a concept is zeroed
-3. Qualitative listening table for the paper"""
+2. Qualitative listening table for baseline inspection
+
+Attention is recorded for comparison only; it is not treated as a validated explanation."""
         ),
         md(KAGGLE_SETUP),
         md("## Step 0 — Packages"),
         code("""!pip install -q matplotlib tqdm"""),
         md("## Step 1 — Bootstrap paths"),
         code(SHARED_BOOTSTRAP),
-        md("## Step 2 — Guard: refuse to run without a trained Stage 2 checkpoint"),
+        md("## Step 2 — Guard: require a trained descriptor-fusion checkpoint"),
         code(
             r'''
-CKPT_PATH = CKPT_DIR / "stage2" / "best_attention.pt"
+CKPT_PATH = CKPT_DIR / "baselines" / "descriptor_fusion" / "best_attention.pt"
 if not CKPT_PATH.exists() or CKPT_PATH.stat().st_size == 0:
     raise FileNotFoundError(
         "Notebook 09 refuses placeholder attention. Train notebook 07 first so this exists and is non-empty:\n"
@@ -1844,7 +1807,7 @@ if "source" in _rcheck.columns and (_rcheck["source"] == "mel_proxy").any():
 print("checkpoint OK", CKPT_PATH, "bytes=", CKPT_PATH.stat().st_size)
 '''
         ),
-        md("## Step 3 — Real Stage 2 attention on held-out test songs"),
+        md("## Step 3 — Descriptor-fusion attention on held-out test songs"),
         code(
             r'''
 import matplotlib.pyplot as plt
@@ -1927,13 +1890,13 @@ with torch.no_grad():
             attn_rows.append(row)
 
 attn_df = pd.DataFrame(attn_rows)
-attn_df.to_csv(RESULTS_DIR / "09_attention_weights_sample.csv", index=False)
+attn_df.to_csv(BASELINE_RESULTS_DIR / "09_attention_weights_sample.csv", index=False)
 fig, ax = plt.subplots(figsize=(8, 4))
 ax.bar(concept_names, attn_df[concept_names].mean(0).values)
 ax.set_ylabel("mean attention")
-ax.set_title("Mean concept attention (Stage 2, test sample)")
+ax.set_title("Mean concept attention (descriptor-fusion baseline)")
 fig.tight_layout()
-fig.savefig(RESULTS_DIR / "09_mean_attention.png", dpi=150)
+fig.savefig(BASELINE_RESULTS_DIR / "09_mean_attention.png", dpi=150)
 plt.show()
 attn_df.head()
 '''
@@ -1945,8 +1908,8 @@ qual = []
 for sid in test_ids[:5]:
     top = concept_names[int(attn_df.loc[attn_df.song_id == sid, concept_names].values.argmax())]
     qual.append({"song_id": sid, "audible_dominant_concept": "", "model_top_concept": top, "agree": "", "comment": ""})
-pd.DataFrame(qual).to_csv(RESULTS_DIR / "09_qualitative_listening.csv", index=False)
-print("Wrote real attention + listening template under", RESULTS_DIR)
+pd.DataFrame(qual).to_csv(BASELINE_RESULTS_DIR / "09_qualitative_listening.csv", index=False)
+print("Wrote real attention + listening template under", BASELINE_RESULTS_DIR)
 '''
         ),
     ],

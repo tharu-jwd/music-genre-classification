@@ -1,7 +1,5 @@
-# Kaggle workflow
+# Kaggle baseline workflow
 
-Use these notebooks when datasets and checkpoints will be passed through saved Kaggle notebook outputs.
+Run the numbered notebooks by attaching saved outputs from their dependencies. Start with `00_kaggle_data_download.ipynb`; use a GPU for `02_direct_cnn_baseline.ipynb`, `03_instrument_pretraining.ipynb`, and `07_descriptor_fusion_baseline.ipynb`.
 
-Start with `00_kaggle_data_download.ipynb`, which downloads shards `00–02` by default. Save its output, attach it to `01`, and continue through the numbered stages. Enable a GPU for `02`, `03`, and `07`.
-
-See `docs/kaggle-how-to.md` for the dependency graph and exact handoff process. Do not assume files in `/kaggle/working` survive into a new notebook.
+The `04–06` notebooks create both descriptor-baseline inputs and supervision targets for the future proposed model. See the [Kaggle run guide](../../docs/kaggle-how-to.md) for the complete dependency graph.

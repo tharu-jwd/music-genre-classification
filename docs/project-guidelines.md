@@ -1,16 +1,19 @@
 # Research constraints
 
-This course project must make and evaluate a deep-learning contribution rather than treating data cleaning as the contribution.
+The deep-learning contribution is the proposed shared encoder, supervised concept branches, joint objective, and gated fusion—not the data preparation process.
 
-For this repository, that means:
+The experimental report must include:
 
-- keep the direct CNN as a comparison baseline;
-- evaluate the concept-guided fusion as the proposed model;
-- compare against the baseline with controlled experiments;
-- include concept-count and fusion-type ablations;
-- report computational cost and limitations;
-- run on accessible Colab, Kaggle, or equivalent hardware;
-- do not present an LLM or agent workflow as the research contribution;
-- do not claim an experiment was completed unless its configuration and output were recorded.
+- the direct CNN baseline;
+- the descriptor-fusion baseline;
+- the proposed model;
+- controlled ablations;
+- compute and latency comparisons;
+- honest explainability validation;
+- limitations and failed experiments where relevant.
 
-The final paper should clearly separate implemented methods, measured results, and future work.
+Do not present handcrafted descriptors as learned concept embeddings. Do not present attention or gates alone as proof of explanation. Do not claim that the proposed model exists until its code runs and produces recorded results.
+
+Do not present an LLM, agent workflow, or data-cleaning pipeline as the research contribution.
+
+All reported results must use official `split-0`, validation-only model selection, and reproducible configurations suitable for accessible Colab or Kaggle hardware.
