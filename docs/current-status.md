@@ -22,11 +22,11 @@ Committed notebooks intentionally contain no execution outputs. Therefore, an en
 |---|---|
 | Shared CNN and masked song pooling | Design agreed; reusable code exists in instrument pretraining |
 | Four learned concept branches | Not implemented |
-| Target normalization and missing-label masks | Not implemented |
-| Joint multi-task objective | Not implemented |
-| Gated concept fusion | Not implemented |
-| Proposed-model training notebook | Not implemented |
-| Proposed-model ablations | Not implemented |
-| Gate and concept-removal evaluation | Not implemented |
+| Target normalization and missing-label masks | **Implemented on fixtures** (`supervision_mask` vs `fusion_mask`; NaN ≠ zero) |
+| Joint multi-task objective | **Implemented on fixtures** (element-level masks; missing labels do not drop tracks) |
+| Gated concept fusion | **Implemented on fixtures** (`concept_fusion/`, branch `thevindu-concept-fusion`) |
+| Proposed-model training notebook | Not implemented (mock CLI: `scripts/run_concept_fusion_mock.py`) |
+| Proposed-model ablations | Schema + experiment IDs frozen; real runs not started |
+| Gate and concept-removal evaluation | **Implemented on fixtures** (`concept_fusion/interventions.py`) |
 
 The architecture diagram is a target specification, not evidence of completion.
