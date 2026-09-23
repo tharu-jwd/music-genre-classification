@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Sequence
 
 import torch
 
@@ -23,6 +24,7 @@ class BranchOutput:
     fusion_token: torch.Tensor  # (B, 64)
     supervision_mask: torch.Tensor  # (B, C_k) 1 = target observed
     fusion_mask: torch.Tensor  # (B, 1) 1 = branch enabled for fusion
+    hidden_token: torch.Tensor | None = None  # (B, 64) diagnostic / F-Hidden only
 
     def validate(self, *, batch: int, n_concepts: int) -> None:
         if self.name not in CONCEPT_ORDER:
@@ -48,6 +50,10 @@ class BranchOutput:
         # Observed targets must be finite. Masked-out targets may be NaN (missing ≠ zero).
         require_finite(f"{self.name}.concept_values[observed]", val, where=sm)
         require_finite(f"{self.name}.fusion_token", tok)
+        if self.hidden_token is not None:
+            hid = require_tensor("hidden_token", self.hidden_token, ndim=2, last=TOKEN_DIM)
+            require_batch("hidden_token", hid, batch)
+            require_finite(f"{self.name}.hidden_token", hid)
 
 
 @dataclass
@@ -87,6 +93,39 @@ class BranchBundle:
 
     def supervision_mask(self, name: str) -> torch.Tensor:
         return self.branches[name].supervision_mask
+
+    def hidden_tokens(self) -> torch.Tensor:
+        """(B, 4, 64) diagnostic embeddings. Required for F-Hidden only."""
+        self.validate()
+        toks = []
+        for n in CONCEPT_ORDER:
+            hid = self.branches[n].hidden_token
+            if hid is None:
+                raise ContractError("F-Hidden requires hidden_token on every branch")
+            toks.append(hid)
+        return torch.stack(toks, dim=1)
+
+    def with_enabled_concepts(self, enabled: Sequence[str]) -> "BranchBundle":
+        """Zero fusion_mask for branches not in `enabled`. Does not drop tracks."""
+        enabled_set = set(enabled)
+        unknown = enabled_set - set(CONCEPT_ORDER)
+        if unknown:
+            raise ContractError(f"unknown enabled concepts {sorted(unknown)}")
+        branches = {}
+        for name in CONCEPT_ORDER:
+            br = self.branches[name]
+            keep = 1.0 if name in enabled_set else 0.0
+            branches[name] = BranchOutput(
+                name=br.name,
+                concept_values=br.concept_values,
+                fusion_token=br.fusion_token,
+                supervision_mask=br.supervision_mask,
+                fusion_mask=torch.full_like(br.fusion_mask, keep),
+                hidden_token=br.hidden_token,
+            )
+        out = BranchBundle(branches=branches, counts=self.counts)
+        out.validate()
+        return out
 
 
 @dataclass

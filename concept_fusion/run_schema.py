@@ -96,6 +96,9 @@ class RunRecord:
 
 def load_records(results_dir: Path) -> list[dict[str, Any]]:
     rows = []
-    for p in sorted(results_dir.glob("*.json")):
-        rows.append(json.loads(p.read_text(encoding="utf-8")))
+    for p in sorted(results_dir.glob("*_seed*.json")):
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if "experiment_id" not in data or "config_hash" not in data:
+            continue
+        rows.append(data)
     return rows

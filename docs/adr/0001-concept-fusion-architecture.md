@@ -81,4 +81,4 @@ Instrument: C_k = 40. Rhythm: C_k = 10. Timbre/harmony: confirm 6 and 18.
 
 ## Status of this branch (Step 1 + Step 2 on mocks)
 
-Implemented and unit-tested against fixtures. Real encoder/branches are **not** wired yet (Step 3).
+Implemented and unit-tested against fixtures. `python scripts/run_all_fusion.py --quick` trains the full fusion-owned matrix on one frozen fixture cohort (val-only thresholds, shared test IDs, tables + F-Gated occlusion). Real encoder/branches are **not** wired yet (Step 3).

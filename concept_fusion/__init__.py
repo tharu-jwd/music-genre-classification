@@ -15,6 +15,7 @@ from concept_fusion.contract import (
 )
 from concept_fusion.types import BranchBundle, BranchOutput, FusionOutput
 from concept_fusion.model import ConceptBottleneckModel
+from concept_fusion.pipeline import run_all
 
 __all__ = [
     "CONCEPT_DROPOUT_P",
@@ -28,4 +29,5 @@ __all__ = [
     "BranchOutput",
     "FusionOutput",
     "ConceptBottleneckModel",
+    "run_all",
 ]

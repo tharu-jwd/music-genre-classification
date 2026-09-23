@@ -29,14 +29,20 @@ class ConceptBottleneckModel(nn.Module):
         fused_dim: int = FUSED_DIM,
         n_tags: int = N_GENRE_TAGS,
         allow_shortcut: bool = False,
+        use_hidden: bool = False,
+        allow_no_dropout: bool = False,
         song_repr_dim: int = 128,
     ):
         super().__init__()
         if n_tags != N_GENRE_TAGS:
             raise ContractError("primary genre vocabulary is frozen at 87 tags")
+        if use_hidden and allow_shortcut:
+            raise ContractError("F-Hidden and F-Shortcut are separate named ablations")
         self.fusion_name = fusion
         self.dropout_p = dropout_p
         self.allow_shortcut = allow_shortcut
+        self.use_hidden = use_hidden
+        self.allow_no_dropout = allow_no_dropout
         self.fusion = build_fusion(fusion, fused_dim=fused_dim)
         self.head = GenreHead(fused_dim=fused_dim, n_tags=n_tags)
         if allow_shortcut:
@@ -60,11 +66,13 @@ class ConceptBottleneckModel(nn.Module):
         mask = fusion_mask
         if apply_dropout:
             if self.dropout_p <= 0:
-                raise ContractError(
-                    "concept dropout is a hard dependency for occlusion faithfulness; "
-                    "do not disable it on the primary model"
-                )
-            mask = apply_concept_dropout(mask, p=self.dropout_p, generator=generator)
+                if not self.allow_no_dropout:
+                    raise ContractError(
+                        "concept dropout is a hard dependency for occlusion faithfulness; "
+                        "do not disable it on the primary model"
+                    )
+            else:
+                mask = apply_concept_dropout(mask, p=self.dropout_p, generator=generator)
         fout = self.fusion(tokens, mask)
         fused = fout.fused
         if self.allow_shortcut:
@@ -75,4 +83,5 @@ class ConceptBottleneckModel(nn.Module):
         return logits, fout
 
     def from_bundle(self, bundle: BranchBundle, **kwargs: Any) -> tuple[torch.Tensor, FusionOutput]:
-        return self.forward(bundle.tokens(), bundle.fusion_mask(), **kwargs)
+        tokens = bundle.hidden_tokens() if self.use_hidden else bundle.tokens()
+        return self.forward(tokens, bundle.fusion_mask(), **kwargs)

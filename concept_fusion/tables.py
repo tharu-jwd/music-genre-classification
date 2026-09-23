@@ -9,6 +9,27 @@ import pandas as pd
 from concept_fusion.run_schema import load_records
 
 
+def dataframe_markdown(df: pd.DataFrame) -> str:
+    if df.empty:
+        return "_no runs_"
+    cols = [str(c) for c in df.columns]
+
+    def cell(v: object) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ""
+        if isinstance(v, float):
+            return f"{v:.4f}"
+        return str(v)
+
+    lines = [
+        "| " + " | ".join(cols) + " |",
+        "| " + " | ".join("---" for _ in cols) + " |",
+    ]
+    for _, row in df.iterrows():
+        lines.append("| " + " | ".join(cell(row[c]) for c in df.columns) + " |")
+    return "\n".join(lines)
+
+
 def comparison_table(results_dir: Path) -> pd.DataFrame:
     recs = load_records(results_dir)
     rows = []
@@ -19,10 +40,13 @@ def comparison_table(results_dir: Path) -> pd.DataFrame:
                 "experiment_id": r.get("experiment_id"),
                 "seed": r.get("seed"),
                 "fusion": (r.get("config") or {}).get("fusion"),
+                "val_macro_ap": m.get("val_macro_ap"),
                 "macro_ap": m.get("macro_ap"),
                 "macro_roc_auc": m.get("macro_roc_auc"),
                 "micro_ap": m.get("micro_ap"),
                 "n_valid_tags": r.get("n_valid_tags"),
+                "params": m.get("params"),
+                "dropout_was_trained": m.get("dropout_was_trained"),
                 "config_hash": r.get("config_hash"),
                 "git_sha": r.get("git_sha"),
                 "test_evaluated": r.get("test_evaluated"),
