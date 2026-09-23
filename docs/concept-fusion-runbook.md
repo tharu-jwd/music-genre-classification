@@ -6,6 +6,8 @@
 
 These numbers are **not** paper results until real branch tokens replace the fixture generator.
 
+**Instrument v2 (now on `main`):** the branch does **not** return a 64-D token. Fusion owns `Linear(40, 64)` over the 40 probabilities and applies `fusion_mask` after that projection. Official tag order is alphabetical (`instrument_branch/docs/instrument-vocabulary.json`).
+
 ---
 
 ## Run all experiments once

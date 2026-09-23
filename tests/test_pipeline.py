@@ -4,6 +4,7 @@ from concept_fusion.contract import CONCEPT_ORDER
 from concept_fusion.experiments import experiment_specs, jobs_for
 from concept_fusion.fixtures import make_cohort
 from concept_fusion.pipeline import PipelineConfig, run_all, train_one
+from concept_fusion.projections import TokenAssembler
 from concept_fusion.thresholds import fit_thresholds
 
 
@@ -21,7 +22,7 @@ def test_enabled_mask_zeroes_disabled_only():
     mask = only_i.fusion_mask()
     assert (mask[:, 0] == 1).all()
     assert (mask[:, 1:] == 0).all()
-    assert only_i.tokens().shape == (4, 4, 64)
+    assert TokenAssembler()(only_i).shape == (4, 4, 64)
 
 
 def test_jobs_include_required_matrix():

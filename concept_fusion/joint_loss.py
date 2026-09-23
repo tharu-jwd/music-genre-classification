@@ -40,7 +40,7 @@ def _masked_mean(loss_elem: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Ten
 class JointLossOrchestrator(torch.nn.Module):
     """L = L_genre + Σ λ_k L_k, each L_k averaged over observed elements only.
 
-    Instrument: BCE on predicted probabilities vs 0/1 (or soft) targets.
+    Instrument: BCE-with-logits when the branch supplies logits (v2); else BCE on probabilities.
     Rhythm/timbre/harmony: Smooth L1 on standardized values.
     NaN targets are allowed only where supervision_mask is 0.
     """
@@ -87,8 +87,16 @@ class JointLossOrchestrator(torch.nn.Module):
             pred_f = torch.where(obs, pred, dummy)
             tgt_f = torch.where(obs, tgt, dummy)
             if name == "instrument":
-                pred_f = pred_f.clamp(1e-6, 1 - 1e-6)
-                raw = F.binary_cross_entropy(pred_f, tgt_f, reduction="none")
+                inst_logits = bundle.branches[name].logits
+                if inst_logits is not None:
+                    lg = require_tensor("instrument.logits", inst_logits, ndim=2)
+                    if lg.shape != pred.shape:
+                        raise ContractError("instrument logits must match concept_values")
+                    lg_f = torch.where(obs, lg, torch.zeros_like(lg))
+                    raw = F.binary_cross_entropy_with_logits(lg_f, tgt_f, reduction="none")
+                else:
+                    pred_f = pred_f.clamp(1e-6, 1 - 1e-6)
+                    raw = F.binary_cross_entropy(pred_f, tgt_f, reduction="none")
             else:
                 raw = F.smooth_l1_loss(pred_f, tgt_f, reduction="none")
             l_k, n_k = _masked_mean(raw, mask)

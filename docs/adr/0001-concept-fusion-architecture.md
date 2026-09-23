@@ -17,7 +17,7 @@ This record freezes the 11 decisions in the ownership brief §8. Branch owners s
 | 2 | Primary fusion | **Masked gated fusion** over LayerNorm tokens. Score is a scalar linear `w⊤ h_k`. Softmax only over enabled branches. Disabled gates are **exactly 0**. | Heterogeneous branches need an explicit availability mask; gating is the proposed contribution. |
 | 3 | Self-attention | Keep as named ablation **F-Attn**, not primary. | Attention weights are not explanations ([Jain & Wallace 2019](https://aclanthology.org/N19-1357/)). |
 | 4 | Gate type | **Global per-track gates** in the primary model. Genre-conditioned 87×4 gates are a named ablation only. | 87×4 gates on a few thousand tracks will overfit; interpretation gets worse. |
-| 5 | Bottleneck units | **Probabilities** (instrument) / **standardized values** (continuous) enter fusion-token *projections inside each branch*. This stack consumes the 64-D token. Aux loss uses those predicted values vs targets. | Value-level intervention is meaningful in probability/standardized space, not raw logits. |
+| 5 | Bottleneck units | **Instrument v2 (published):** branch returns `concept_values (B,40)` probabilities and `logits (B,40)` — **no `fusion_token`**. Fusion owns `Linear(40,64)` and applies `fusion_mask` after that projection. Other branches still supply `(B,64)` tokens until they publish otherwise. Aux instrument loss is **BCE-with-logits**. | Anupama's merged instrument branch; value-level intervention stays in probability space. |
 | 6 | Token normalization | **LayerNorm each token before fusion. Non-negotiable.** | Instrument embedding vs rhythm scalars are different geometries. |
 | 7 | Concept dropout | **p = 0.15** per branch during **training only**. Never drop all four. All-masked fallback: **learned null token**. | **Hard dependency:** no dropout ⇒ no occlusion faithfulness. Masking at test would be OOD. |
 | 8 | Loss weights | Each concept loss is a **mean over observed elements** (unit scale). Start **λ = 1**. Sweep on validation. Compare **Kendall uncertainty weighting** as one run. | Stops 40 instrument tags from dominating 6 timbre tags by count. |
@@ -68,17 +68,19 @@ State this in every results table.
 
 ## Ask each branch owner before real integration
 
-Deliver a **mock fixture** (`BranchOutput` JSON or `.pt`) with:
+Instrument (published on `main`): `concept_values (B,40)`, `logits (B,40)`, `supervision_mask (B,40)`, `fusion_mask (B,1)`. **No `fusion_token`.** Hidden diagnostics are detached `(B,128)`. Vocabulary is the official alphabetical 40-tag list in `instrument_branch/docs/instrument-vocabulary.json`.
+
+Rhythm / timbre / harmony still deliver:
 
 - `concept_values (B, C_k)`
 - `fusion_token (B, 64)`
 - `supervision_mask (B, C_k)`
 - `fusion_mask (B, 1)`
 
-Instrument: C_k = 40. Rhythm: C_k = 10. Timbre/harmony: confirm 6 and 18.
+Rhythm: C_k = 10. Timbre/harmony: confirm 6 and 18.
 
 ---
 
 ## Status of this branch (Step 1 + Step 2 on mocks)
 
-Implemented and unit-tested against fixtures. `python scripts/run_all_fusion.py --quick` trains the full fusion-owned matrix on one frozen fixture cohort (val-only thresholds, shared test IDs, tables + F-Gated occlusion). Real encoder/branches are **not** wired yet (Step 3).
+Implemented and unit-tested against fixtures, aligned to the published instrument v2 API (fusion-owned `Linear(40,64)`). `python scripts/run_all_fusion.py --quick` trains the full fusion-owned matrix on one frozen fixture cohort. Real encoder + live instrument wiring is the next integration step (C-I). Rhythm/timbre/harmony tokens are still fixtures.

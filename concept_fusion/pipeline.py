@@ -309,7 +309,7 @@ def run_faithfulness(spec: ExperimentSpec, seed: int, cohort: FixtureCohort, cfg
         blob = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(blob["model"])
     test = _prepare_split(cohort.test, spec)
-    tokens = test.bundle.hidden_tokens() if spec.use_hidden else test.bundle.tokens()
+    tokens = model.assemble_tokens(test.bundle)
     mask = test.bundle.fusion_mask()
     occ = occlude_each_concept(model, tokens, mask, dropout_was_trained=True)
     model.eval()

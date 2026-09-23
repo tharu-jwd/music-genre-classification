@@ -35,6 +35,11 @@ for required encoder exports and the completed official annotation audit. It is
 separate from the legacy Stage 1 baseline; real training and joint-model
 experiments still require the shared encoder outputs.
 
+The [concept fusion package](concept_fusion/) on `thevindu-concept-fusion` consumes
+that instrument v2 interface: 40 probabilities and logits, **no branch fusion token**.
+Fusion owns `Linear(40, 64)`, then gated/concat/attention fusion to 87 genre logits.
+Run `python scripts/run_all_fusion.py --quick`. See [the fusion runbook](docs/concept-fusion-runbook.md).
+
 Choose one runtime and stay with it:
 
 - [Google Colab](notebooks/colab/README.md) stores artifacts in Google Drive.

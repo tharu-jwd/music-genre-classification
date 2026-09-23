@@ -1,11 +1,16 @@
 """Frozen shared-architecture contract v0.1 (Thevindu integration owner).
 
 Reject violating tensors. Do not silently reshape, reorder, impute, or reinterpret.
+
+Instrument v2 (merged from `instrument_branch`): the branch returns 40 probabilities
+and logits, not a 64-D fusion token. Fusion owns `Linear(40, 64)`.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 CONCEPT_ORDER: tuple[str, ...] = ("instrument", "rhythm", "timbre", "harmony")
 N_CONCEPTS = 4
@@ -13,6 +18,24 @@ TOKEN_DIM = 64
 FUSED_DIM = 128
 N_GENRE_TAGS = 87
 N_INSTRUMENT_TAGS = 40
+INSTRUMENT_HIDDEN_DIM = 128
+# Instrument published v2: no branch-owned fusion token.
+BRANCHES_WITHOUT_FUSION_TOKEN: frozenset[str] = frozenset({"instrument"})
+
+
+def _load_instrument_tags() -> tuple[str, ...]:
+    path = Path(__file__).resolve().parents[1] / "instrument_branch" / "docs" / "instrument-vocabulary.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"instrument vocabulary missing: {path}")
+    tags = json.loads(path.read_text(encoding="utf-8"))
+    if len(tags) != N_INSTRUMENT_TAGS or len(set(tags)) != N_INSTRUMENT_TAGS:
+        raise ValueError(f"instrument vocabulary must be {N_INSTRUMENT_TAGS} unique tags")
+    if tags != sorted(tags):
+        raise ValueError("instrument vocabulary must stay in official alphabetical order")
+    return tuple(tags)
+
+
+INSTRUMENT_TAGS: tuple[str, ...] = _load_instrument_tags()
 
 # Instrument 40 and rhythm 10 are contract-fixed. Timbre/harmony remain
 # provisional until owners freeze target schemas — they only affect aux loss C_k.

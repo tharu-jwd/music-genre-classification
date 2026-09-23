@@ -6,7 +6,15 @@ from dataclasses import dataclass
 
 import torch
 
-from concept_fusion.contract import CONCEPT_ORDER, FUSED_DIM, N_GENRE_TAGS, TOKEN_DIM, ConceptCounts
+from concept_fusion.contract import (
+    CONCEPT_ORDER,
+    FUSED_DIM,
+    INSTRUMENT_HIDDEN_DIM,
+    INSTRUMENT_TAGS,
+    N_GENRE_TAGS,
+    TOKEN_DIM,
+    ConceptCounts,
+)
 from concept_fusion.types import BranchBundle, BranchOutput
 
 
@@ -21,13 +29,26 @@ def make_branch_output(
 ) -> BranchOutput:
     g = torch.Generator().manual_seed(seed + 17 * CONCEPT_ORDER.index(name))
     values = torch.rand(batch, n_concepts, generator=g)
-    if name == "instrument":
-        values = values.clamp(0.02, 0.98)
-    token = torch.randn(batch, TOKEN_DIM, generator=g)
-    token = token / (token.norm(dim=-1, keepdim=True) + 1e-6)
     sup = (torch.rand(batch, n_concepts, generator=g) < supervise_keep).float()
     fus = (torch.rand(batch, 1, generator=g) < fusion_keep).float()
-    # Missing supervision is NaN, not zero.
+    if name == "instrument":
+        values = values.clamp(0.02, 0.98)
+        logits = torch.logit(values)
+        hidden = torch.randn(batch, INSTRUMENT_HIDDEN_DIM, generator=g)
+        hidden = hidden / (hidden.norm(dim=-1, keepdim=True) + 1e-6)
+        return BranchOutput(
+            name=name,
+            concept_values=values,
+            fusion_token=None,
+            supervision_mask=sup,
+            fusion_mask=fus,
+            hidden_token=hidden.detach(),
+            logits=logits,
+            tag_order=INSTRUMENT_TAGS,
+        )
+    token = torch.randn(batch, TOKEN_DIM, generator=g)
+    token = token / (token.norm(dim=-1, keepdim=True) + 1e-6)
+    # Missing supervision is NaN, not zero (continuous branches).
     values = values.masked_fill(sup < 0.5, float("nan"))
     hidden = torch.randn(batch, TOKEN_DIM, generator=g)
     hidden = hidden / (hidden.norm(dim=-1, keepdim=True) + 1e-6)
@@ -111,13 +132,17 @@ def _index_bundle(bundle: BranchBundle, idx: torch.Tensor) -> BranchBundle:
     for name in CONCEPT_ORDER:
         br = bundle.branches[name]
         hid = br.hidden_token[idx] if br.hidden_token is not None else None
+        tok = br.fusion_token[idx] if br.fusion_token is not None else None
+        lg = br.logits[idx] if br.logits is not None else None
         branches[name] = BranchOutput(
             name=br.name,
             concept_values=br.concept_values[idx],
-            fusion_token=br.fusion_token[idx],
+            fusion_token=tok,
             supervision_mask=br.supervision_mask[idx],
             fusion_mask=br.fusion_mask[idx],
             hidden_token=hid,
+            logits=lg,
+            tag_order=br.tag_order,
         )
     out = BranchBundle(branches=branches, counts=bundle.counts)
     out.validate()

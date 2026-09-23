@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import torch
 
-from concept_fusion.contract import CONCEPT_ORDER, FUSED_DIM, N_CONCEPTS, TOKEN_DIM, ConceptCounts
+from concept_fusion.contract import (
+    BRANCHES_WITHOUT_FUSION_TOKEN,
+    CONCEPT_ORDER,
+    FUSED_DIM,
+    INSTRUMENT_HIDDEN_DIM,
+    N_CONCEPTS,
+    N_INSTRUMENT_TAGS,
+    TOKEN_DIM,
+    ConceptCounts,
+)
 from concept_fusion.validation import (
     ContractError,
     require_batch,
@@ -21,19 +30,19 @@ from concept_fusion.validation import (
 class BranchOutput:
     name: str
     concept_values: torch.Tensor  # (B, C_k) probabilities / standardized values
-    fusion_token: torch.Tensor  # (B, 64)
     supervision_mask: torch.Tensor  # (B, C_k) 1 = target observed
     fusion_mask: torch.Tensor  # (B, 1) 1 = branch enabled for fusion
-    hidden_token: torch.Tensor | None = None  # (B, 64) diagnostic / F-Hidden only
+    fusion_token: torch.Tensor | None = None  # (B, 64); forbidden for instrument v2
+    hidden_token: torch.Tensor | None = None  # instrument: (B,128) detached; others (B,64)
+    logits: torch.Tensor | None = None  # instrument BCE-with-logits (B,40)
+    tag_order: tuple[str, ...] | None = None
 
     def validate(self, *, batch: int, n_concepts: int) -> None:
         if self.name not in CONCEPT_ORDER:
             raise ContractError(f"unknown branch {self.name!r}; order is {CONCEPT_ORDER}")
-        tok = require_tensor("fusion_token", self.fusion_token, ndim=2, last=TOKEN_DIM)
         val = require_tensor("concept_values", self.concept_values, ndim=2)
         sm = require_tensor("supervision_mask", self.supervision_mask, ndim=2)
         fm = require_tensor("fusion_mask", self.fusion_mask, ndim=2, last=1)
-        require_batch("fusion_token", tok, batch)
         require_batch("concept_values", val, batch)
         require_batch("supervision_mask", sm, batch)
         require_batch("fusion_mask", fm, batch)
@@ -47,11 +56,32 @@ class BranchOutput:
             )
         require_binary_mask(f"{self.name}.supervision_mask", sm)
         require_binary_mask(f"{self.name}.fusion_mask", fm)
-        # Observed targets must be finite. Masked-out targets may be NaN (missing ≠ zero).
-        require_finite(f"{self.name}.concept_values[observed]", val, where=sm)
-        require_finite(f"{self.name}.fusion_token", tok)
+
+        if self.name in BRANCHES_WITHOUT_FUSION_TOKEN:
+            if self.fusion_token is not None:
+                raise ContractError(
+                    "instrument must not return fusion_token; fusion owns Linear(40,64)"
+                )
+            require_finite("instrument.concept_values", val)
+            if not bool(((val >= 0) & (val <= 1)).all()):
+                raise ContractError("instrument concept_values must be probabilities in [0, 1]")
+            if val.shape[1] != N_INSTRUMENT_TAGS:
+                raise ContractError(f"instrument C={val.shape[1]} != {N_INSTRUMENT_TAGS}")
+            if self.logits is not None:
+                lg = require_tensor("instrument.logits", self.logits, ndim=2, last=N_INSTRUMENT_TAGS)
+                require_batch("instrument.logits", lg, batch)
+                require_finite("instrument.logits", lg)
+        else:
+            if self.fusion_token is None:
+                raise ContractError(f"{self.name} must supply fusion_token (B, {TOKEN_DIM})")
+            tok = require_tensor("fusion_token", self.fusion_token, ndim=2, last=TOKEN_DIM)
+            require_batch("fusion_token", tok, batch)
+            require_finite(f"{self.name}.fusion_token", tok)
+            require_finite(f"{self.name}.concept_values[observed]", val, where=sm)
+
         if self.hidden_token is not None:
-            hid = require_tensor("hidden_token", self.hidden_token, ndim=2, last=TOKEN_DIM)
+            last = INSTRUMENT_HIDDEN_DIM if self.name == "instrument" else TOKEN_DIM
+            hid = require_tensor("hidden_token", self.hidden_token, ndim=2, last=last)
             require_batch("hidden_token", hid, batch)
             require_finite(f"{self.name}.hidden_token", hid)
 
@@ -64,7 +94,7 @@ class BranchBundle:
     @property
     def batch(self) -> int:
         first = next(iter(self.branches.values()))
-        return int(first.fusion_token.shape[0])
+        return int(first.concept_values.shape[0])
 
     def validate(self) -> None:
         if tuple(self.branches.keys()) != CONCEPT_ORDER:
@@ -79,9 +109,10 @@ class BranchBundle:
                 raise ContractError(f"key {name!r} does not match BranchOutput.name")
 
     def tokens(self) -> torch.Tensor:
-        """(B, 4, 64) in CONCEPT_ORDER."""
-        self.validate()
-        return torch.stack([self.branches[n].fusion_token for n in CONCEPT_ORDER], dim=1)
+        raise ContractError(
+            "instrument v2 has no fusion_token; use TokenAssembler or "
+            "ConceptBottleneckModel.assemble_tokens"
+        )
 
     def fusion_mask(self) -> torch.Tensor:
         """(B, 4)."""
@@ -95,15 +126,9 @@ class BranchBundle:
         return self.branches[name].supervision_mask
 
     def hidden_tokens(self) -> torch.Tensor:
-        """(B, 4, 64) diagnostic embeddings. Required for F-Hidden only."""
-        self.validate()
-        toks = []
-        for n in CONCEPT_ORDER:
-            hid = self.branches[n].hidden_token
-            if hid is None:
-                raise ContractError("F-Hidden requires hidden_token on every branch")
-            toks.append(hid)
-        return torch.stack(toks, dim=1)
+        raise ContractError(
+            "instrument hidden is 128-D; use TokenAssembler(..., use_hidden=True)"
+        )
 
     def with_enabled_concepts(self, enabled: Sequence[str]) -> "BranchBundle":
         """Zero fusion_mask for branches not in `enabled`. Does not drop tracks."""
@@ -122,6 +147,8 @@ class BranchBundle:
                 supervision_mask=br.supervision_mask,
                 fusion_mask=torch.full_like(br.fusion_mask, keep),
                 hidden_token=br.hidden_token,
+                logits=br.logits,
+                tag_order=br.tag_order,
             )
         out = BranchBundle(branches=branches, counts=self.counts)
         out.validate()

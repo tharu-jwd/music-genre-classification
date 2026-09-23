@@ -21,7 +21,7 @@ Committed notebooks intentionally contain no execution outputs. Therefore, an en
 | Component | Status |
 |---|---|
 | Shared CNN and masked song pooling | Design agreed; reusable code exists in instrument pretraining |
-| Four learned concept branches | Not implemented |
+| Four learned concept branches | Instrument v2 implemented (`instrument_branch/`); rhythm/timbre/harmony not yet |
 | Target normalization and missing-label masks | **Implemented on fixtures** (`supervision_mask` vs `fusion_mask`; NaN ≠ zero) |
 | Joint multi-task objective | **Implemented on fixtures** (element-level masks; missing labels do not drop tracks) |
 | Gated concept fusion | **Implemented on fixtures** (`concept_fusion/`, branch `thevindu-concept-fusion`) |

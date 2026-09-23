@@ -12,6 +12,7 @@ from concept_fusion.fixtures import (
     make_concept_targets,
     make_genre_batch,
 )
+from concept_fusion.projections import TokenAssembler
 from concept_fusion.fusion import ConcatFusion, MaskedGatedFusion
 from concept_fusion.interventions import occlude_concept
 from concept_fusion.joint_loss import JointLossOrchestrator
@@ -22,9 +23,10 @@ from concept_fusion.validation import ContractError
 
 def test_token_shape_and_order():
     b = make_bundle(5, seed=0)
-    t = b.tokens()
+    t = TokenAssembler()(b)
     assert t.shape == (5, 4, TOKEN_DIM)
     assert tuple(b.branches.keys()) == CONCEPT_ORDER
+    assert b.branches["instrument"].fusion_token is None
 
 
 def test_rejects_wrong_token_order():
