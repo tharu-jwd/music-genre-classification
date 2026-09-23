@@ -19,7 +19,7 @@ The target model learns four concept representations from one shared neural audi
 |---|---:|---|
 | Instrument | 64 | Multi-label instrument tags |
 | Rhythm | 32 | BPM, onset rate, danceability and beat statistics |
-| Timbre | 32 | Centroid, bandwidth, contrast, flatness, RMS and flux |
+| Timbre | 35 | Centroid, bandwidth, contrast, flatness, roll-off, HNR, inharmonicity, and MFCC statistics |
 | Harmony | 32 | 12 chroma and 6 Tonnetz targets |
 
 Continuous targets must be fitted and standardized using training data only. Missing target values must be masked out of their auxiliary losses.

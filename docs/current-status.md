@@ -21,8 +21,8 @@ Committed notebooks intentionally contain no execution outputs. Therefore, an en
 | Component | Status |
 |---|---|
 | Shared CNN and masked song pooling | Design agreed; reusable code exists in instrument pretraining |
-| Four learned concept branches | Not implemented |
-| Target normalization and missing-label masks | Not implemented |
+| Four learned concept branches | Timbre branch implemented; instrument, rhythm, and harmony pending |
+| Target normalization and missing-label masks | Implemented for the timbre branch |
 | Joint multi-task objective | Not implemented |
 | Gated concept fusion | Not implemented |
 | Proposed-model training notebook | Not implemented |
