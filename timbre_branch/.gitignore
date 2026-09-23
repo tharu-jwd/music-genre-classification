@@ -1,0 +1,11 @@
+# Local datasets and generated training artifacts stay outside Git.
+data/*
+!data/README.md
+checkpoints/
+results/
+*.pt
+*.pth
+*.ckpt
+__pycache__/
+.pytest_cache/
+.tmp_*/
