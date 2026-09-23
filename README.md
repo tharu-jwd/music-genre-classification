@@ -28,6 +28,13 @@ See [current status](docs/current-status.md), [baseline architecture](docs/basel
 
 ## Notebook pipeline
 
+The [standalone instrument branch notebook](instrument_branch/notebooks/03_instrument_branch.ipynb)
+implements the proposed shared-input instrument head, masked supervision and
+40-concept bottleneck. See its [run and integration guide](instrument_branch/README.md)
+for required encoder exports and the completed official annotation audit. It is
+separate from the legacy Stage 1 baseline; real training and joint-model
+experiments still require the shared encoder outputs.
+
 Choose one runtime and stay with it:
 
 - [Google Colab](notebooks/colab/README.md) stores artifacts in Google Drive.
