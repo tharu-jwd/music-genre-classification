@@ -25,7 +25,8 @@ timbre, and rhythm branches, and harmony preflight.
 A full clean hosted run has not been proven. The split parser, fixed vocabularies,
 song windowing, cohort consistency, instrument-label availability, bounded harmony
 extractor/branch screening, and GPU runtime gates have CPU-tested implementations.
-Notebook 06 exposes that CPU ladder behind explicit flags and an exact Git commit.
+The resource-capped harmony CPU ladder now lives under `harmony_branch/scripts/`;
+the retired notebook 06 is not part of the hosted workflow.
 A bounded CPU Essentia chord-baseline generator and evaluator are ready, but their
 external benchmark has not run. The timbre implementation and its synthetic smoke
 test are present, but its real target table and shared-encoder inputs are not tracked.
@@ -53,8 +54,9 @@ Each document has one purpose:
 |---|---|
 | [Architecture](docs/architecture.md) | Existing baselines and the proposed model design |
 | [Project plan](docs/project-plan.md) | Current status, blockers, ownership boundaries, and remaining work |
-| [Harmony plan](docs/harmony-plan.md) | Step-by-step work owned by the harmony branch |
-| [Harmony integration hand-off](docs/harmony-integration-handoff.md) | Current interface, required artifacts, and executable next commands |
+| [Harmony branch](harmony_branch/README.md) | Owned code, tests, documentation, and integration boundary |
+| [Harmony plan](harmony_branch/docs/plan.md) | Step-by-step work owned by the harmony branch |
+| [Harmony integration hand-off](harmony_branch/docs/integration-handoff.md) | Current interface, required artifacts, and executable next commands |
 | [Team standards](docs/team-standards.md) | Shared data, model, artifact, evaluation, and development contracts |
 
 ## Notebook workflows
@@ -79,36 +81,22 @@ three essential notebooks.
 ├── docs/
 │   ├── architecture.md
 │   ├── project-plan.md
-│   ├── harmony-plan.md
 │   ├── team-standards.md
 │   └── diagrams/
-│       ├── proposed-concept-guided-architecture.svg
-│       └── harmony-pseudo-supervision.svg
+│       └── proposed-concept-guided-architecture.svg
 ├── notebooks/
 │   ├── colab/
 │   ├── kaggle/
 │   └── dataset_split/
 ├── instrument_branch/             # 40 instrument concepts from a 128D song input
 ├── timbre_branch/                  # 35 standardized timbre concepts from a 128D input
+├── rhythm_branch/                  # 10 learned temporal rhythm concepts
+├── harmony_branch/                 # temporal harmony package, scripts, tests, and docs
 ├── concept_fusion/                # shared contracts, projections, losses, and fusion
 ├── scripts/
 │   ├── generate_colab_notebooks.py
 │   ├── generate_kaggle_notebooks.py
-│   ├── harmony_chroma.py
-│   ├── benchmark_harmony_extractors.py
-│   ├── decide_harmony_extractor.py
-│   ├── materialize_harmony_target_pilot.py
-│   ├── harmony_alignment.py
 │   ├── shared_audio_encoder.py
-│   ├── cache_harmony_encoder_pilot.py
-│   ├── build_harmony_screen_dataset.py
-│   ├── temporal_harmony_branch.py
-│   ├── screen_temporal_harmony_branch.py
-│   ├── decide_harmony_branch_screen.py
-│   ├── prepare_chord_benchmark_source.py
-│   ├── generate_essentia_chord_estimates.py
-│   ├── evaluate_chord_teacher.py
-│   ├── decide_chord_teacher.py
 │   ├── freeze_experiment_cohort.py
 │   ├── manage_gpu_budget.py
 │   └── paired_bootstrap_compare.py

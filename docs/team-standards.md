@@ -67,7 +67,7 @@ script](https://github.com/MTG/mtg-jamendo-dataset/blob/master/scripts/melspectr
 
 Waveform preprocessing for new harmony extraction is a separate contract and must
 still freeze channel conversion, amplitude handling, and failure rules before use.
-`scripts/export_harmony_regions.py` derives the harmony regions from the same
+`harmony_branch/scripts/export_harmony_regions.py` derives the harmony regions from the same
 `logmel_window_plan` used by model segmentation and refuses unfrozen or oversized
 development cohorts. Its boundaries are log-Mel frame boundaries at 12,000 Hz and a
 256-sample hop; the underlying centered 512-sample analysis context must be retained

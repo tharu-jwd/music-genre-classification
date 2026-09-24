@@ -46,6 +46,14 @@ def nb(cells: list[dict]) -> dict:
     }
 
 
+def _without_cell_ids(notebook: dict) -> dict:
+    """Ignore optional nbformat cell IDs when checking generated content."""
+    return {
+        **notebook,
+        "cells": [{key: value for key, value in cell.items() if key != "id"} for cell in notebook["cells"]],
+    }
+
+
 # Shared hosted workflow only. Branch training/eval lives in packages, not 02-09.
 KEEP_NOTEBOOKS = {
     "00_download_to_drive.ipynb",
@@ -59,7 +67,11 @@ def write(name: str, cells: list[dict]) -> None:
         print(f"skipped retired notebook {name}")
         return
     path = OUT / name
-    path.write_text(json.dumps(nb(cells), indent=1), encoding="utf-8")
+    generated = nb(cells)
+    if path.exists() and _without_cell_ids(json.loads(path.read_text())) == generated:
+        print(f"unchanged {path.relative_to(ROOT)}")
+        return
+    path.write_text(json.dumps(generated, indent=1), encoding="utf-8")
     print(f"wrote {path.relative_to(ROOT)}")
 
 
@@ -1090,7 +1102,7 @@ availability and writes no harmony targets. Explicit opt-in CPU cells below can 
 the reviewed extractor and branch-screening gates from an exact Git commit.
 
 The temporal chroma extractor and automatic chord teacher must pass the quality
-gates in `docs/harmony-plan.md` before this notebook becomes a target generator.
+gates in `harmony_branch/docs/plan.md` before this notebook becomes a target generator.
 The CPU-only CQT candidate has synthetic tests but is not selected until the
 real-audio comparison gate passes.
 GPU Off. Needs notebook 01 and waveform audio."""
@@ -1160,7 +1172,7 @@ summary = {
     "n_duplicate_waveform_ids": int((availability["reason"] == "duplicate_waveform_candidates").sum()),
     "creates_targets": False,
     "mel_fallback_allowed": False,
-    "next_step": "Use the disabled-by-default CPU gate cells and docs/harmony-plan.md",
+    "next_step": "Use the disabled-by-default CPU gate cells and harmony_branch/docs/plan.md",
 }
 (out / "harmony_preflight.json").write_text(json.dumps(summary, indent=2))
 print(json.dumps(summary, indent=2))
@@ -1213,7 +1225,7 @@ if any((RUN_HARMONY_CHROMA_GATE, PREPARE_HARMONY_SCREEN, RUN_HARMONY_SCREEN)):
         raise RuntimeError("harmony code checkout is dirty")
     subprocess.check_call([
         sys.executable, "-m", "pip", "install", "-q", "-r",
-        str(PROJECT_CODE / "requirements-harmony.txt"),
+        str(PROJECT_CODE / "harmony_branch" / "requirements.txt"),
     ])
     HARMONY_RUN_ROOT = RESULTS_DIR / "harmony" / run_name
     HARMONY_RUN_ROOT.mkdir(parents=True, exist_ok=True)
@@ -1252,33 +1264,34 @@ if RUN_HARMONY_CHROMA_GATE:
         subprocess.check_call(list(map(str, command)), cwd=PROJECT_CODE)
 
     py = sys.executable
-    scripts = PROJECT_CODE / "scripts"
+    shared_scripts = PROJECT_CODE / "scripts"
+    harmony_scripts = PROJECT_CODE / "harmony_branch" / "scripts"
     cohort = HARMONY_RUN_ROOT / "harmony_extractor_seed42.json"
     regions = HARMONY_RUN_ROOT / "harmony_regions_seed42.json"
     comparison = HARMONY_RUN_ROOT / "harmony_extractor_candidates.json"
     decision = HARMONY_RUN_ROOT / "harmony_extractor_decision.json"
     targets = HARMONY_RUN_ROOT / "harmony-target-pilot"
     run_stage(cohort, [
-        py, scripts / "freeze_experiment_cohort.py", MANIFEST,
+        py, shared_scripts / "freeze_experiment_cohort.py", MANIFEST,
         "--splits", "train", "validation",
         "--require-available", "waveform_available",
         "--limit", "train=8", "--limit", "validation=2",
         "--seed", "42", "--output", cohort,
     ])
     run_stage(regions, [
-        py, scripts / "export_harmony_regions.py", MANIFEST, cohort,
+        py, harmony_scripts / "export_harmony_regions.py", MANIFEST, cohort,
         "--root", ROOT, "--regions-per-song", "2", "--output", regions,
     ])
     run_stage(comparison, [
-        py, scripts / "benchmark_harmony_extractors.py",
+        py, harmony_scripts / "benchmark_harmony_extractors.py",
         "--regions", regions, "--output", comparison,
     ])
     run_stage(decision, [
-        py, scripts / "decide_harmony_extractor.py", comparison,
+        py, harmony_scripts / "decide_harmony_extractor.py", comparison,
         "--output", decision,
     ])
     run_stage(targets, [
-        py, scripts / "materialize_harmony_target_pilot.py", regions, decision,
+        py, harmony_scripts / "materialize_harmony_target_pilot.py", regions, decision,
         "--output-dir", targets,
     ])
     print("Chroma gate artifacts:", HARMONY_RUN_ROOT)
@@ -1301,14 +1314,14 @@ if PREPARE_HARMONY_SCREEN:
             "HARMONY_INSTRUMENT_CHECKPOINT to its exact best.pt path."
         )
     py = sys.executable
-    scripts = PROJECT_CODE / "scripts"
+    harmony_scripts = PROJECT_CODE / "harmony_branch" / "scripts"
     cohort = HARMONY_RUN_ROOT / "harmony_extractor_seed42.json"
     targets = HARMONY_RUN_ROOT / "harmony-target-pilot"
     feature_cache = HARMONY_RUN_ROOT / "harmony-encoder-cache-pilot"
     screen_dataset = HARMONY_RUN_ROOT / "harmony-screen-dataset-pilot"
     if not feature_cache.exists():
         subprocess.check_call([
-            py, scripts / "cache_harmony_encoder_pilot.py",
+            py, harmony_scripts / "cache_harmony_encoder_pilot.py",
             MANIFEST, cohort, instrument_checkpoint,
             "--root", ROOT, "--max-songs", "10",
             "--max-cpu-seconds", "600", "--cpu-threads", "4",
@@ -1318,7 +1331,7 @@ if PREPARE_HARMONY_SCREEN:
         print("Reusing immutable stage:", feature_cache)
     if not screen_dataset.exists():
         subprocess.check_call([
-            py, scripts / "build_harmony_screen_dataset.py",
+            py, harmony_scripts / "build_harmony_screen_dataset.py",
             feature_cache, targets, "--output-dir", screen_dataset,
         ], cwd=PROJECT_CODE)
     else:
@@ -1327,7 +1340,7 @@ if PREPARE_HARMONY_SCREEN:
     if not template.exists():
         with template.open("w") as handle:
             subprocess.check_call([
-                py, scripts / "decide_harmony_branch_screen.py",
+                py, harmony_scripts / "decide_harmony_branch_screen.py",
                 "--print-policy-template", "--dataset", screen_dataset / "index.json",
             ], stdout=handle, cwd=PROJECT_CODE)
     print("Review and fill policy before Stage C:", template)
@@ -1345,17 +1358,18 @@ if RUN_HARMONY_SCREEN:
     policy = Path(policy_text)
     if not policy.is_file():
         raise FileNotFoundError(policy)
-    sys.path.insert(0, str(PROJECT_CODE))
-    from scripts.decide_harmony_branch_screen import validate_policy
+    sys.path.insert(0, str(PROJECT_CODE / "harmony_branch" / "src"))
+    sys.path.insert(0, str(PROJECT_CODE / "harmony_branch" / "scripts"))
+    from decide_harmony_branch_screen import validate_policy
     validate_policy(json.loads(policy.read_text()))
     screen_dataset = HARMONY_RUN_ROOT / "harmony-screen-dataset-pilot"
     screen_output = HARMONY_RUN_ROOT / "harmony-branch-screen"
     screen_decision = HARMONY_RUN_ROOT / "harmony-branch-screen-decision.json"
     py = sys.executable
-    scripts = PROJECT_CODE / "scripts"
+    harmony_scripts = PROJECT_CODE / "harmony_branch" / "scripts"
     if not screen_output.exists():
         subprocess.check_call([
-            py, scripts / "screen_temporal_harmony_branch.py", screen_dataset,
+            py, harmony_scripts / "screen_temporal_harmony_branch.py", screen_dataset,
             "--max-epochs", "20", "--max-cpu-seconds", "300",
             "--cpu-threads", "4", "--output-dir", screen_output,
         ], cwd=PROJECT_CODE)
@@ -1363,7 +1377,7 @@ if RUN_HARMONY_SCREEN:
         print("Reusing immutable stage:", screen_output)
     if not screen_decision.exists():
         subprocess.check_call([
-            py, scripts / "decide_harmony_branch_screen.py",
+            py, harmony_scripts / "decide_harmony_branch_screen.py",
             policy, screen_output / "report.json", "--output", screen_decision,
         ], cwd=PROJECT_CODE)
     else:
