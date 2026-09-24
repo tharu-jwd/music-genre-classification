@@ -3,12 +3,14 @@
 Open [the standalone notebook](notebooks/03_instrument_branch.ipynb). It has no
 Essentia dependency and does not import project modules. It contains the design,
 annotation audit, branch, loss, training, metrics, checks, literature notes and
-integration guide.
+integration guide. See [ARCHITECTURE.md](ARCHITECTURE.md) for the concise model,
+tensor, masking, loss, and fusion contracts.
 
 All mergeable instrument-branch files live in this directory:
 
 ```text
 instrument_branch/
+    ARCHITECTURE.md
     README.md
     notebooks/03_instrument_branch.ipynb
     scripts/generate_instrument_branch_notebook.py
@@ -24,7 +26,7 @@ Downloaded data and training artifacts remain outside the mergeable files.
 The primary path is `song_repr (B,128) -> Linear(128,128) -> ReLU ->
 Dropout(0.1) -> Linear(128,40) -> sigmoid probabilities (B,40)`.
 The branch has 21,672 trainable parameters and no fusion projection.
-`window_repr (B,2,128)` is accepted for contract checking but not used by the
+`window_repr (B,W,128)` is accepted for contract checking but not used by the
 song-level head. A learned temporal-attention extension remains pending approval.
 
 ## Run
@@ -34,7 +36,7 @@ song-level head. A learned temporal-attention extension remains pending approval
    `song_id` and official `split` columns. Set `CFG['output']` to a writable artifact
    directory, then rerun the configuration cell so `OUT` agrees. Enable `run_audit`.
 3. Obtain Dehan's `shared_representations.npz`, containing string `song_ids` and
-   `song_repr (N,128)`. Optional `window_repr` must be `(N,2,128)`. Supply the
+   `song_repr (N,128)`. Optional `window_repr` must be `(N,W,128)`. Supply the
    encoder provenance JSON described in the notebook, then enable `run_training`.
 4. Compare validation runs in separate output directories. Freeze the experiment
    configuration before enabling `run_test`. Three seeds are configured by default.

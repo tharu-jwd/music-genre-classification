@@ -22,14 +22,22 @@ import torch
 try:
     from scripts.gpu_run_contract import load_cohort_artifact
     from scripts.mtg_data_contract import NOTEBOOK_DATA_CONTRACT
-    from scripts.shared_audio_encoder import SharedAudioEncoder
+    from scripts.shared_audio_encoder import (
+        SHARED_ENCODER_ARCHITECTURE,
+        SHARED_ENCODER_DIM,
+        SharedAudioEncoder,
+    )
 except ModuleNotFoundError:  # Direct execution adds scripts/, not the repository root.
     from gpu_run_contract import load_cohort_artifact
     from mtg_data_contract import NOTEBOOK_DATA_CONTRACT
-    from shared_audio_encoder import SharedAudioEncoder
+    from shared_audio_encoder import (
+        SHARED_ENCODER_ARCHITECTURE,
+        SHARED_ENCODER_DIM,
+        SharedAudioEncoder,
+    )
 
 
-SCHEMA_VERSION = "harmony_encoder_cache_pilot_v1"
+SCHEMA_VERSION = "harmony_encoder_cache_pilot_v2"
 MAX_SONGS = 32
 MAX_CPU_SECONDS = 600.0
 MAX_CPU_THREADS = 8
@@ -81,6 +89,8 @@ def _load_checkpoint(path: Path) -> tuple[dict, int]:
         raise ValueError(f"cannot load trusted instrument checkpoint {path}: {error}") from error
     if not isinstance(checkpoint, dict):
         raise ValueError("instrument checkpoint must be a mapping")
+    if checkpoint.get("encoder_architecture") != SHARED_ENCODER_ARCHITECTURE:
+        raise ValueError("instrument checkpoint is not shared_cnn_audio_encoder_v2")
     config = checkpoint.get("training_config")
     if not isinstance(config, dict):
         raise ValueError("instrument checkpoint is missing training_config")
@@ -108,7 +118,10 @@ def _load_checkpoint(path: Path) -> tuple[dict, int]:
     projection = state.get("proj.weight", state.get("enc.proj.weight"))
     if not isinstance(projection, torch.Tensor) or projection.ndim != 2:
         raise ValueError("instrument checkpoint has no recognizable encoder projection")
-    return checkpoint, int(projection.shape[0])
+    output_dim = int(projection.shape[0])
+    if output_dim != SHARED_ENCODER_DIM:
+        raise ValueError(f"instrument checkpoint encoder width must be {SHARED_ENCODER_DIM}")
+    return checkpoint, output_dim
 
 
 def cache_encoder_pilot(
@@ -221,6 +234,7 @@ def cache_encoder_pilot(
                     "sequence_mask": encoded.sequence_mask[0].numpy().astype(bool),
                     "sequence_window_index": encoded.sequence_window_index[0].numpy().astype(np.int16),
                     "pooled_song": encoded.pooled_song[0].numpy().astype(np.float32),
+                    "window_repr": encoded.window_repr[0].numpy().astype(np.float32),
                 }
                 filename = f"{song_id}.npz"
                 artifact_path = temporary / filename
@@ -275,6 +289,12 @@ def cache_encoder_pilot(
             "checkpoint_format": checkpoint_format,
             "input_schema": LOGMEL_SCHEMA_VERSION,
             "encoder_output_dim": output_dim,
+            "encoder_architecture": model.architecture,
+            "temporal_stride_frames": model.temporal_stride_frames,
+            "temporal_receptive_field_frames": model.temporal_receptive_field_frames,
+            "token_stride_seconds": (
+                model.temporal_stride_frames * LOGMEL_HOP_LENGTH / LOGMEL_SAMPLE_RATE
+            ),
             "limits": {
                 "max_songs": MAX_SONGS,
                 "max_cpu_seconds": MAX_CPU_SECONDS,

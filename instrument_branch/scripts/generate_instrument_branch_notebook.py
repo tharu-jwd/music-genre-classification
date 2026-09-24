@@ -31,7 +31,7 @@ Fusion consumes the 40 probabilities directly or owns a projection if equal-widt
 tokens are needed. This branch no longer returns a 64-D `fusion_token`.
 Train jointly with genre loss plus masked concept losses; separate instrument
 pretraining is optional. Hidden states cannot reach primary fusion. The optional
-`window_repr (B,2,128)` is accepted and validated, but song-level inference does
+`window_repr (B,W,128)` is accepted and validated, but song-level inference does
 not use it. Label-specific attention remains a team-approved future experiment.
 
 Run locally, on Colab or on Kaggle. The contract tests run
@@ -248,8 +248,14 @@ class InstrumentBranch(nn.Module):
     def forward(self, song_repr, window_repr=None, supervision_mask=None, fusion_mask=None):
         if song_repr.ndim != 2 or song_repr.shape[1] != 128 or not torch.isfinite(song_repr).all():
             raise ValueError("Expected finite song_repr (B,128)")
-        if window_repr is not None and (window_repr.shape != (len(song_repr), 2, 128) or not torch.isfinite(window_repr).all()):
-            raise ValueError("Expected finite window_repr (B,2,128)")
+        if window_repr is not None and (
+            window_repr.ndim != 3
+            or window_repr.shape[0] != len(song_repr)
+            or window_repr.shape[1] < 1
+            or window_repr.shape[2] != 128
+            or not torch.isfinite(window_repr).all()
+        ):
+            raise ValueError("Expected finite window_repr (B,W,128) with W >= 1")
         hidden = self.hidden(song_repr)
         logits = self.classifier(hidden)
         probabilities = logits.sigmoid()

@@ -53,6 +53,7 @@ Each document has one purpose:
 | Document | Purpose |
 |---|---|
 | [Architecture](docs/architecture.md) | Existing baselines and the proposed model design |
+| [Shared CNN encoder](docs/shared-cnn-encoder-architecture.md) | Implemented CNN, tensor contract, temporal geometry, masks, and checkpoint compatibility |
 | [Project plan](docs/project-plan.md) | Current status, blockers, ownership boundaries, and remaining work |
 | [Harmony branch](harmony_branch/README.md) | Owned code, tests, documentation, and integration boundary |
 | [Harmony plan](harmony_branch/docs/plan.md) | Step-by-step work owned by the harmony branch |

@@ -5,6 +5,7 @@ boundary as `instrument_branch/`, `timbre_branch/`, and `rhythm_branch/`.
 
 ```text
 harmony_branch/
+├── ARCHITECTURE.md
 ├── README.md
 ├── requirements.txt
 ├── src/harmony_branch/
@@ -18,6 +19,9 @@ harmony_branch/
 ```
 
 ## Contract
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete network, tensor, temporal
+alignment, masking, loss, and fusion design.
 
 The branch consumes fine-grained ordered shared-encoder features with masks and
 window identity. It returns:

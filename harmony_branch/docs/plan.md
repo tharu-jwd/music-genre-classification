@@ -614,12 +614,13 @@ window_index:     batch × time
 pooled_song:      batch × feature        # optional convenience output
 ```
 
-`scripts/shared_audio_encoder.py` now exposes the existing instrument CNN before
-time averaging. With the frozen log-Mel settings its tokens span two input frames,
-approximately 42.7 ms, while retaining exact partial-window masks and discontinuous
-song-relative times. It can load both current Colab (`cnn.*`/`proj.*`) and Kaggle
-(`enc.cnn.*`/`enc.proj.*`) instrument checkpoint layouts. This is an interface and
-reuse result, not evidence that its architecture is optimal.
+`scripts/shared_audio_encoder.py` implements `shared_cnn_audio_encoder_v2`. With the
+frozen log-Mel settings its output stride spans two input frames, approximately
+42.7 ms, while retaining exact partial-window masks and discontinuous song-relative
+times. Its theoretical receptive field is 12 input frames (approximately 256 ms),
+which is distinct from its timestamp-alignment interval. It accepts complete v2
+states directly or under `enc.`/`encoder.`. Earlier two-convolution Colab/Kaggle
+checkpoints are not shape-compatible and are rejected rather than partially loaded.
 
 `harmony_branch/src/harmony_branch/alignment.py` pools only valid chroma frames into explicit token
 intervals, keeps silent intervals unsupervised, and requires a registered maximum
