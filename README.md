@@ -20,8 +20,8 @@ predicts every genre that applies to a song.
 
 The diagram is the target architecture, not a completed implementation. The
 repository contains generated workflows for data preparation, two comparison
-baselines, instrument pretraining, concept-target preparation, standalone instrument
-and timbre branches, and harmony preflight.
+baselines, instrument pretraining, concept-target preparation, standalone instrument,
+timbre, and rhythm branches, and harmony preflight.
 A full clean hosted run has not been proven. The split parser, fixed vocabularies,
 song windowing, cohort consistency, instrument-label availability, bounded harmony
 extractor/branch screening, and GPU runtime gates have CPU-tested implementations.
@@ -29,6 +29,8 @@ Notebook 06 exposes that CPU ladder behind explicit flags and an exact Git commi
 A bounded CPU Essentia chord-baseline generator and evaluator are ready, but their
 external benchmark has not run. The timbre implementation and its synthetic smoke
 test are present, but its real target table and shared-encoder inputs are not tracked.
+The rhythm branch and fusion adapter pass synthetic CPU contract tests, but the real
+AcousticBrainz coverage/interval audit and shared-encoder cache are not tracked.
 Real-audio harmony selection, chord-teacher acceptance, real-branch data loading,
 and a clean end-to-end hosted run remain unresolved before joint-training outputs are
 trustworthy. The temporal harmony/fusion adapter and its CPU integration tests are

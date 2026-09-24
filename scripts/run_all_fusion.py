@@ -27,15 +27,27 @@ def main() -> None:
     p.add_argument("--out", default="results/proposed/mock")
     p.add_argument("--only", default=None, help="Single experiment ID, e.g. F-Gated")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--lambda-rhythm", type=float, default=1.0)
     args = p.parse_args()
 
     if args.only:
-        rec = run_single(args.only, seed=args.seed, out_dir=args.out, steps=args.steps or (5 if args.quick else 30))
+        rec = run_single(
+            args.only,
+            seed=args.seed,
+            out_dir=args.out,
+            steps=args.steps or (5 if args.quick else 30),
+            lambda_rhythm=args.lambda_rhythm,
+        )
         print("wrote", rec.checkpoint_path)
         print("val_macro_ap", rec.metrics.get("val_macro_ap"), "test_macro_ap", rec.metrics.get("test_macro_ap"))
         return
 
-    run_all(quick=args.quick, out_dir=args.out, steps=args.steps)
+    run_all(
+        quick=args.quick,
+        out_dir=args.out,
+        steps=args.steps,
+        lambda_rhythm=args.lambda_rhythm,
+    )
 
 
 if __name__ == "__main__":

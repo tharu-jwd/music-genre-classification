@@ -3,6 +3,7 @@
 Reject violating tensors. Do not silently reshape, reorder, impute, or reinterpret.
 
 Instrument v2: 40 probabilities + logits, no fusion token. Fusion owns Linear(40, 64).
+Rhythm v1: mel-derived temporal branch, 64D fusion token + 10 AB predictions.
 Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
 Fusion owns Linear(35, 64).
 Harmony v1: temporal 12-bin chroma predictions plus an independently configurable
@@ -23,6 +24,7 @@ TOKEN_DIM = 64
 FUSED_DIM = 128
 N_GENRE_TAGS = 87
 N_INSTRUMENT_TAGS = 40
+N_RHYTHM_CONCEPTS = 10
 N_TIMBRE_CONCEPTS = 35
 N_HARMONY_CHROMA = 12
 N_HARMONY_CHORDS = 25
@@ -71,6 +73,30 @@ def _load_timbre_features() -> tuple[str, ...]:
 
 
 TIMBRE_FEATURES: tuple[str, ...] = _load_timbre_features()
+
+
+def _load_rhythm_features() -> tuple[str, ...]:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "rhythm_branch"
+        / "src"
+        / "rhythm_branch"
+        / "constants.py"
+    )
+    if not path.is_file():
+        raise FileNotFoundError(f"rhythm feature list missing: {path}")
+    spec = importlib.util.spec_from_file_location("rhythm_branch_constants", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load rhythm constants from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cols = tuple(mod.RHYTHM_FEATURES)
+    if len(cols) != N_RHYTHM_CONCEPTS or len(set(cols)) != N_RHYTHM_CONCEPTS:
+        raise ValueError(f"rhythm RHYTHM_FEATURES must be {N_RHYTHM_CONCEPTS} unique names")
+    return cols
+
+
+RHYTHM_FEATURES: tuple[str, ...] = _load_rhythm_features()
 CONCEPT_DROPOUT_P = 0.15
 SUPPORT_FLOOR = 10
 GLOBAL_THRESHOLD_FALLBACK = 0.5
@@ -90,7 +116,7 @@ DEFAULT_SEEDS = (0, 1, 2)
 @dataclass(frozen=True)
 class ConceptCounts:
     instrument: int = N_INSTRUMENT_TAGS
-    rhythm: int = 10
+    rhythm: int = N_RHYTHM_CONCEPTS
     timbre: int = N_TIMBRE_CONCEPTS
     harmony: int = N_HARMONY_CHROMA
 

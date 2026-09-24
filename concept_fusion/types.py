@@ -16,7 +16,9 @@ from concept_fusion.contract import (
     N_HARMONY_CHROMA,
     N_HARMONY_CHORDS,
     N_INSTRUMENT_TAGS,
+    N_RHYTHM_CONCEPTS,
     N_TIMBRE_CONCEPTS,
+    RHYTHM_FEATURES,
     TOKEN_DIM,
     ConceptCounts,
 )
@@ -35,7 +37,7 @@ class BranchOutput:
     concept_values: torch.Tensor  # (B, C_k) probabilities / standardized values
     supervision_mask: torch.Tensor  # (B, C_k) 1 = target observed
     fusion_mask: torch.Tensor  # (B, 1) 1 = branch enabled for fusion
-    fusion_token: torch.Tensor | None = None  # (B, 64); only legacy rhythm supplies this
+    fusion_token: torch.Tensor | None = None  # (B, 64); learned rhythm supplies this
     embedding: torch.Tensor | None = None  # harmony song embedding (B,D), projected by fusion
     hidden_token: torch.Tensor | None = None  # instrument: (B,128) detached; others (B,64)
     logits: torch.Tensor | None = None  # instrument BCE-with-logits (B,40)
@@ -91,6 +93,11 @@ class BranchOutput:
             require_batch("fusion_token", tok, batch)
             require_finite(f"{self.name}.fusion_token", tok)
             require_finite(f"{self.name}.concept_values[observed]", val, where=sm)
+            if self.name == "rhythm":
+                if val.shape[1] != N_RHYTHM_CONCEPTS:
+                    raise ContractError(f"rhythm C={val.shape[1]} != {N_RHYTHM_CONCEPTS}")
+                if self.tag_order is not None and self.tag_order != RHYTHM_FEATURES:
+                    raise ContractError("rhythm tag_order must match RHYTHM_FEATURES")
 
         if self.hidden_token is not None:
             last = INSTRUMENT_HIDDEN_DIM if self.name == "instrument" else TOKEN_DIM

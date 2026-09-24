@@ -62,14 +62,19 @@ provides the CPU-tested interface while preserving the existing song-window outp
 | Branch | Input | Current output sent toward fusion | Supervision |
 |---|---|---:|---|
 | Instrument | Pooled 128D song representation | 40 predicted instrument probabilities | Official multi-label instrument tags |
-| Rhythm | Ordered shared features | 32D | Versioned tempo, onset, beat, and danceability targets |
+| Rhythm | Ordered shared features `(B,T,128)` | learned 64D fusion token | Ten versioned AcousticBrainz tempo, onset, beat, and danceability targets |
 | Timbre | Pooled 128D song representation | 35 standardized predicted descriptors | Versioned spectral and energy targets |
 | Harmony | Fine-grained ordered shared features with intervals and window identity | 32D | Temporal chroma plus optional confidence-filtered chord pseudo-labels |
 
+The rhythm branch applies gap-aware temporal convolutions and masked attention pooling
+to mel-derived shared-CNN features. Its 64D embedding goes to fusion. A separate
+regression head predicts ten standardized AcousticBrainz descriptors for auxiliary
+supervision; those descriptors are targets only and are never model inputs.
+
 Embedding widths are hyperparameters, not natural constraints. Instrument and timbre
 currently expose strict concept bottlenecks rather than private fusion embeddings;
-fusion projects their 40D and 35D values to its common token width. The 32D rhythm
-and harmony values are starting configurations only.
+fusion projects their 40D and 35D values to its common token width. Rhythm owns its
+64D fusion embedding; harmony's 32D value is a starting configuration only.
 
 Every branch returns the same logical fields:
 
@@ -107,7 +112,7 @@ common width (64D in the current fixture prototype):
 
 ```text
 instrument embedding ─→ projection ─┐
-rhythm embedding ─────→ projection ─┤
+rhythm 64D embedding ───────────────┤
 timbre embedding ─────→ projection ─┼→ gates/attention → 128D music representation
 harmony embedding ────→ projection ─┘
 ```

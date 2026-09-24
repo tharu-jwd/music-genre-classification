@@ -45,6 +45,26 @@ def test_thresholds_fit_on_validation_only():
     assert CONCEPT_ORDER[0] == "instrument"
 
 
+def test_lambda_rhythm_is_configurable_and_recorded(tmp_path):
+    cohort = make_cohort(n_train=4, n_val=4, n_test=4, seed=4)
+    spec = next(s for s in experiment_specs() if s.experiment_id == "C-R")
+    rec = train_one(
+        spec,
+        0,
+        cohort,
+        PipelineConfig(
+            out_dir=tmp_path,
+            steps=1,
+            batch_size=4,
+            lambda_rhythm=0.25,
+            warmup=0,
+            infer_steps=1,
+        ),
+    )
+    assert rec.config["lambda_rhythm"] == 0.25
+    assert rec.metrics["lambda_rhythm"] == 0.25
+
+
 def test_run_all_quick(tmp_path):
     recs = run_all(quick=True, out_dir=tmp_path, steps=2)
     ids = {r.experiment_id for r in recs}
