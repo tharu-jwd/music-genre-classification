@@ -59,15 +59,17 @@ provides the CPU-tested interface while preserving the existing song-window outp
 
 ### Branch inputs and outputs
 
-| Branch | Input | Initial embedding candidate | Supervision |
+| Branch | Input | Current output sent toward fusion | Supervision |
 |---|---|---:|---|
-| Instrument | Pooled and/or ordered shared features | 64D | Official multi-label instrument tags |
+| Instrument | Pooled 128D song representation | 40 predicted instrument probabilities | Official multi-label instrument tags |
 | Rhythm | Ordered shared features | 32D | Versioned tempo, onset, beat, and danceability targets |
-| Timbre | Pooled and/or ordered shared features | 32D | Versioned spectral and energy targets |
+| Timbre | Pooled 128D song representation | 35 standardized predicted descriptors | Versioned spectral and energy targets |
 | Harmony | Fine-grained ordered shared features with intervals and window identity | 32D | Temporal chroma plus optional confidence-filtered chord pseudo-labels |
 
-Embedding widths are hyperparameters, not natural constraints. The initial 64/32D
-values provide a starting configuration only.
+Embedding widths are hyperparameters, not natural constraints. Instrument and timbre
+currently expose strict concept bottlenecks rather than private fusion embeddings;
+fusion projects their 40D and 35D values to its common token width. The 32D rhythm
+and harmony values are starting configurations only.
 
 Every branch returns the same logical fields:
 
@@ -80,6 +82,11 @@ availability
 Predictions supervise and evaluate the concept branch. The embedding is the output
 sent to fusion. Harmony may expose several prediction heads—temporal chroma, chord
 probabilities, and optional key/mode—instead of one fixed 18-value head.
+
+The separate fixture fusion prototype has not yet adopted that harmony interface: it
+still declares 18 provisional harmony concepts and expects a 64D harmony token. That
+is an integration placeholder, not a reason to collapse temporal harmony into 18
+song-level means.
 
 ### Harmony supervision boundary
 
@@ -95,8 +102,8 @@ chroma supervision without chord labels.
 
 ### Fusion
 
-Raw branch embeddings do not need equal widths. Fusion first projects each embedding
-to a common width:
+Raw branch outputs do not need equal widths. Fusion first projects each output to a
+common width (64D in the current fixture prototype):
 
 ```text
 instrument embedding ─→ projection ─┐

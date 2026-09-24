@@ -20,15 +20,23 @@ predicts every genre that applies to a song.
 
 The diagram is the target architecture, not a completed implementation. The
 repository contains generated workflows for data preparation, two comparison
-baselines, instrument pretraining, concept-target preparation, and harmony preflight.
+baselines, instrument pretraining, concept-target preparation, standalone instrument
+and timbre branches, and harmony preflight.
 A full clean hosted run has not been proven. The split parser, fixed vocabularies,
 song windowing, cohort consistency, instrument-label availability, bounded harmony
 extractor/branch screening, and GPU runtime gates have CPU-tested implementations.
 Notebook 06 exposes that CPU ladder behind explicit flags and an exact Git commit.
 A bounded CPU Essentia chord-baseline generator and evaluator are ready, but their
-external benchmark has not run. Timbre supervision, real-audio harmony selection,
-chord-teacher acceptance, and a clean end-to-end hosted run remain unresolved before
-outputs are trustworthy.
+external benchmark has not run. The timbre implementation and its synthetic smoke
+test are present, but its real target table and shared-encoder inputs are not tracked.
+Real-audio harmony selection, chord-teacher acceptance, the harmony/fusion adapter,
+and a clean end-to-end hosted run remain unresolved before joint-training outputs are
+trustworthy.
+
+The current `main` branch also includes the instrument and timbre workstreams. A
+fixture-tested fusion prototype exists on `origin/thevindu-concept-fusion`, but it is
+not merged here and its provisional 18-value harmony contract does not yet match the
+temporal harmony branch. See the project plan before starting training.
 
 See the [project status and remaining work](docs/project-plan.md) for the exact
 blockers and implementation sequence.
@@ -73,7 +81,10 @@ creating notebook-only forks.
 │       └── harmony-pseudo-supervision.svg
 ├── notebooks/
 │   ├── colab/
-│   └── kaggle/
+│   ├── kaggle/
+│   └── dataset_split/
+├── instrument_branch/             # 40 instrument concepts from a 128D song input
+├── timbre_branch/                  # 35 standardized timbre concepts from a 128D input
 ├── scripts/
 │   ├── generate_colab_notebooks.py
 │   ├── generate_kaggle_notebooks.py

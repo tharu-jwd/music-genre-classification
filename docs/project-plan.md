@@ -28,7 +28,7 @@ not evidence that a stage works end to end.
 | Direct CNN baseline | Code present | Ordered masked windows are implemented; do not spend GPU until the comparison cohort is frozen |
 | Instrument pretraining | Code present | Uses only annotated songs for supervision; verify a capped hosted run after data preflight |
 | Rhythm targets | Code present | Define and validate the versioned target contract |
-| Timbre targets | Blocked | Replace invalid log-Mel proxies with trustworthy extraction |
+| Timbre targets | Code present | The 35-descriptor extractor and claimed 7,324-track audit are documented; supply the ignored real target table and check it against the canonical cohort |
 | Harmony preflight | Code present | Reports waveform availability and exports exact model-window regions; clean hosted decode checks remain |
 | Harmony target design | Code present | CQT and harmonic-HPCP pass synthetic CPU tests; aligned-region runner and immutable decision gate are ready, bounded real-audio comparison remains |
 | Harmony pseudo-labels | Code present | A provenance-checked temporal-chroma pilot writer and bounded CPU Essentia chord baseline are tested; full generation still requires real extractor evidence and an accepted teacher/confidence policy |
@@ -36,12 +36,12 @@ not evidence that a stage works end to end.
 | Baseline evaluation | Blocked | Recompute comparable results after upstream fixes |
 | Attention inspection | Code present | Treat it as inspection, not proof of explanation |
 | Shared encoder module | Code present | Reusable interface/cache/alignment code is wired into opt-in notebook 06 CPU stages; cache a real hosted cohort and later integrate the selected branch into the joint model |
-| Learned concept branches | Code present | Harmony reference branch, fixed CPU screen, baselines, and preregistered advance/stop gate pass tests; real-target execution, other branches, and integration remain |
-| Joint loss and gated fusion | Not started | Implement after branch interfaces are agreed |
+| Learned concept branches | Code present | Instrument (40 concepts), timbre (35 concepts), and harmony (temporal chroma plus configurable embedding) code exist; rhythm and real-input branch evidence remain |
+| Joint loss and gated fusion | Code present on a separate branch | `origin/thevindu-concept-fusion` runs on fixtures only; merge review and real branch adapters are still required |
 | Proposed-model evaluation | Not started | Requires the integrated model and fair baselines |
 
-Because joint training is not implemented, it is deliberately absent from the GPU
-job allowlist; no run record can reserve accelerator time for it yet.
+Because real-branch joint training is not integrated, it is deliberately absent from
+the GPU job allowlist; no run record can reserve accelerator time for it yet.
 
 GPU training is now fail-closed: every CUDA notebook requires a validated approval
 record and a schema-checked frozen cohort, verifies the current manifest hash,
@@ -126,7 +126,7 @@ through Essentia inference, `mir_eval`, and the accept/reject decision.
 
 **Goal:** Build the architecture shown in the project diagram.
 
-- add learned instrument, rhythm, and timbre branches;
+- integrate the existing instrument and timbre branches and add the rhythm branch;
 - add a temporal harmony branch after its extractor/teacher quality gates pass;
 - expose concept embeddings and prediction heads through one common interface;
 - implement masked auxiliary losses;
@@ -138,6 +138,15 @@ The harmony implementation follows its own ordered sequence: waveform/alignment
 preflight, temporal chroma comparison, chord-teacher benchmark, immutable raw
 pseudo-labels, masks/schema, temporal model interface, standalone training, then
 joint integration. See [harmony-plan.md](harmony-plan.md) for exit criteria.
+
+Current integration finding (2026-09-24): the separate fusion prototype freezes
+`harmony=18` concept values and requires harmony to supply a 64D `fusion_token`.
+The implemented harmony reference branch instead produces temporal 12-bin chroma
+predictions, optional 25-class chord predictions, and a configurable song embedding
+(32D by default). Do not flatten or average these outputs merely to satisfy the old
+placeholder. Before joint training, the harmony and fusion owners must freeze an
+adapter that preserves temporal supervision while projecting the song embedding to
+the common fusion width, then test masks, gradients, and branch removal end to end.
 
 ### Phase 6 — Evaluate the contribution
 
@@ -194,9 +203,9 @@ supported by concept removal and prediction-change analysis for the selected mod
 | Area | Ownership scope | Required hand-off |
 |---|---|---|
 | Data pipeline | Manifest, labels, splits, windowing | Canonical song batches and masks |
-| Instrument | Instrument targets, pretraining, 64D branch | Embedding and prediction interface |
+| Instrument | Official instrument targets and 40-concept head | Probabilities/logits, masks, and fixed tag order; fusion owns the 40-to-common-width projection |
 | Rhythm | Rhythm schema, extraction, 32D branch | Targets, masks, metrics, embedding |
-| Timbre | Timbre schema, extraction, 32D branch | Targets, masks, metrics, embedding |
+| Timbre | 35-descriptor schema, extraction, and learned bottleneck | Standardized concepts, masks, metrics, and fixed feature order; fusion owns the 35-to-common-width projection |
 | Harmony | Temporal schema, teacher evaluation, pseudo-labels, configurable-width branch | Targets, confidence masks, metrics, embedding |
 | Shared model | Encoder, pooling, joint losses, fusion | Integrated model and checkpoints |
 | Evaluation | Cohorts, metrics, ablations, reports | Comparable predictions and results |
@@ -205,6 +214,16 @@ The harmony owner can complete extractor/teacher comparison, pseudo-label creati
 validation, masks, branch code, loss, and standalone evaluation independently. Full
 integration requires the canonical waveform manifest and an ordered shared-encoder
 interface; one already-pooled song vector is insufficient for chord progressions.
+
+## Training readiness hand-off
+
+| Activity | Ready now? | Requirement |
+|---|---|---|
+| Review or import harmony code | Yes | Use the branch commit recorded by Git; interfaces and CPU tests are available |
+| Run synthetic and CPU contract tests | Yes | Do not report fixture scores as research results |
+| Run bounded harmony extractor and branch screens | Not yet | Supply the canonical real-audio manifest, waveform paths, selected cohort, and validated shared-encoder checkpoint |
+| Connect harmony to fixture fusion | Not yet | Ratify and implement the temporal-harmony adapter described above |
+| Start real joint GPU training | No | Real targets, four compatible branch adapters, a frozen cohort, passing CPU decisions, and an approved GPU run are required |
 
 ## Definition of project completion
 
