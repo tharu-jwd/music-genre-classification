@@ -10,6 +10,8 @@ from concept_fusion.contract import (
     FUSED_DIM,
     N_GENRE_TAGS,
     N_INSTRUMENT_TAGS,
+    N_TIMBRE_CONCEPTS,
+    TIMBRE_FEATURES,
     TOKEN_DIM,
     ConceptCounts,
 )
@@ -24,6 +26,8 @@ __all__ = [
     "FUSED_DIM",
     "N_GENRE_TAGS",
     "N_INSTRUMENT_TAGS",
+    "N_TIMBRE_CONCEPTS",
+    "TIMBRE_FEATURES",
     "TOKEN_DIM",
     "ConceptCounts",
     "BranchBundle",

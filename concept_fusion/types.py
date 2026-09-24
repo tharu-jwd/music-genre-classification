@@ -14,6 +14,7 @@ from concept_fusion.contract import (
     INSTRUMENT_HIDDEN_DIM,
     N_CONCEPTS,
     N_INSTRUMENT_TAGS,
+    N_TIMBRE_CONCEPTS,
     TOKEN_DIM,
     ConceptCounts,
 )
@@ -32,7 +33,7 @@ class BranchOutput:
     concept_values: torch.Tensor  # (B, C_k) probabilities / standardized values
     supervision_mask: torch.Tensor  # (B, C_k) 1 = target observed
     fusion_mask: torch.Tensor  # (B, 1) 1 = branch enabled for fusion
-    fusion_token: torch.Tensor | None = None  # (B, 64); forbidden for instrument v2
+    fusion_token: torch.Tensor | None = None  # (B, 64); forbidden for instrument/timbre v2
     hidden_token: torch.Tensor | None = None  # instrument: (B,128) detached; others (B,64)
     logits: torch.Tensor | None = None  # instrument BCE-with-logits (B,40)
     tag_order: tuple[str, ...] | None = None
@@ -60,17 +61,21 @@ class BranchOutput:
         if self.name in BRANCHES_WITHOUT_FUSION_TOKEN:
             if self.fusion_token is not None:
                 raise ContractError(
-                    "instrument must not return fusion_token; fusion owns Linear(40,64)"
+                    f"{self.name} must not return fusion_token; fusion owns Linear(C_k,64)"
                 )
-            require_finite("instrument.concept_values", val)
-            if not bool(((val >= 0) & (val <= 1)).all()):
-                raise ContractError("instrument concept_values must be probabilities in [0, 1]")
-            if val.shape[1] != N_INSTRUMENT_TAGS:
-                raise ContractError(f"instrument C={val.shape[1]} != {N_INSTRUMENT_TAGS}")
-            if self.logits is not None:
-                lg = require_tensor("instrument.logits", self.logits, ndim=2, last=N_INSTRUMENT_TAGS)
-                require_batch("instrument.logits", lg, batch)
-                require_finite("instrument.logits", lg)
+            require_finite(f"{self.name}.concept_values", val)
+            if self.name == "instrument":
+                if not bool(((val >= 0) & (val <= 1)).all()):
+                    raise ContractError("instrument concept_values must be probabilities in [0, 1]")
+                if val.shape[1] != N_INSTRUMENT_TAGS:
+                    raise ContractError(f"instrument C={val.shape[1]} != {N_INSTRUMENT_TAGS}")
+                if self.logits is not None:
+                    lg = require_tensor("instrument.logits", self.logits, ndim=2, last=N_INSTRUMENT_TAGS)
+                    require_batch("instrument.logits", lg, batch)
+                    require_finite("instrument.logits", lg)
+            elif self.name == "timbre":
+                if val.shape[1] != N_TIMBRE_CONCEPTS:
+                    raise ContractError(f"timbre C={val.shape[1]} != {N_TIMBRE_CONCEPTS}")
         else:
             if self.fusion_token is None:
                 raise ContractError(f"{self.name} must supply fusion_token (B, {TOKEN_DIM})")
@@ -110,7 +115,7 @@ class BranchBundle:
 
     def tokens(self) -> torch.Tensor:
         raise ContractError(
-            "instrument v2 has no fusion_token; use TokenAssembler or "
+            "instrument/timbre v2 have no fusion_token; use TokenAssembler or "
             "ConceptBottleneckModel.assemble_tokens"
         )
 

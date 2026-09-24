@@ -27,6 +27,8 @@ def test_token_shape_and_order():
     assert t.shape == (5, 4, TOKEN_DIM)
     assert tuple(b.branches.keys()) == CONCEPT_ORDER
     assert b.branches["instrument"].fusion_token is None
+    assert b.branches["timbre"].fusion_token is None
+    assert b.branches["timbre"].concept_values.shape == (5, 35)
 
 
 def test_rejects_wrong_token_order():

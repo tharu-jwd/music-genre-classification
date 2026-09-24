@@ -6,7 +6,9 @@
 
 These numbers are **not** paper results until real branch tokens replace the fixture generator.
 
-**Instrument v2 (now on `main`):** the branch does **not** return a 64-D token. Fusion owns `Linear(40, 64)` over the 40 probabilities and applies `fusion_mask` after that projection. Official tag order is alphabetical (`instrument_branch/docs/instrument-vocabulary.json`).
+**Instrument v2 (on `main`):** no 64-D token. Fusion owns `Linear(40, 64)` over 40 probabilities.
+
+**Timbre v2 (on `main`):** no 64-D token and no `h_audio` shortcut. Fusion owns `Linear(35, 64)` over Senindu's standardized `z_timbre`. Feature order is `timbre_branch/src/timbre_branch/constants.py` (`FEATURE_COLUMNS`, 35 names).
 
 ---
 

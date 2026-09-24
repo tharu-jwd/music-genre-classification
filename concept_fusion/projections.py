@@ -1,4 +1,4 @@
-"""Fusion-owned token assembly. Instrument v2 has no branch fusion_token."""
+"""Fusion-owned token assembly. Instrument and timbre do not supply fusion_token."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from concept_fusion.contract import (
     CONCEPT_ORDER,
     INSTRUMENT_HIDDEN_DIM,
     N_INSTRUMENT_TAGS,
+    N_TIMBRE_CONCEPTS,
     TOKEN_DIM,
 )
 from concept_fusion.types import BranchBundle
@@ -19,14 +20,15 @@ from concept_fusion.validation import ContractError, require_finite, require_ten
 class TokenAssembler(nn.Module):
     """Build tokens (B, 4, 64) in CONCEPT_ORDER.
 
-    Owns `Linear(40, 64)` for instrument probabilities. Applies `fusion_mask`
-    after that projection. Other branches still supply their own 64-D tokens.
+    Owns Linear(40,64) for instrument probabilities and Linear(35,64) for
+    standardized timbre concepts. Applies fusion_mask after each projection.
     """
 
     def __init__(self):
         super().__init__()
         self.instrument_projection = nn.Linear(N_INSTRUMENT_TAGS, TOKEN_DIM)
         self.instrument_hidden_projection = nn.Linear(INSTRUMENT_HIDDEN_DIM, TOKEN_DIM)
+        self.timbre_projection = nn.Linear(N_TIMBRE_CONCEPTS, TOKEN_DIM)
 
     def forward(self, bundle: BranchBundle, *, use_hidden: bool = False) -> torch.Tensor:
         bundle.validate()
@@ -36,7 +38,7 @@ class TokenAssembler(nn.Module):
             if use_hidden:
                 tok = self._hidden_token(br)
             elif name in BRANCHES_WITHOUT_FUSION_TOKEN:
-                tok = self._instrument_token(br)
+                tok = self._projected_token(br)
             else:
                 if br.fusion_token is None:
                     raise ContractError(f"{name} must supply fusion_token (B, {TOKEN_DIM})")
@@ -47,13 +49,22 @@ class TokenAssembler(nn.Module):
         require_finite("tokens", stacked)
         return stacked
 
-    def _instrument_token(self, br) -> torch.Tensor:
+    def _projected_token(self, br) -> torch.Tensor:
         if br.fusion_token is not None:
-            raise ContractError("instrument must not supply fusion_token; fusion owns Linear(40,64)")
-        probs = require_tensor("instrument.concept_values", br.concept_values, ndim=2, last=N_INSTRUMENT_TAGS)
-        require_finite("instrument.concept_values", probs)
-        token = self.instrument_projection(probs)
-        return token * br.fusion_mask
+            raise ContractError(
+                f"{br.name} must not supply fusion_token; fusion owns Linear(C_k,64)"
+            )
+        if br.name == "instrument":
+            probs = require_tensor(
+                "instrument.concept_values", br.concept_values, ndim=2, last=N_INSTRUMENT_TAGS
+            )
+            require_finite("instrument.concept_values", probs)
+            return self.instrument_projection(probs) * br.fusion_mask
+        if br.name == "timbre":
+            z = require_tensor("timbre.concept_values", br.concept_values, ndim=2, last=N_TIMBRE_CONCEPTS)
+            require_finite("timbre.concept_values", z)
+            return self.timbre_projection(z) * br.fusion_mask
+        raise ContractError(f"no fusion-owned projection for {br.name}")
 
     def _hidden_token(self, br) -> torch.Tensor:
         if br.hidden_token is None:

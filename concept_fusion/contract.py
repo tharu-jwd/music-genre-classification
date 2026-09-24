@@ -2,12 +2,14 @@
 
 Reject violating tensors. Do not silently reshape, reorder, impute, or reinterpret.
 
-Instrument v2 (merged from `instrument_branch`): the branch returns 40 probabilities
-and logits, not a 64-D fusion token. Fusion owns `Linear(40, 64)`.
+Instrument v2: 40 probabilities + logits, no fusion token. Fusion owns Linear(40, 64).
+Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
+Fusion owns Linear(35, 64).
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,9 +20,10 @@ TOKEN_DIM = 64
 FUSED_DIM = 128
 N_GENRE_TAGS = 87
 N_INSTRUMENT_TAGS = 40
+N_TIMBRE_CONCEPTS = 35
 INSTRUMENT_HIDDEN_DIM = 128
-# Instrument published v2: no branch-owned fusion token.
-BRANCHES_WITHOUT_FUSION_TOKEN: frozenset[str] = frozenset({"instrument"})
+# Published branches that do not own a 64-D token. Fusion projects them.
+BRANCHES_WITHOUT_FUSION_TOKEN: frozenset[str] = frozenset({"instrument", "timbre"})
 
 
 def _load_instrument_tags() -> tuple[str, ...]:
@@ -37,9 +40,29 @@ def _load_instrument_tags() -> tuple[str, ...]:
 
 INSTRUMENT_TAGS: tuple[str, ...] = _load_instrument_tags()
 
-# Instrument 40 and rhythm 10 are contract-fixed. Timbre/harmony remain
-# provisional until owners freeze target schemas — they only affect aux loss C_k.
-PROVISIONAL_TIMBRE = 6
+
+def _load_timbre_features() -> tuple[str, ...]:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "timbre_branch"
+        / "src"
+        / "timbre_branch"
+        / "constants.py"
+    )
+    if not path.is_file():
+        raise FileNotFoundError(f"timbre feature list missing: {path}")
+    spec = importlib.util.spec_from_file_location("timbre_branch_constants", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load timbre constants from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    cols = tuple(mod.FEATURE_COLUMNS)
+    if len(cols) != N_TIMBRE_CONCEPTS or len(set(cols)) != N_TIMBRE_CONCEPTS:
+        raise ValueError(f"timbre FEATURE_COLUMNS must be {N_TIMBRE_CONCEPTS} unique names")
+    return cols
+
+
+TIMBRE_FEATURES: tuple[str, ...] = _load_timbre_features()
 PROVISIONAL_HARMONY = 18
 
 CONCEPT_DROPOUT_P = 0.15
@@ -62,7 +85,7 @@ DEFAULT_SEEDS = (0, 1, 2)
 class ConceptCounts:
     instrument: int = N_INSTRUMENT_TAGS
     rhythm: int = 10
-    timbre: int = PROVISIONAL_TIMBRE
+    timbre: int = N_TIMBRE_CONCEPTS
     harmony: int = PROVISIONAL_HARMONY
 
     def for_name(self, name: str) -> int:

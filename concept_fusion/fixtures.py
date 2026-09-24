@@ -12,6 +12,7 @@ from concept_fusion.contract import (
     INSTRUMENT_HIDDEN_DIM,
     INSTRUMENT_TAGS,
     N_GENRE_TAGS,
+    TIMBRE_FEATURES,
     TOKEN_DIM,
     ConceptCounts,
 )
@@ -45,6 +46,19 @@ def make_branch_output(
             hidden_token=hidden.detach(),
             logits=logits,
             tag_order=INSTRUMENT_TAGS,
+        )
+    if name == "timbre":
+        values = torch.randn(batch, n_concepts, generator=g)
+        hidden = torch.randn(batch, TOKEN_DIM, generator=g)
+        hidden = hidden / (hidden.norm(dim=-1, keepdim=True) + 1e-6)
+        return BranchOutput(
+            name=name,
+            concept_values=values,
+            fusion_token=None,
+            supervision_mask=sup,
+            fusion_mask=fus,
+            hidden_token=hidden,
+            tag_order=TIMBRE_FEATURES,
         )
     token = torch.randn(batch, TOKEN_DIM, generator=g)
     token = token / (token.norm(dim=-1, keepdim=True) + 1e-6)
