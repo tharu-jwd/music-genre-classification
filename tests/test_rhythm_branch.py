@@ -24,7 +24,7 @@ from rhythm_branch.preprocessing import (
     load_rhythm_targets,
 )
 from rhythm_branch.training import load_checkpoint, save_checkpoint
-from scripts.shared_audio_encoder import SharedAudioEncoder
+from shared_encoder import SharedAudioEncoder
 
 
 def _encoded(batch=2, windows=2, frames=12):

@@ -81,6 +81,7 @@ three essential notebooks.
 ├── data/                         # ignored local datasets
 ├── docs/
 │   ├── architecture.md
+│   ├── shared-cnn-encoder-architecture.md
 │   ├── project-plan.md
 │   ├── team-standards.md
 │   └── diagrams/
@@ -93,11 +94,12 @@ three essential notebooks.
 ├── timbre_branch/                  # 35 standardized timbre concepts from a 128D input
 ├── rhythm_branch/                  # 10 learned temporal rhythm concepts
 ├── harmony_branch/                 # temporal harmony package, scripts, tests, and docs
+├── shared_encoder/                 # modular shared CNN, geometry, validation, and types
 ├── concept_fusion/                # shared contracts, projections, losses, and fusion
 ├── scripts/
 │   ├── generate_colab_notebooks.py
 │   ├── generate_kaggle_notebooks.py
-│   ├── shared_audio_encoder.py
+│   ├── shared_audio_encoder.py    # compatibility import for shared_encoder/
 │   ├── freeze_experiment_cohort.py
 │   ├── manage_gpu_budget.py
 │   └── paired_bootstrap_compare.py
