@@ -56,8 +56,8 @@ The ordered sequence is necessary for branches that model change over time. In
 particular, one vector per approximately 29-second model window is still too coarse:
 it cannot preserve chord changes within that window. The shared encoder must expose
 its within-window temporal feature map before time averaging, together with token
-intervals and the originating window index. `scripts/shared_audio_encoder.py`
-provides the CPU-tested interface and derives the ordered sequence, per-window
+intervals and the originating window index. The `shared_encoder/` package provides
+the CPU-tested interface and derives the ordered sequence, per-window
 representations, and pooled song representation from one shared forward pass.
 
 ### Branch inputs and outputs

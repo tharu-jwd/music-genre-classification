@@ -3,10 +3,11 @@ import unittest
 import torch
 from torch import nn
 
-from scripts.shared_audio_encoder import (
+from shared_encoder import (
     SHARED_ENCODER_ARCHITECTURE,
     SharedAudioEncoder,
 )
+from scripts.shared_audio_encoder import SharedAudioEncoder as CompatibilityEncoder
 
 
 class LegacyColabEncoder(nn.Module):
@@ -34,6 +35,9 @@ def _metadata(batch, windows, frames, *, valid_frames=None, starts=None):
 
 
 class SharedAudioEncoderTest(unittest.TestCase):
+    def test_legacy_script_import_is_the_same_modular_class(self):
+        self.assertIs(CompatibilityEncoder, SharedAudioEncoder)
+
     def test_single_forward_returns_all_branch_representations(self):
         torch.manual_seed(3)
         model = SharedAudioEncoder()

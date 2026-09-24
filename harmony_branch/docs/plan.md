@@ -614,7 +614,7 @@ window_index:     batch × time
 pooled_song:      batch × feature        # optional convenience output
 ```
 
-`scripts/shared_audio_encoder.py` implements `shared_cnn_audio_encoder_v2`. With the
+`shared_encoder/` implements `shared_cnn_audio_encoder_v2`. With the
 frozen log-Mel settings its output stride spans two input frames, approximately
 42.7 ms, while retaining exact partial-window masks and discontinuous song-relative
 times. Its theoretical receptive field is 12 input frames (approximately 256 ms),

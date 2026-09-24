@@ -22,19 +22,15 @@ import torch
 try:
     from scripts.gpu_run_contract import load_cohort_artifact
     from scripts.mtg_data_contract import NOTEBOOK_DATA_CONTRACT
-    from scripts.shared_audio_encoder import (
-        SHARED_ENCODER_ARCHITECTURE,
-        SHARED_ENCODER_DIM,
-        SharedAudioEncoder,
-    )
 except ModuleNotFoundError:  # Direct execution adds scripts/, not the repository root.
     from gpu_run_contract import load_cohort_artifact
     from mtg_data_contract import NOTEBOOK_DATA_CONTRACT
-    from shared_audio_encoder import (
-        SHARED_ENCODER_ARCHITECTURE,
-        SHARED_ENCODER_DIM,
-        SharedAudioEncoder,
-    )
+
+from shared_encoder import (
+    SHARED_ENCODER_ARCHITECTURE,
+    SHARED_ENCODER_DIM,
+    SharedAudioEncoder,
+)
 
 
 SCHEMA_VERSION = "harmony_encoder_cache_pilot_v2"

@@ -10,7 +10,7 @@ import torch
 
 from cache_harmony_encoder_pilot import cache_encoder_pilot
 from scripts.freeze_experiment_cohort import freeze_cohort
-from scripts.shared_audio_encoder import SHARED_ENCODER_ARCHITECTURE, SharedAudioEncoder
+from shared_encoder import SHARED_ENCODER_ARCHITECTURE, SharedAudioEncoder
 
 
 def write_fixture(root: Path):

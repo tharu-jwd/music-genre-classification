@@ -1,20 +1,15 @@
-"""Compatibility imports for the modular :mod:`shared_encoder` package.
+"""Public API for the modular shared CNN audio encoder."""
 
-New code should import from ``shared_encoder`` directly. This module remains so
-existing hosted workflows and cached-feature scripts keep their working import.
-"""
-
-from shared_encoder import (
+from .constants import (
     LOGMEL_HOP_LENGTH,
     LOGMEL_SAMPLE_RATE,
     SHARED_ENCODER_ARCHITECTURE,
     SHARED_ENCODER_DIM,
     TEMPORAL_DOWNSAMPLE,
     TEMPORAL_RECEPTIVE_FIELD_FRAMES,
-    SharedAudioEncoder,
-    SharedEncoderOutput,
-    TemporalEncoderOutput,
 )
+from .model import SharedAudioEncoder
+from .types import SharedEncoderOutput, TemporalEncoderOutput
 
 __all__ = [
     "LOGMEL_HOP_LENGTH",
@@ -27,3 +22,4 @@ __all__ = [
     "SharedEncoderOutput",
     "TemporalEncoderOutput",
 ]
+

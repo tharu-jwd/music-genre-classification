@@ -187,4 +187,6 @@ timestamp intervals, separation across sampled-window gaps, checkpoint restore,
 freeze/unfreeze, and gradients from all four branches and genre fusion into the
 shared CNN.
 
-Implementation: [`../scripts/shared_audio_encoder.py`](../scripts/shared_audio_encoder.py)
+Implementation package: [`../shared_encoder/`](../shared_encoder/)
+
+Compatibility import: [`../scripts/shared_audio_encoder.py`](../scripts/shared_audio_encoder.py)

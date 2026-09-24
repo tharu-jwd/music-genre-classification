@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from harmony_branch.alignment import align_chroma_to_intervals
-from scripts.shared_audio_encoder import SharedAudioEncoder
+from shared_encoder import SharedAudioEncoder
 from harmony_branch.losses import masked_soft_target_cross_entropy
 from harmony_branch.model import TemporalHarmonyBranch
 

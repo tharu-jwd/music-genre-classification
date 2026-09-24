@@ -23,7 +23,7 @@ from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.types import BranchBundle
 from harmony_branch.model import TemporalHarmonyBranch
 from rhythm_branch.model import RhythmBranch, RhythmBranchConfig
-from scripts.shared_audio_encoder import SharedAudioEncoder
+from shared_encoder import SharedAudioEncoder
 from timbre_branch.model import TimbreBranch
 
 

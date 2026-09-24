@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "rhythm_branch" / "src"))
 
 from rhythm_branch.losses import masked_huber_loss
 from rhythm_branch.model import RhythmBranch
-from scripts.shared_audio_encoder import SharedAudioEncoder
+from shared_encoder import SharedAudioEncoder
 
 
 def main() -> None:

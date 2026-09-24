@@ -18,7 +18,7 @@ from export_harmony_regions import export_regions
 from scripts.freeze_experiment_cohort import freeze_cohort
 from materialize_harmony_target_pilot import materialize_pilot
 from screen_temporal_harmony_branch import screen_branch
-from scripts.shared_audio_encoder import SHARED_ENCODER_ARCHITECTURE, SharedAudioEncoder
+from shared_encoder import SHARED_ENCODER_ARCHITECTURE, SharedAudioEncoder
 
 
 def sha256(path: Path) -> str:
