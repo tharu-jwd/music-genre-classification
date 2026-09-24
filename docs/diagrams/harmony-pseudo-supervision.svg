@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="620" viewBox="0 0 1500 620" role="img" aria-labelledby="title desc">
+  <title id="title">Pseudo-supervised temporal harmony workflow</title>
+  <desc id="desc">A teacher path creates confidence-masked temporal pseudo-labels from waveform audio. A student harmony path predicts them from ordered encoder features and sends a pooled embedding to concept fusion.</desc>
+  <defs>
+    <style>
+      .bg{fill:#0b1020}.teacher{fill:#2b1b12;stroke:#fbbf24;stroke-width:3}.student{fill:#17162c;stroke:#c4a7ff;stroke-width:3}.out{fill:#10271f;stroke:#6ee7b7;stroke-width:3}.txt{fill:#f8fafc;font-family:Arial,sans-serif;font-size:19px}.small{fill:#cbd5e1;font-family:Arial,sans-serif;font-size:15px}.head{font-family:Arial,sans-serif;font-size:20px;font-weight:bold}.line{stroke:#e2e8f0;stroke-width:3;fill:none;marker-end:url(#arrow)}.dash{stroke:#fbbf24;stroke-width:3;stroke-dasharray:10 8;fill:none;marker-end:url(#goldArrow)}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#e2e8f0"/></marker>
+    <marker id="goldArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#fbbf24"/></marker>
+  </defs>
+  <rect class="bg" width="1500" height="620"/>
+  <text class="head" x="45" y="55" fill="#fbbf24">OFFLINE TEACHER PATH — TARGET CREATION</text>
+  <rect class="teacher" x="45" y="85" width="200" height="110" rx="12"/><text class="txt" x="145" y="125" text-anchor="middle">Waveform audio</text><text class="small" x="145" y="157" text-anchor="middle">exact model regions</text>
+  <rect class="teacher" x="300" y="85" width="220" height="110" rx="12"/><text class="txt" x="410" y="125" text-anchor="middle">Temporal chroma</text><text class="small" x="410" y="157" text-anchor="middle">CQT/HPCP candidate</text>
+  <rect class="teacher" x="575" y="85" width="225" height="110" rx="12"/><text class="txt" x="687" y="125" text-anchor="middle">Chord teacher</text><text class="small" x="687" y="157" text-anchor="middle">benchmarked externally</text>
+  <rect class="teacher" x="855" y="70" width="250" height="140" rx="12"/><text class="txt" x="980" y="110" text-anchor="middle">Confidence + masks</text><text class="small" x="980" y="142" text-anchor="middle">keep raw probabilities</text><text class="small" x="980" y="168" text-anchor="middle">mark unreliable frames</text>
+  <rect class="teacher" x="1160" y="70" width="290" height="140" rx="12"/><text class="txt" x="1305" y="110" text-anchor="middle">Versioned pseudo-labels</text><text class="small" x="1305" y="142" text-anchor="middle">times, chroma, chords, confidence</text><text class="small" x="1305" y="168" text-anchor="middle">teacher and extractor metadata</text>
+  <path class="line" d="M245 140 H300"/><path class="line" d="M520 140 H575"/><path class="line" d="M800 140 H855"/><path class="line" d="M1105 140 H1160"/>
+
+  <text class="head" x="45" y="315" fill="#c4a7ff">STUDENT PATH — MODEL TRAINING AND INFERENCE</text>
+  <rect class="student" x="45" y="350" width="235" height="120" rx="12"/><text class="txt" x="162" y="392" text-anchor="middle">Ordered shared features</text><text class="small" x="162" y="425" text-anchor="middle">sequence + time + mask</text>
+  <rect class="student" x="350" y="350" width="240" height="120" rx="12"/><text class="txt" x="470" y="392" text-anchor="middle">Temporal harmony branch</text><text class="small" x="470" y="425" text-anchor="middle">models changes over time</text>
+  <rect class="student" x="660" y="330" width="265" height="160" rx="12"/><text class="txt" x="792" y="370" text-anchor="middle">Prediction heads</text><text class="small" x="792" y="403" text-anchor="middle">chroma sequence</text><text class="small" x="792" y="429" text-anchor="middle">optional chords + key</text><text class="small" x="792" y="455" text-anchor="middle">masked auxiliary losses</text>
+  <rect class="out" x="1000" y="350" width="210" height="120" rx="12"/><text class="txt" x="1105" y="392" text-anchor="middle">Harmony embedding</text><text class="small" x="1105" y="425" text-anchor="middle">configurable width</text>
+  <rect class="out" x="1280" y="350" width="170" height="120" rx="12"/><text class="txt" x="1365" y="392" text-anchor="middle">Concept fusion</text><text class="small" x="1365" y="425" text-anchor="middle">genre model</text>
+  <path class="line" d="M280 410 H350"/><path class="line" d="M590 410 H660"/><path class="line" d="M590 445 C760 560 940 445 1000 430"/><path class="line" d="M1210 410 H1280"/>
+  <path class="dash" d="M1305 210 C1305 260 795 255 795 330"/>
+  <text class="small" x="1050" y="280" text-anchor="middle" fill="#fbbf24">training only: compare predictions with pseudo-labels</text>
+  <text class="small" x="745" y="570" text-anchor="middle">At inference, pseudo-label extraction is not required; the learned embedding flows to fusion.</text>
+</svg>

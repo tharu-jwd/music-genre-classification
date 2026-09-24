@@ -1,4 +1,4 @@
-"""Fusion-owned token assembly. Instrument and timbre do not supply fusion_token."""
+"""Fusion-owned token assembly for branch outputs with unequal widths."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import torch.nn as nn
 from concept_fusion.contract import (
     BRANCHES_WITHOUT_FUSION_TOKEN,
     CONCEPT_ORDER,
+    DEFAULT_HARMONY_EMBEDDING_DIM,
     INSTRUMENT_HIDDEN_DIM,
     N_INSTRUMENT_TAGS,
     N_TIMBRE_CONCEPTS,
@@ -20,15 +21,20 @@ from concept_fusion.validation import ContractError, require_finite, require_ten
 class TokenAssembler(nn.Module):
     """Build tokens (B, 4, 64) in CONCEPT_ORDER.
 
-    Owns Linear(40,64) for instrument probabilities and Linear(35,64) for
-    standardized timbre concepts. Applies fusion_mask after each projection.
+    Owns Linear(40,64) for instrument probabilities, Linear(35,64) for
+    standardized timbre concepts, and Linear(D_harmony,64) for the configurable
+    harmony song embedding. Applies fusion_mask after each projection.
     """
 
-    def __init__(self):
+    def __init__(self, *, harmony_embedding_dim: int = DEFAULT_HARMONY_EMBEDDING_DIM):
         super().__init__()
+        if harmony_embedding_dim < 1:
+            raise ValueError("harmony_embedding_dim must be positive")
+        self.harmony_embedding_dim = harmony_embedding_dim
         self.instrument_projection = nn.Linear(N_INSTRUMENT_TAGS, TOKEN_DIM)
         self.instrument_hidden_projection = nn.Linear(INSTRUMENT_HIDDEN_DIM, TOKEN_DIM)
         self.timbre_projection = nn.Linear(N_TIMBRE_CONCEPTS, TOKEN_DIM)
+        self.harmony_projection = nn.Linear(harmony_embedding_dim, TOKEN_DIM)
 
     def forward(self, bundle: BranchBundle, *, use_hidden: bool = False) -> torch.Tensor:
         bundle.validate()
@@ -52,7 +58,7 @@ class TokenAssembler(nn.Module):
     def _projected_token(self, br) -> torch.Tensor:
         if br.fusion_token is not None:
             raise ContractError(
-                f"{br.name} must not supply fusion_token; fusion owns Linear(C_k,64)"
+                f"{br.name} must not supply fusion_token; fusion owns its projection"
             )
         if br.name == "instrument":
             probs = require_tensor(
@@ -64,6 +70,17 @@ class TokenAssembler(nn.Module):
             z = require_tensor("timbre.concept_values", br.concept_values, ndim=2, last=N_TIMBRE_CONCEPTS)
             require_finite("timbre.concept_values", z)
             return self.timbre_projection(z) * br.fusion_mask
+        if br.name == "harmony":
+            if br.embedding is None:
+                raise ContractError("harmony output is missing its song embedding")
+            embedding = require_tensor(
+                "harmony.embedding",
+                br.embedding,
+                ndim=2,
+                last=self.harmony_embedding_dim,
+            )
+            require_finite("harmony.embedding", embedding)
+            return self.harmony_projection(embedding) * br.fusion_mask
         raise ContractError(f"no fusion-owned projection for {br.name}")
 
     def _hidden_token(self, br) -> torch.Tensor:

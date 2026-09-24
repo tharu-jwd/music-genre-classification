@@ -1,14 +1,20 @@
 # Concept fusion stack — how to run everything
 
-**Branch:** `thevindu-concept-fusion`  
-**Owner:** Thevindu  
-**Status:** Fusion, genre head, joint loss, metrics, and the full experiment matrix run in **one command** on fixtures.
+**Branch:** `harmony` integration candidate
+
+**Owners:** Thevindu (fusion) and harmony branch owner
+
+**Status:** Fusion, genre head, temporal harmony adapter/losses, metrics, and the full experiment matrix run in **one command** on fixtures.
 
 These numbers are **not** paper results until real branch tokens replace the fixture generator.
 
 **Instrument v2 (on `main`):** no 64-D token. Fusion owns `Linear(40, 64)` over 40 probabilities.
 
 **Timbre v2 (on `main`):** no 64-D token and no `h_audio` shortcut. Fusion owns `Linear(35, 64)` over Senindu's standardized `z_timbre`. Feature order is `timbre_branch/src/timbre_branch/constants.py` (`FEATURE_COLUMNS`, 35 names).
+
+**Harmony v1 (on `harmony`):** no 64D branch token and no 18-value summary.
+Fusion owns `Linear(D_harmony,64)` over the configurable song embedding. Temporal
+12-bin chroma and optional 25-class chords remain masked auxiliary predictions.
 
 ---
 
@@ -82,16 +88,19 @@ B0 (legacy notebook CNN) is not in this runner.
 | `concept_fusion/fixtures.py` | Cohort with disjoint seven-digit IDs |
 | `concept_fusion/fusion.py` | Concat, gated, attention |
 | `concept_fusion/model.py` | Bottleneck; shortcut and hidden are named flags |
+| `concept_fusion/harmony_adapter.py` | Temporal harmony output to shared branch contract |
+| `concept_fusion/joint_loss.py` | Genre/fixed-concept losses plus temporal chroma/chord losses |
 | `docs/adr/0001-concept-fusion-architecture.md` | The 11 frozen decisions |
 
 ---
 
 ## After real branches land
 
-1. Ratify the ADR.
-2. Swap `make_cohort` for real `BranchBundle` rows on official split-0 IDs.
-3. Replace B1 with Dehan's CNN. Keep the same `run_all` entry point.
-4. Do not disable dropout on F-Gated if you will report occlusion.
+1. Ratify the v0.2 ADR, especially the harmony embedding projection and temporal masks.
+2. Supply real `BranchBundle` rows on official split-0 IDs instead of `make_cohort`.
+3. Supply accepted temporal harmony targets and ordered encoder features.
+4. Replace B1 with Dehan's CNN. Keep the same `run_all` entry point.
+5. Do not disable dropout on F-Gated if you will report occlusion.
 
 ---
 

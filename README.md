@@ -1,70 +1,118 @@
 # Concept-Guided Music Genre Classification
 
-This project is developing an explainable, multi-label music genre classifier for the MTG-Jamendo dataset.
-
-The research target is a neural network that learns four musical concepts from the same song representation:
+This project is developing an inspectable, multi-label music genre classifier for
+the MTG-Jamendo dataset. The proposed model learns four musical concepts from one
+shared audio representation:
 
 - instruments — what is playing;
 - rhythm — the beat and tempo;
 - timbre — the character of the sound;
-- harmony — how notes and chords relate.
+- harmony — pitch classes, tonal movement, and chord changes over time.
 
-The model will learn how much each concept matters, combine them, and predict every genre that fits the song.
+It learns how much each concept contributes, combines the four representations, and
+predicts every genre that applies to a song.
 
 <p align="center">
-  <img src="docs/diagrams/proposed-concept-guided-architecture.png" alt="Proposed concept-guided architecture" width="1100">
+  <img src="docs/diagrams/proposed-concept-guided-architecture.svg" alt="Proposed concept-guided architecture" width="1100">
 </p>
 
-## What exists today
+## Current state
 
-The proposed architecture is the target, not a completed implementation. The repository currently provides the data pipeline and two comparison baselines:
+The diagram is the target architecture, not a completed implementation. The
+repository contains generated workflows for data preparation, two comparison
+baselines, instrument pretraining, concept-target preparation, standalone instrument
+and timbre branches, and harmony preflight.
+A full clean hosted run has not been proven. The split parser, fixed vocabularies,
+song windowing, cohort consistency, instrument-label availability, bounded harmony
+extractor/branch screening, and GPU runtime gates have CPU-tested implementations.
+Notebook 06 exposes that CPU ladder behind explicit flags and an exact Git commit.
+A bounded CPU Essentia chord-baseline generator and evaluator are ready, but their
+external benchmark has not run. The timbre implementation and its synthetic smoke
+test are present, but its real target table and shared-encoder inputs are not tracked.
+Real-audio harmony selection, chord-teacher acceptance, real-branch data loading,
+and a clean end-to-end hosted run remain unresolved before joint-training outputs are
+trustworthy. The temporal harmony/fusion adapter and its CPU integration tests are
+implemented.
 
-1. **Direct CNN baseline** — predicts genres directly from log-Mel spectrograms.
-2. **Descriptor-fusion baseline** — combines a learned instrument embedding with rhythm, timbre, and harmony descriptors.
+The current `main` branch also includes the instrument and timbre workstreams. The
+fixture-tested fusion prototype from `origin/thevindu-concept-fusion` is integrated
+here with a revised harmony contract: temporal predictions remain auxiliary outputs,
+and fusion projects the configurable song embedding to 64D. See the project plan
+before starting real training.
 
-The existing concept extraction work is still useful: instrument pretraining can initialize the shared encoder, while rhythm, timbre, and harmony descriptors become supervision targets for the proposed concept branches.
+See the [project status and remaining work](docs/project-plan.md) for the exact
+blockers and implementation sequence.
 
-See [current status](docs/current-status.md), [baseline architecture](docs/baseline-architecture.md), [proposed architecture](docs/proposed-architecture.md), and the [implementation roadmap](docs/roadmap.md).
+## Documentation
 
-## Notebook pipeline
+Each document has one purpose:
 
-The [standalone instrument branch notebook](instrument_branch/notebooks/03_instrument_branch.ipynb)
-implements the proposed shared-input instrument head, masked supervision and
-40-concept bottleneck. See its [run and integration guide](instrument_branch/README.md)
-for required encoder exports and the completed official annotation audit. It is
-separate from the legacy Stage 1 baseline; real training and joint-model
-experiments still require the shared encoder outputs.
+| Document | Purpose |
+|---|---|
+| [Architecture](docs/architecture.md) | Existing baselines and the proposed model design |
+| [Project plan](docs/project-plan.md) | Current status, blockers, ownership boundaries, and remaining work |
+| [Harmony plan](docs/harmony-plan.md) | Step-by-step work owned by the harmony branch |
+| [Harmony integration hand-off](docs/harmony-integration-handoff.md) | Current interface, required artifacts, and executable next commands |
+| [Team standards](docs/team-standards.md) | Shared data, model, artifact, evaluation, and development contracts |
 
-The [timbre branch](timbre_branch/README.md) is a strict 128-to-35 concept bottleneck:
-`h_audio (B,128) → … → z_timbre (B,35)` standardized named descriptors. Fusion
-consumes only those 35 values, never the raw encoder vector.
+## Notebook workflows
 
-The [concept fusion package](concept_fusion/) on `thevindu-concept-fusion` owns
-`Linear(40,64)` for instrument probabilities and `Linear(35,64)` for timbre
-concepts, then gated/concat/attention fusion to 87 genre logits.
-Run `python scripts/run_all_fusion.py --quick`. See [the fusion runbook](docs/concept-fusion-runbook.md)
-and [the architecture history](docs/architecture-from-plan-to-implementation.md).
+Choose one runtime for a complete experiment:
+
+- [Google Colab workflow](notebooks/colab/README.md) persists artifacts in Drive.
+- [Kaggle workflow](notebooks/kaggle/README.md) passes saved outputs between notebooks.
+
+The notebooks currently establish baselines and prepare targets; they do not
+implement the proposed four-branch model. Their generator scripts are the source of
+truth. Change a generator and regenerate the corresponding notebooks rather than
+creating notebook-only forks.
 
 ## Repository structure
 
 ```text
 .
 ├── README.md
-├── concept_fusion/                    # gated fusion, genre head, eval (this branch)
-├── instrument_branch/                 # Anupama instrument v2
-├── timbre_branch/                     # Senindu 35-D timbre bottleneck
+├── requirements.txt
+├── data/                         # ignored local datasets
 ├── docs/
-├── notebooks/dataset_split/           # EDA + official split table
-└── scripts/run_all_fusion.py
+│   ├── architecture.md
+│   ├── project-plan.md
+│   ├── harmony-plan.md
+│   ├── team-standards.md
+│   └── diagrams/
+│       ├── proposed-concept-guided-architecture.svg
+│       └── harmony-pseudo-supervision.svg
+├── notebooks/
+│   ├── colab/
+│   ├── kaggle/
+│   └── dataset_split/
+├── instrument_branch/             # 40 instrument concepts from a 128D song input
+├── timbre_branch/                  # 35 standardized timbre concepts from a 128D input
+├── concept_fusion/                # shared contracts, projections, losses, and fusion
+├── scripts/
+│   ├── generate_colab_notebooks.py
+│   ├── generate_kaggle_notebooks.py
+│   ├── harmony_chroma.py
+│   ├── benchmark_harmony_extractors.py
+│   ├── decide_harmony_extractor.py
+│   ├── materialize_harmony_target_pilot.py
+│   ├── harmony_alignment.py
+│   ├── shared_audio_encoder.py
+│   ├── cache_harmony_encoder_pilot.py
+│   ├── build_harmony_screen_dataset.py
+│   ├── temporal_harmony_branch.py
+│   ├── screen_temporal_harmony_branch.py
+│   ├── decide_harmony_branch_screen.py
+│   ├── prepare_chord_benchmark_source.py
+│   ├── generate_essentia_chord_estimates.py
+│   ├── evaluate_chord_teacher.py
+│   ├── decide_chord_teacher.py
+│   ├── freeze_experiment_cohort.py
+│   ├── manage_gpu_budget.py
+│   └── paired_bootstrap_compare.py
+└── tests/
+    └── test_*.py
 ```
 
-## Non-negotiable evaluation rules
-
-- Use the official MTG-Jamendo `split-0` partitions.
-- Select models using validation data only.
-- Evaluate the test partition only after model selection.
-- Exclude undefined per-tag values from macro metrics rather than replacing them with zero.
-- Record the tag order and normalization statistics in checkpoints.
-- Keep datasets, extracted targets, checkpoints, and results outside Git.
-
-The default development subset uses shards `00–02`. Expand log-Mel and AcousticBrainz shards together when more storage is available.
+Large datasets, extracted targets, checkpoints, predictions, and results remain
+outside Git. Their agreed layout and metadata are defined in the team standards.

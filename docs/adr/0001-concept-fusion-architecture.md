@@ -1,9 +1,12 @@
 # Architecture Decision Record — Concept Fusion, Genre Head, Evaluation, Explainability
 
-**Status:** Proposed for team ratification (90-minute architecture meeting)  
-**Owner:** Thevindu (integration)  
-**Branch:** `thevindu-concept-fusion`  
-**Contract:** shared architecture v0.1  
+**Status:** Harmony integration candidate; team ratification still required
+
+**Owners:** Thevindu (fusion) and harmony branch owner
+
+**Branch:** `harmony`
+
+**Contract:** shared architecture v0.2
 
 This record freezes the 11 decisions in the ownership brief §8. Branch owners should object in the meeting, not by silently reshaping tensors later.
 
@@ -17,10 +20,10 @@ This record freezes the 11 decisions in the ownership brief §8. Branch owners s
 | 2 | Primary fusion | **Masked gated fusion** over LayerNorm tokens. Score is a scalar linear `w⊤ h_k`. Softmax only over enabled branches. Disabled gates are **exactly 0**. | Heterogeneous branches need an explicit availability mask; gating is the proposed contribution. |
 | 3 | Self-attention | Keep as named ablation **F-Attn**, not primary. | Attention weights are not explanations ([Jain & Wallace 2019](https://aclanthology.org/N19-1357/)). |
 | 4 | Gate type | **Global per-track gates** in the primary model. Genre-conditioned 87×4 gates are a named ablation only. | 87×4 gates on a few thousand tracks will overfit; interpretation gets worse. |
-| 5 | Bottleneck units | **Instrument v2:** `concept_values (B,40)` + `logits`; fusion owns `Linear(40,64)`. **Timbre v2:** `z_timbre (B,35)` standardized named descriptors; **no `fusion_token`**, **no `h_audio` shortcut**; fusion owns `Linear(35,64)`. Aux timbre loss is masked Smooth L1. Rhythm/harmony still supply `(B,64)` tokens until they publish. | Published Anupama + Senindu contracts. |
+| 5 | Bottleneck units | **Instrument v2:** 40 probabilities + logits; fusion owns `Linear(40,64)`. **Timbre v2:** 35 standardized descriptors; fusion owns `Linear(35,64)`. **Harmony v1:** temporal chroma `(B,T,12)`, optional chords `(B,T,25)`, and configurable song embedding; fusion owns `Linear(D_harmony,64)`. Only rhythm still supplies a 64D token. | Published instrument/timbre contracts plus the CPU-tested temporal harmony adapter. |
 | 6 | Token normalization | **LayerNorm each token before fusion. Non-negotiable.** | Instrument embedding vs rhythm scalars are different geometries. |
 | 7 | Concept dropout | **p = 0.15** per branch during **training only**. Never drop all four. All-masked fallback: **learned null token**. | **Hard dependency:** no dropout ⇒ no occlusion faithfulness. Masking at test would be OOD. |
-| 8 | Loss weights | Each concept loss is a **mean over observed elements** (unit scale). Start **λ = 1**. Sweep on validation. Compare **Kendall uncertainty weighting** as one run. | Stops 40 instrument tags from dominating 6 timbre tags by count. |
+| 8 | Loss weights | Each concept loss is a **mean over observed elements** (unit scale). Start **λ = 1**. Adjust only for a recorded instability or ineffective gradient; Kendall weighting is a named comparison, not a broad sweep. | Stops large target sets from dominating by count while respecting the compute plan. |
 | 9 | Thresholds | **Per-tag** threshold maximizing **validation F1**. Tags with support `< 10` use **global 0.5**. Never fit on test. | 87 imbalanced labels; one global threshold is too crude. |
 | 10 | Explanations | Report gates **and** occlusion deltas. Rank correlation is required. Attention/gates alone are insufficient. | Same fusion-mask mechanism as dropout. |
 | 11 | Runs | JSON `RunRecord` with config hash, seed, git SHA. Tables generated from files. Seeds: **3** for B1 / F-Concat / F-Gated; **1** for everything else. | Colab cannot host 33+ full trainings. |
@@ -29,7 +32,7 @@ This record freezes the 11 decisions in the ownership brief §8. Branch owners s
 
 ## Mask distinction (do not collapse)
 
-- `supervision_mask (B, C_k)`: target is observed → may enter aux loss. Missing labels **must not** inner-join the track out of genre training.
+- Fixed branches use `supervision_mask (B, C_k)`. Harmony uses independent temporal chroma/chord masks `(B,T)`. A target enters only its matching auxiliary loss. Missing labels **must not** inner-join the track out of genre training.
 - `fusion_mask (B, 1)` per branch, stacked to `(B, 4)`: predicted branch is enabled for fusion (dropout, missing-branch, ablations).
 
 NaN on unobserved targets is **allowed**. NaN on observed targets or on fusion tokens is a **contract error**. Never `nan_to_num(0)`.
@@ -72,10 +75,21 @@ Instrument (published): `concept_values (B,40)`, `logits (B,40)`, masks. **No `f
 
 Timbre (published): `z_timbre` / `d_hat_standardized (B,35)` in `FEATURE_COLUMNS` order. **No `fusion_token`. Never fuse `h_audio`.** Feature list: `timbre_branch/src/timbre_branch/constants.py`.
 
-Rhythm / harmony still deliver `concept_values`, `fusion_token (B,64)`, and both masks. Rhythm C_k = 10. Harmony C_k = 18 (provisional).
+Rhythm still delivers `concept_values`, `fusion_token (B,64)`, and both masks until
+its owner publishes a replacement.
+
+Harmony (integration candidate): `embedding (B,D_harmony)`, temporal chroma logits
+`(B,T,12)`, optional chord logits `(B,T,25)`, prediction/target masks, and branch
+availability. **No `fusion_token`.** Fusion owns `Linear(D_harmony,64)`. The pooled
+12-bin chroma value in the common container is diagnostic only; auxiliary loss uses
+the temporal predictions through `HarmonyTargets`.
 
 ---
 
 ## Status of this branch (Step 1 + Step 2 on mocks)
 
-Implemented and unit-tested against fixtures, aligned to instrument v2 (`Linear(40,64)`) and timbre v2 (`Linear(35,64)`). `python scripts/run_all_fusion.py --quick` trains the full matrix on fixtures. Next live wiring: C-I then C-T on official split-0 IDs. Rhythm/harmony tokens are still fixtures.
+Implemented and unit-tested against fixtures, aligned to instrument v2
+(`Linear(40,64)`), timbre v2 (`Linear(35,64)`), and temporal harmony
+(`Linear(D_harmony,64)`). `python scripts/run_all_fusion.py --quick` trains the full
+matrix on fixtures. Harmony's real branch adapter is exercised end to end on
+synthetic ordered encoder inputs; official real-audio artifacts are still required.

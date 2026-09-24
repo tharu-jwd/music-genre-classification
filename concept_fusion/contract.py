@@ -1,10 +1,13 @@
-"""Frozen shared-architecture contract v0.1 (Thevindu integration owner).
+"""Shared-architecture contract v0.2.
 
 Reject violating tensors. Do not silently reshape, reorder, impute, or reinterpret.
 
 Instrument v2: 40 probabilities + logits, no fusion token. Fusion owns Linear(40, 64).
 Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
 Fusion owns Linear(35, 64).
+Harmony v1: temporal 12-bin chroma predictions plus an independently configurable
+song embedding. Fusion owns the embedding-to-64 projection. Chords are an optional
+25-class temporal auxiliary target, never part of an 18-value song summary.
 """
 
 from __future__ import annotations
@@ -21,9 +24,14 @@ FUSED_DIM = 128
 N_GENRE_TAGS = 87
 N_INSTRUMENT_TAGS = 40
 N_TIMBRE_CONCEPTS = 35
+N_HARMONY_CHROMA = 12
+N_HARMONY_CHORDS = 25
+DEFAULT_HARMONY_EMBEDDING_DIM = 32
 INSTRUMENT_HIDDEN_DIM = 128
 # Published branches that do not own a 64-D token. Fusion projects them.
-BRANCHES_WITHOUT_FUSION_TOKEN: frozenset[str] = frozenset({"instrument", "timbre"})
+BRANCHES_WITHOUT_FUSION_TOKEN: frozenset[str] = frozenset(
+    {"instrument", "timbre", "harmony"}
+)
 
 
 def _load_instrument_tags() -> tuple[str, ...]:
@@ -63,8 +71,6 @@ def _load_timbre_features() -> tuple[str, ...]:
 
 
 TIMBRE_FEATURES: tuple[str, ...] = _load_timbre_features()
-PROVISIONAL_HARMONY = 18
-
 CONCEPT_DROPOUT_P = 0.15
 SUPPORT_FLOOR = 10
 GLOBAL_THRESHOLD_FALLBACK = 0.5
@@ -86,7 +92,7 @@ class ConceptCounts:
     instrument: int = N_INSTRUMENT_TAGS
     rhythm: int = 10
     timbre: int = N_TIMBRE_CONCEPTS
-    harmony: int = PROVISIONAL_HARMONY
+    harmony: int = N_HARMONY_CHROMA
 
     def for_name(self, name: str) -> int:
         if name not in CONCEPT_ORDER:

@@ -26,8 +26,19 @@ class TimbreBranchSmokeTest(unittest.TestCase):
         torch.manual_seed(7)
         np.random.seed(7)
 
+    @staticmethod
+    def _synthetic_targets(rows=60):
+        values = np.random.normal(size=(rows, len(FEATURE_COLUMNS)))
+        frame = pd.DataFrame(values, columns=FEATURE_COLUMNS)
+        frame.insert(0, "TRACK_ID", [f"track_{index:04d}" for index in range(rows)])
+        frame["extraction_status"] = "ok"
+        return frame
+
     def test_real_target_contract(self):
-        targets = load_timbre_targets(PROJECT_ROOT / "data/timbre_features_raw.csv")
+        target_path = PROJECT_ROOT / "data/timbre_features_raw.csv"
+        if not target_path.is_file():
+            self.skipTest("ignored real timbre target artifact is not present")
+        targets = load_timbre_targets(target_path)
         self.assertEqual(len(targets), 7324)
         self.assertEqual(len(FEATURE_COLUMNS), 35)
         self.assertFalse(targets.loc[:, FEATURE_COLUMNS].isna().any().any())
@@ -108,7 +119,7 @@ class TimbreBranchSmokeTest(unittest.TestCase):
             model(torch.randn(128))
 
     def test_training_cli_end_to_end(self):
-        targets = load_timbre_targets(PROJECT_ROOT / "data/timbre_features_raw.csv").head(60)
+        targets = self._synthetic_targets()
         track_ids = targets["TRACK_ID"].to_numpy(dtype=str)
         embeddings = np.random.normal(size=(60, 128)).astype(np.float32)
         split_names = np.array(
@@ -119,8 +130,10 @@ class TimbreBranchSmokeTest(unittest.TestCase):
             directory = Path(directory)
             embedding_path = directory / "embeddings.npz"
             split_path = directory / "splits.csv"
+            target_path = directory / "targets.csv"
             checkpoint_path = directory / "best.pt"
             np.savez(embedding_path, track_ids=track_ids, embeddings=embeddings)
+            targets.to_csv(target_path, index=False)
             pd.DataFrame({"TRACK_ID": track_ids, "split": split_names}).to_csv(
                 split_path, index=False
             )
@@ -129,7 +142,7 @@ class TimbreBranchSmokeTest(unittest.TestCase):
                     sys.executable,
                     str(PROJECT_ROOT / "scripts/train_timbre_branch.py"),
                     "--embeddings", str(embedding_path),
-                    "--targets", str(PROJECT_ROOT / "data/timbre_features_raw.csv"),
+                    "--targets", str(target_path),
                     "--splits", str(split_path),
                     "--output", str(checkpoint_path),
                     "--epochs", "2",

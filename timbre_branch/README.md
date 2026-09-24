@@ -65,7 +65,10 @@ python -m pip install -r requirements.txt
 python -m unittest -v tests.test_timbre_branch_smoke
 ```
 
-The tests cover the real target-table contract, 128-to-35 forward shape, masked Smooth L1 loss, backward optimization, inverse scaling, checkpoint equivalence, invalid-input rejection, and end-to-end command-line training on disposable synthetic encoder embeddings.
+The self-contained tests cover 128-to-35 forward shape, masked Smooth L1 loss,
+backward optimization, inverse scaling, checkpoint equivalence, invalid-input
+rejection, and end-to-end command-line training on disposable synthetic inputs. If
+the ignored real target table is present, they also check its 7,324-row contract.
 
 ## Real training
 

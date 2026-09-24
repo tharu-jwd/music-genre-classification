@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn.functional as F
 
-from concept_fusion.contract import CONCEPT_ORDER, ConceptCounts
+from concept_fusion.contract import CONCEPT_ORDER, N_HARMONY_CHROMA, N_HARMONY_CHORDS, ConceptCounts
 from concept_fusion.types import BranchBundle
 from concept_fusion.validation import ContractError, require_finite, require_tensor
 
@@ -29,6 +29,24 @@ class LossBreakdown:
     n_observed: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass
+class HarmonyTargets:
+    """Temporal pseudo-supervision aligned to harmony branch tokens."""
+
+    chroma: torch.Tensor  # (B,T,12), non-negative distributions
+    chroma_mask: torch.Tensor  # (B,T)
+    chord_labels: torch.Tensor | None = None  # (B,T), class indices
+    chord_mask: torch.Tensor | None = None  # (B,T)
+
+    def indexed(self, index: torch.Tensor) -> "HarmonyTargets":
+        return HarmonyTargets(
+            chroma=self.chroma[index],
+            chroma_mask=self.chroma_mask[index],
+            chord_labels=None if self.chord_labels is None else self.chord_labels[index],
+            chord_mask=None if self.chord_mask is None else self.chord_mask[index],
+        )
+
+
 def _masked_mean(loss_elem: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, int]:
     m = mask.float()
     n = int(m.sum().item())
@@ -41,7 +59,8 @@ class JointLossOrchestrator(torch.nn.Module):
     """L = L_genre + Σ λ_k L_k, each L_k averaged over observed elements only.
 
     Instrument: BCE-with-logits when the branch supplies logits (v2); else BCE on probabilities.
-    Rhythm/timbre/harmony: Smooth L1 on standardized values.
+    Rhythm/timbre: Smooth L1 on standardized values.
+    Harmony: masked temporal chroma soft-target loss plus optional chord CE.
     NaN targets are allowed only where supervision_mask is 0.
     """
 
@@ -59,7 +78,7 @@ class JointLossOrchestrator(torch.nn.Module):
         genre_logits: torch.Tensor,
         genre_targets: torch.Tensor,
         bundle: BranchBundle,
-        concept_targets: dict[str, torch.Tensor],
+        concept_targets: dict[str, torch.Tensor | HarmonyTargets],
     ) -> LossBreakdown:
         logits = require_tensor("genre_logits", genre_logits, ndim=2)
         y = require_tensor("genre_targets", genre_targets, ndim=2)
@@ -78,6 +97,19 @@ class JointLossOrchestrator(torch.nn.Module):
             mask = bundle.supervision_mask(name)
             if name not in concept_targets:
                 raise ContractError(f"missing concept_targets[{name}]")
+            if name == "harmony":
+                harmony_targets = concept_targets[name]
+                if not isinstance(harmony_targets, HarmonyTargets):
+                    raise ContractError(
+                        "harmony targets must preserve temporal chroma using HarmonyTargets"
+                    )
+                harmony_loss, harmony_counts, harmony_terms = _temporal_harmony_loss(
+                    bundle.branches[name], harmony_targets
+                )
+                terms[name] = harmony_loss
+                terms.update(harmony_terms)
+                n_obs.update(harmony_counts)
+                continue
             tgt = require_tensor(f"concept_targets[{name}]", concept_targets[name], ndim=2)
             if tgt.shape != pred.shape:
                 raise ContractError(f"{name} target {tuple(tgt.shape)} != pred {tuple(pred.shape)}")
@@ -124,3 +156,85 @@ class JointLossOrchestrator(torch.nn.Module):
             terms={k: float(v.detach().item()) for k, v in terms.items()},
             n_observed=n_obs,
         )
+
+
+def _temporal_harmony_loss(
+    branch,
+    targets: HarmonyTargets,
+) -> tuple[torch.Tensor, dict[str, int], dict[str, torch.Tensor]]:
+    logits = branch.temporal_chroma_logits
+    prediction_mask = branch.temporal_prediction_mask
+    if logits is None or prediction_mask is None:
+        raise ContractError("harmony branch is missing temporal chroma predictions")
+    chroma = require_tensor("harmony_targets.chroma", targets.chroma, ndim=3)
+    chroma_mask = targets.chroma_mask
+    if not isinstance(chroma_mask, torch.Tensor) or chroma_mask.ndim != 2:
+        raise ContractError("harmony chroma mask must be a 2D tensor")
+    if logits.shape != chroma.shape or logits.shape[-1] != N_HARMONY_CHROMA:
+        raise ContractError("harmony chroma targets must match temporal logits (B,T,12)")
+    if chroma_mask.shape != logits.shape[:2]:
+        raise ContractError("harmony chroma mask must match temporal logits")
+    valid = chroma_mask.to(torch.bool) & prediction_mask.to(torch.bool)
+    n_chroma = int(valid.sum().item())
+    if n_chroma:
+        selected = chroma[valid]
+        require_finite("harmony chroma targets[observed]", selected)
+        if bool((selected < 0).any()):
+            raise ContractError("observed harmony chroma targets must be non-negative")
+        if not torch.allclose(
+            selected.sum(dim=-1),
+            torch.ones(n_chroma, device=selected.device, dtype=selected.dtype),
+            atol=1e-5,
+        ):
+            raise ContractError("observed harmony chroma targets must sum to one")
+        chroma_loss = -(selected * F.log_softmax(logits[valid], dim=-1)).sum(-1).mean()
+    else:
+        chroma_loss = logits.sum() * 0.0
+
+    chord_logits = branch.temporal_chord_logits
+    if targets.chord_labels is None and targets.chord_mask is None:
+        chord_loss = logits.sum() * 0.0
+        n_chord = 0
+    else:
+        if targets.chord_labels is None or targets.chord_mask is None:
+            raise ContractError("harmony chord labels and mask must be supplied together")
+        if chord_logits is None:
+            raise ContractError("chord targets were supplied but the harmony chord head is disabled")
+        labels = targets.chord_labels
+        chord_mask = targets.chord_mask
+        if not isinstance(labels, torch.Tensor) or labels.ndim != 2:
+            raise ContractError("harmony chord labels must be a 2D tensor")
+        if not isinstance(chord_mask, torch.Tensor) or chord_mask.ndim != 2:
+            raise ContractError("harmony chord mask must be a 2D tensor")
+        if labels.shape != chord_logits.shape[:2] or chord_mask.shape != labels.shape:
+            raise ContractError("harmony chord labels/mask must match temporal chord logits")
+        chord_valid = chord_mask.to(torch.bool) & prediction_mask.to(torch.bool)
+        n_chord = int(chord_valid.sum().item())
+        if n_chord:
+            selected_labels = labels[chord_valid]
+            if selected_labels.dtype not in {
+                torch.int8,
+                torch.int16,
+                torch.int32,
+                torch.int64,
+                torch.uint8,
+            }:
+                raise ContractError("observed harmony chord labels must use an integer dtype")
+            if bool((selected_labels < 0).any()) or bool(
+                (selected_labels >= N_HARMONY_CHORDS).any()
+            ):
+                raise ContractError("observed harmony chord labels are outside the 25-class schema")
+            chord_loss = F.cross_entropy(chord_logits[chord_valid], selected_labels.long())
+        else:
+            chord_loss = chord_logits.sum() * 0.0
+
+    total = chroma_loss + chord_loss
+    return (
+        total,
+        {
+            "harmony": n_chroma + n_chord,
+            "harmony_chroma_frames": n_chroma,
+            "harmony_chord_frames": n_chord,
+        },
+        {"harmony_chroma": chroma_loss, "harmony_chord": chord_loss},
+    )

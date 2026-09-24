@@ -71,8 +71,8 @@ h_audio (B, 128)
 
 ### Frozen 35-feature order (`FEATURE_COLUMNS`)
 
-Spectral shape (7): centroid/bandwidth mean+std, contrast, flatness, rolloff.  
-Harmonic/noise (2): HNR dB, inharmonicity.  
+Spectral shape (7): centroid/bandwidth mean+std, contrast, flatness, rolloff.
+Harmonic/noise (2): HNR dB, inharmonicity.
 MFCC envelope (26): mfcc_01..13 mean and std.
 
 ### What the branch returns
@@ -105,20 +105,38 @@ Main also removed the old hosted Colab/Kaggle notebook set in that merge. Propos
 
 Instrument handling is unchanged: still fusion-owned `Linear(40,64)`.
 
-Rhythm and harmony still supply 64-D tokens until they publish.
+Rhythm still supplies a provisional 64D token. Harmony now has a published
+integration candidate described below.
+
+## 6. Temporal harmony integration candidate
+
+The harmony branch consumes fine-grained ordered encoder features rather than the
+pooled 128D song representation. It returns a configurable song embedding (32D by
+default), temporal chroma logits `(B,T,12)`, optional chord logits `(B,T,25)`, and
+prediction/availability masks.
+
+- There is **no branch-owned 64D fusion token**.
+- Fusion owns `Linear(D_harmony,64)`.
+- Temporal chroma uses masked soft-target cross-entropy.
+- Optional chords use masked classification loss only after teacher acceptance.
+- The pooled 12-bin chroma stored in the common branch container is diagnostic; it
+  is not the auxiliary supervision target.
+- Missing target supervision does not disable an otherwise available harmony
+  embedding. Unavailable audio sets the harmony fusion mask to zero.
 
 ---
 
-## 6. Current architecture
+## 7. Current architecture
 
 ```text
-song_repr (B, 128)                         ← Dehan; not a primary genre input
-    ├── Instrument v2 → 40 probs + logits     → Linear(40,64) × fusion_mask
-    ├── Rhythm (pending) → token (B,64)
-    ├── Timbre v2 → z_timbre (B,35)          → Linear(35,64) × fusion_mask
-    └── Harmony (pending) → token (B,64)
+shared encoder
+    ├── pooled song (B,128) → Instrument v2 → 40 probs → Linear(40,64)
+    ├── ordered features → Rhythm (pending) → token (B,64)
+    ├── pooled song (B,128) → Timbre v2 → 35 values → Linear(35,64)
+    └── ordered features → Harmony v1 → embedding (B,D) → Linear(D,64)
+                                      └→ temporal chroma/chord auxiliary losses
                     ↓
-            tokens (B, 4, 64)
+                         tokens (B, 4, 64)
                     ↓
      dropout p=0.15 → LayerNorm → gated / concat / attention
                     ↓
@@ -129,6 +147,7 @@ Ingest helpers:
 
 - `from_instrument_branch(dict)` — rejects `fusion_token`
 - `from_timbre_branch(z_timbre | dict)` — rejects `fusion_token` and `h_audio`
+- `from_temporal_harmony_branch(output)` — preserves temporal outputs and rejects a branch-owned `fusion_token`
 
 Run:
 
@@ -137,6 +156,7 @@ python -m pytest tests -q
 python scripts/run_all_fusion.py --quick
 ```
 
-Next live wiring: **C-I** then **C-T** on official split-0 IDs once Dehan’s `song_repr` exists.
+Next live wiring requires official split-0 rows, Dehan's `song_repr` for instrument
+and timbre, and ordered encoder features plus accepted pseudo-labels for harmony.
 
 Related: [ADR](adr/0001-concept-fusion-architecture.md), [fusion runbook](concept-fusion-runbook.md), [instrument README](../instrument_branch/README.md), [timbre README](../timbre_branch/README.md).

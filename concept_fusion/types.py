@@ -13,6 +13,8 @@ from concept_fusion.contract import (
     FUSED_DIM,
     INSTRUMENT_HIDDEN_DIM,
     N_CONCEPTS,
+    N_HARMONY_CHROMA,
+    N_HARMONY_CHORDS,
     N_INSTRUMENT_TAGS,
     N_TIMBRE_CONCEPTS,
     TOKEN_DIM,
@@ -33,10 +35,14 @@ class BranchOutput:
     concept_values: torch.Tensor  # (B, C_k) probabilities / standardized values
     supervision_mask: torch.Tensor  # (B, C_k) 1 = target observed
     fusion_mask: torch.Tensor  # (B, 1) 1 = branch enabled for fusion
-    fusion_token: torch.Tensor | None = None  # (B, 64); forbidden for instrument/timbre v2
+    fusion_token: torch.Tensor | None = None  # (B, 64); only legacy rhythm supplies this
+    embedding: torch.Tensor | None = None  # harmony song embedding (B,D), projected by fusion
     hidden_token: torch.Tensor | None = None  # instrument: (B,128) detached; others (B,64)
     logits: torch.Tensor | None = None  # instrument BCE-with-logits (B,40)
     tag_order: tuple[str, ...] | None = None
+    temporal_chroma_logits: torch.Tensor | None = None  # harmony (B,T,12)
+    temporal_chord_logits: torch.Tensor | None = None  # optional harmony (B,T,25)
+    temporal_prediction_mask: torch.Tensor | None = None  # harmony (B,T)
 
     def validate(self, *, batch: int, n_concepts: int) -> None:
         if self.name not in CONCEPT_ORDER:
@@ -61,7 +67,7 @@ class BranchOutput:
         if self.name in BRANCHES_WITHOUT_FUSION_TOKEN:
             if self.fusion_token is not None:
                 raise ContractError(
-                    f"{self.name} must not return fusion_token; fusion owns Linear(C_k,64)"
+                    f"{self.name} must not return fusion_token; fusion owns its projection"
                 )
             require_finite(f"{self.name}.concept_values", val)
             if self.name == "instrument":
@@ -76,6 +82,8 @@ class BranchOutput:
             elif self.name == "timbre":
                 if val.shape[1] != N_TIMBRE_CONCEPTS:
                     raise ContractError(f"timbre C={val.shape[1]} != {N_TIMBRE_CONCEPTS}")
+            elif self.name == "harmony":
+                self._validate_harmony(batch, val)
         else:
             if self.fusion_token is None:
                 raise ContractError(f"{self.name} must supply fusion_token (B, {TOKEN_DIM})")
@@ -89,6 +97,45 @@ class BranchOutput:
             hid = require_tensor("hidden_token", self.hidden_token, ndim=2, last=last)
             require_batch("hidden_token", hid, batch)
             require_finite(f"{self.name}.hidden_token", hid)
+
+    def _validate_harmony(self, batch: int, values: torch.Tensor) -> None:
+        if values.shape[1] != N_HARMONY_CHROMA:
+            raise ContractError(f"harmony C={values.shape[1]} != {N_HARMONY_CHROMA}")
+        if self.embedding is None:
+            raise ContractError("harmony must supply its configurable song embedding")
+        embedding = require_tensor("harmony.embedding", self.embedding, ndim=2)
+        require_batch("harmony.embedding", embedding, batch)
+        if embedding.shape[1] < 1:
+            raise ContractError("harmony embedding width must be positive")
+        require_finite("harmony.embedding", embedding)
+        if self.temporal_chroma_logits is None or self.temporal_prediction_mask is None:
+            raise ContractError("harmony must preserve temporal chroma logits and prediction mask")
+        chroma = require_tensor(
+            "harmony.temporal_chroma_logits",
+            self.temporal_chroma_logits,
+            ndim=3,
+            last=N_HARMONY_CHROMA,
+        )
+        prediction_mask = self.temporal_prediction_mask
+        if not isinstance(prediction_mask, torch.Tensor) or prediction_mask.ndim != 2:
+            raise ContractError("harmony.temporal_prediction_mask must be a 2D tensor")
+        require_batch("harmony.temporal_chroma_logits", chroma, batch)
+        require_batch("harmony.temporal_prediction_mask", prediction_mask, batch)
+        if chroma.shape[:2] != prediction_mask.shape:
+            raise ContractError("harmony temporal logits and prediction mask must align")
+        require_binary_mask("harmony.temporal_prediction_mask", prediction_mask)
+        require_finite("harmony.temporal_chroma_logits", chroma)
+        if self.temporal_chord_logits is not None:
+            chord = require_tensor(
+                "harmony.temporal_chord_logits",
+                self.temporal_chord_logits,
+                ndim=3,
+                last=N_HARMONY_CHORDS,
+            )
+            require_batch("harmony.temporal_chord_logits", chord, batch)
+            if chord.shape[:2] != prediction_mask.shape:
+                raise ContractError("harmony chord logits and prediction mask must align")
+            require_finite("harmony.temporal_chord_logits", chord)
 
 
 @dataclass
@@ -115,7 +162,7 @@ class BranchBundle:
 
     def tokens(self) -> torch.Tensor:
         raise ContractError(
-            "instrument/timbre v2 have no fusion_token; use TokenAssembler or "
+            "instrument/timbre/harmony have no fusion_token; use TokenAssembler or "
             "ConceptBottleneckModel.assemble_tokens"
         )
 
@@ -149,11 +196,15 @@ class BranchBundle:
                 name=br.name,
                 concept_values=br.concept_values,
                 fusion_token=br.fusion_token,
+                embedding=br.embedding,
                 supervision_mask=br.supervision_mask,
                 fusion_mask=torch.full_like(br.fusion_mask, keep),
                 hidden_token=br.hidden_token,
                 logits=br.logits,
                 tag_order=br.tag_order,
+                temporal_chroma_logits=br.temporal_chroma_logits,
+                temporal_chord_logits=br.temporal_chord_logits,
+                temporal_prediction_mask=br.temporal_prediction_mask,
             )
         out = BranchBundle(branches=branches, counts=self.counts)
         out.validate()

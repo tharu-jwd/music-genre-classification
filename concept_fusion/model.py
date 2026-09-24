@@ -7,7 +7,12 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from concept_fusion.contract import CONCEPT_DROPOUT_P, FUSED_DIM, N_GENRE_TAGS
+from concept_fusion.contract import (
+    CONCEPT_DROPOUT_P,
+    DEFAULT_HARMONY_EMBEDDING_DIM,
+    FUSED_DIM,
+    N_GENRE_TAGS,
+)
 from concept_fusion.dropout import apply_concept_dropout
 from concept_fusion.fusion import FusionName, build_fusion
 from concept_fusion.genre_head import GenreHead
@@ -33,6 +38,7 @@ class ConceptBottleneckModel(nn.Module):
         use_hidden: bool = False,
         allow_no_dropout: bool = False,
         song_repr_dim: int = 128,
+        harmony_embedding_dim: int = DEFAULT_HARMONY_EMBEDDING_DIM,
     ):
         super().__init__()
         if n_tags != N_GENRE_TAGS:
@@ -44,7 +50,7 @@ class ConceptBottleneckModel(nn.Module):
         self.allow_shortcut = allow_shortcut
         self.use_hidden = use_hidden
         self.allow_no_dropout = allow_no_dropout
-        self.assembler = TokenAssembler()
+        self.assembler = TokenAssembler(harmony_embedding_dim=harmony_embedding_dim)
         self.fusion = build_fusion(fusion, fused_dim=fused_dim)
         self.head = GenreHead(fused_dim=fused_dim, n_tags=n_tags)
         if allow_shortcut:

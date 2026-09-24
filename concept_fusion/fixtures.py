@@ -8,15 +8,18 @@ import torch
 
 from concept_fusion.contract import (
     CONCEPT_ORDER,
+    DEFAULT_HARMONY_EMBEDDING_DIM,
     FUSED_DIM,
     INSTRUMENT_HIDDEN_DIM,
     INSTRUMENT_TAGS,
     N_GENRE_TAGS,
+    N_HARMONY_CHORDS,
     TIMBRE_FEATURES,
     TOKEN_DIM,
     ConceptCounts,
 )
 from concept_fusion.types import BranchBundle, BranchOutput
+from concept_fusion.joint_loss import HarmonyTargets
 
 
 def make_branch_output(
@@ -59,6 +62,29 @@ def make_branch_output(
             fusion_mask=fus,
             hidden_token=hidden,
             tag_order=TIMBRE_FEATURES,
+        )
+    if name == "harmony":
+        time_steps = 6
+        temporal_logits = torch.randn(batch, time_steps, n_concepts, generator=g)
+        prediction_mask = torch.rand(batch, time_steps, generator=g) < 0.9
+        chord_logits = torch.randn(batch, time_steps, N_HARMONY_CHORDS, generator=g)
+        probabilities = torch.softmax(temporal_logits, dim=-1)
+        weights = prediction_mask.to(probabilities.dtype)
+        values = (probabilities * weights.unsqueeze(-1)).sum(1)
+        values = values / weights.sum(1, keepdim=True).clamp_min(1.0)
+        embedding = torch.randn(batch, DEFAULT_HARMONY_EMBEDDING_DIM, generator=g)
+        hidden = torch.randn(batch, TOKEN_DIM, generator=g)
+        return BranchOutput(
+            name=name,
+            concept_values=values,
+            fusion_token=None,
+            embedding=embedding,
+            supervision_mask=sup,
+            fusion_mask=fus,
+            hidden_token=hidden,
+            temporal_chroma_logits=temporal_logits,
+            temporal_chord_logits=chord_logits,
+            temporal_prediction_mask=prediction_mask,
         )
     token = torch.randn(batch, TOKEN_DIM, generator=g)
     token = token / (token.norm(dim=-1, keepdim=True) + 1e-6)
@@ -110,13 +136,33 @@ def make_genre_batch(batch: int = 8, *, n_tags: int = N_GENRE_TAGS, seed: int = 
     return y
 
 
-def make_concept_targets(bundle: BranchBundle, *, seed: int = 3) -> dict[str, torch.Tensor]:
+def make_concept_targets(
+    bundle: BranchBundle, *, seed: int = 3
+) -> dict[str, torch.Tensor | HarmonyTargets]:
     """Finite targets aligned to each branch. Masked cells may stay NaN."""
     g = torch.Generator().manual_seed(seed)
-    out: dict[str, torch.Tensor] = {}
+    out: dict[str, torch.Tensor | HarmonyTargets] = {}
     for name in CONCEPT_ORDER:
         pred = bundle.concept_values(name)
         mask = bundle.supervision_mask(name)
+        if name == "harmony":
+            branch = bundle.branches[name]
+            assert branch.temporal_chroma_logits is not None
+            assert branch.temporal_prediction_mask is not None
+            shape = branch.temporal_chroma_logits.shape
+            raw = torch.rand(shape, generator=g)
+            chroma = raw / raw.sum(dim=-1, keepdim=True)
+            chroma_mask = (
+                (torch.rand(shape[:2], generator=g) < 0.7)
+                & branch.temporal_prediction_mask.to(torch.bool)
+            )
+            chord_labels = torch.randint(N_HARMONY_CHORDS, shape[:2], generator=g)
+            chord_mask = (
+                (torch.rand(shape[:2], generator=g) < 0.6)
+                & branch.temporal_prediction_mask.to(torch.bool)
+            )
+            out[name] = HarmonyTargets(chroma, chroma_mask, chord_labels, chord_mask)
+            continue
         if name == "instrument":
             tgt = (torch.rand(pred.shape, generator=g) < 0.15).float()
         else:
@@ -152,19 +198,36 @@ def _index_bundle(bundle: BranchBundle, idx: torch.Tensor) -> BranchBundle:
             name=br.name,
             concept_values=br.concept_values[idx],
             fusion_token=tok,
+            embedding=None if br.embedding is None else br.embedding[idx],
             supervision_mask=br.supervision_mask[idx],
             fusion_mask=br.fusion_mask[idx],
             hidden_token=hid,
             logits=lg,
             tag_order=br.tag_order,
+            temporal_chroma_logits=(
+                None if br.temporal_chroma_logits is None else br.temporal_chroma_logits[idx]
+            ),
+            temporal_chord_logits=(
+                None if br.temporal_chord_logits is None else br.temporal_chord_logits[idx]
+            ),
+            temporal_prediction_mask=(
+                None
+                if br.temporal_prediction_mask is None
+                else br.temporal_prediction_mask[idx]
+            ),
         )
     out = BranchBundle(branches=branches, counts=bundle.counts)
     out.validate()
     return out
 
 
-def _index_targets(targets: dict[str, torch.Tensor], idx: torch.Tensor) -> dict[str, torch.Tensor]:
-    return {k: v[idx] for k, v in targets.items()}
+def _index_targets(
+    targets: dict[str, torch.Tensor | HarmonyTargets], idx: torch.Tensor
+) -> dict[str, torch.Tensor | HarmonyTargets]:
+    return {
+        key: value.indexed(idx) if isinstance(value, HarmonyTargets) else value[idx]
+        for key, value in targets.items()
+    }
 
 
 @dataclass
@@ -172,7 +235,7 @@ class FixtureSplit:
     song_ids: list[str]
     bundle: BranchBundle
     genre: torch.Tensor
-    concept_targets: dict[str, torch.Tensor]
+    concept_targets: dict[str, torch.Tensor | HarmonyTargets]
     song_repr: torch.Tensor
 
 

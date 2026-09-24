@@ -28,6 +28,7 @@ def test_token_shape_and_order():
     assert tuple(b.branches.keys()) == CONCEPT_ORDER
     assert b.branches["instrument"].fusion_token is None
     assert b.branches["timbre"].fusion_token is None
+    assert b.branches["harmony"].fusion_token is None
     assert b.branches["timbre"].concept_values.shape == (5, 35)
 
 
@@ -189,4 +190,3 @@ def test_concat_and_gated_parameter_count():
     nc = sum(p.numel() for p in c.parameters())
     ng = sum(p.numel() for p in g.parameters())
     assert nc > 0 and ng > 0
-

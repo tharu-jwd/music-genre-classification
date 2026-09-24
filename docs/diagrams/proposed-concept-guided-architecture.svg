@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="760" viewBox="0 0 1600 760" role="img" aria-labelledby="title desc">
+  <title id="title">Proposed concept-guided genre classification architecture</title>
+  <desc id="desc">Audio is encoded into an ordered sequence and pooled song representation. Four concept branches feed projected gated fusion. Harmony consumes the ordered sequence and predicts temporal chroma and optional chord pseudo-labels.</desc>
+  <defs>
+    <style>
+      .bg{fill:#0b1020}.box{fill:#141b30;stroke:#7dd3fc;stroke-width:3}.concept{fill:#19162c;stroke:#c4a7ff;stroke-width:3}.fusion{fill:#10271f;stroke:#6ee7b7;stroke-width:3}.text{fill:#f8fafc;font-family:Arial,sans-serif;font-size:20px}.small{fill:#cbd5e1;font-family:Arial,sans-serif;font-size:16px}.label{fill:#93c5fd;font-family:Arial,sans-serif;font-size:18px;font-weight:bold}.conceptLabel{fill:#c4a7ff;font-family:Arial,sans-serif;font-size:18px;font-weight:bold}.fusionLabel{fill:#6ee7b7;font-family:Arial,sans-serif;font-size:18px;font-weight:bold}.line{stroke:#e2e8f0;stroke-width:3;fill:none;marker-end:url(#arrow)}.temporal{stroke:#fbbf24;stroke-width:4;fill:none;marker-end:url(#goldArrow)}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#e2e8f0"/></marker>
+    <marker id="goldArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#fbbf24"/></marker>
+  </defs>
+  <rect class="bg" width="1600" height="760"/>
+
+  <rect class="box" x="35" y="285" width="190" height="130" rx="12"/>
+  <text class="label" x="130" y="323" text-anchor="middle">AUDIO</text>
+  <text class="text" x="130" y="355" text-anchor="middle">Log-Mel windows</text>
+  <text class="small" x="130" y="384" text-anchor="middle">in time order</text>
+
+  <rect class="box" x="285" y="285" width="210" height="130" rx="12"/>
+  <text class="label" x="390" y="323" text-anchor="middle">SHARED ENCODER</text>
+  <text class="small" x="390" y="358" text-anchor="middle">learn audio patterns</text>
+  <text class="small" x="390" y="384" text-anchor="middle">without pooling order away</text>
+
+  <rect class="box" x="555" y="205" width="245" height="105" rx="12"/>
+  <text class="label" x="677" y="242" text-anchor="middle">ORDERED SEQUENCE</text>
+  <text class="small" x="677" y="274" text-anchor="middle">features + times + mask</text>
+  <rect class="box" x="555" y="405" width="245" height="105" rx="12"/>
+  <text class="label" x="677" y="442" text-anchor="middle">POOLED SONG</text>
+  <text class="small" x="677" y="474" text-anchor="middle">global summary</text>
+
+  <rect class="concept" x="880" y="50" width="240" height="120" rx="12"/>
+  <text class="conceptLabel" x="1000" y="87" text-anchor="middle">INSTRUMENT</text>
+  <text class="small" x="1000" y="120" text-anchor="middle">embedding + tag head</text>
+  <rect class="concept" x="880" y="210" width="240" height="120" rx="12"/>
+  <text class="conceptLabel" x="1000" y="247" text-anchor="middle">RHYTHM</text>
+  <text class="small" x="1000" y="280" text-anchor="middle">embedding + rhythm heads</text>
+  <rect class="concept" x="880" y="370" width="240" height="120" rx="12"/>
+  <text class="conceptLabel" x="1000" y="407" text-anchor="middle">TIMBRE</text>
+  <text class="small" x="1000" y="440" text-anchor="middle">embedding + timbre heads</text>
+  <rect class="concept" x="850" y="555" width="300" height="150" rx="12"/>
+  <text class="conceptLabel" x="1000" y="592" text-anchor="middle">TEMPORAL HARMONY</text>
+  <text class="small" x="1000" y="624" text-anchor="middle">embedding + chroma sequence</text>
+  <text class="small" x="1000" y="650" text-anchor="middle">+ optional chord/key heads</text>
+  <text class="small" x="1000" y="676" text-anchor="middle">confidence-masked pseudo-labels</text>
+
+  <rect class="fusion" x="1220" y="265" width="190" height="170" rx="12"/>
+  <text class="fusionLabel" x="1315" y="304" text-anchor="middle">PROJECTION</text>
+  <text class="fusionLabel" x="1315" y="330" text-anchor="middle">+ GATED FUSION</text>
+  <text class="small" x="1315" y="367" text-anchor="middle">common width</text>
+  <text class="small" x="1315" y="395" text-anchor="middle">128D candidate</text>
+  <rect class="fusion" x="1460" y="285" width="110" height="130" rx="12"/>
+  <text class="fusionLabel" x="1515" y="323" text-anchor="middle">GENRE</text>
+  <text class="small" x="1515" y="356" text-anchor="middle">multi-label</text>
+  <text class="small" x="1515" y="382" text-anchor="middle">predictions</text>
+
+  <path class="line" d="M225 350 H285"/>
+  <path class="line" d="M495 330 C525 330 525 257 555 257"/>
+  <path class="line" d="M495 370 C525 370 525 457 555 457"/>
+  <path class="line" d="M800 440 C830 440 840 110 880 110"/>
+  <path class="line" d="M800 430 C835 430 840 270 880 270"/>
+  <path class="line" d="M800 457 H880"/>
+  <path class="temporal" d="M800 257 C830 257 815 630 850 630"/>
+  <path class="line" d="M1120 110 C1170 110 1170 300 1220 300"/>
+  <path class="line" d="M1120 270 H1220"/>
+  <path class="line" d="M1120 430 C1170 430 1170 390 1220 390"/>
+  <path class="line" d="M1150 630 C1195 630 1175 425 1220 425"/>
+  <path class="line" d="M1410 350 H1460"/>
+
+  <text x="610" y="170" fill="#fbbf24" font-family="Arial,sans-serif" font-size="16">time order retained for harmony</text>
+</svg>
