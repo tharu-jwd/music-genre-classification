@@ -92,7 +92,7 @@ hosted manifest run is still required, so Phase 1 is not yet marked ready.
 - save per-target supervision masks;
 - align all concept targets to the canonical manifest.
 
-Detailed harmony work is tracked in [harmony-plan.md](harmony-plan.md).
+Detailed harmony work is tracked in the [harmony plan](../harmony_branch/docs/plan.md).
 Its pseudo-label teacher selection is a quality gate: failure to find an acceptable
 teacher reduces scope to temporal chroma rather than silently accepting poor chords.
 The complete cheap harmony artifact chain also has a two-song CPU integration test;
@@ -137,7 +137,7 @@ through Essentia inference, `mir_eval`, and the accept/reject decision.
 The harmony implementation follows its own ordered sequence: waveform/alignment
 preflight, temporal chroma comparison, chord-teacher benchmark, immutable raw
 pseudo-labels, masks/schema, temporal model interface, standalone training, then
-joint integration. See [harmony-plan.md](harmony-plan.md) for exit criteria.
+joint integration. See the [harmony plan](../harmony_branch/docs/plan.md) for exit criteria.
 
 Integration update (2026-09-24): the old provisional `harmony=18` contract is
 removed. Harmony preserves temporal 12-bin chroma predictions and optional 25-class

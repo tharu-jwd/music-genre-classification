@@ -2,7 +2,7 @@
 
 This document separates comparison baselines from the proposed research model. The
 [project plan](project-plan.md) records implementation status; the
-[harmony plan](harmony-plan.md) owns harmony-specific decisions.
+[harmony plan](../harmony_branch/docs/plan.md) owns harmony-specific decisions.
 
 ## Comparison baselines
 
