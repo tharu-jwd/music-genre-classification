@@ -46,7 +46,18 @@ def nb(cells: list[dict]) -> dict:
     }
 
 
+# Shared hosted workflow only. Branch training/eval lives in packages, not 02-09.
+KEEP_NOTEBOOKS = {
+    "00_download_to_drive.ipynb",
+    "01_preprocessing.ipynb",
+    "04_rhythm_targets.ipynb",
+}
+
+
 def write(name: str, cells: list[dict]) -> None:
+    if name not in KEEP_NOTEBOOKS:
+        print(f"skipped retired notebook {name}")
+        return
     path = OUT / name
     path.write_text(json.dumps(nb(cells), indent=1), encoding="utf-8")
     print(f"wrote {path.relative_to(ROOT)}")
@@ -58,7 +69,7 @@ COLAB_SETUP = """\
 1. Open in **Google Colab**.
 2. Run **Mount Drive** and click **Allow**.
 3. Shared folder: `/content/drive/MyDrive/MTG_Instrument`
-4. GPU **On** only for 02, 03, 07. Off for 00, 01, 04–06, 09.
+4. GPU **Off** for 00, 01, and 04. Branch training uses package scripts, not notebooks 02–09.
 5. Do **not** re-download mels after notebook 00.
 """
 
@@ -359,7 +370,7 @@ print("example shape", sample.shape)
     "split_counts": manifest["split"].value_counts().to_dict(),
     "instrument_available": int(manifest["instrument_available"].sum()),
 }, indent=2))
-print("Next: 02 (GPU) or 03 / 04 / 05 / 06 in parallel.")
+print("Next: 04_rhythm_targets.ipynb, or a published branch package.")
 '''
         ),
     ],

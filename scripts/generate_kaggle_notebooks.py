@@ -46,7 +46,18 @@ def nb(cells: list[dict]) -> dict:
     }
 
 
+# Shared hosted workflow only. Branch training/eval lives in packages, not 02-09.
+KEEP_NOTEBOOKS = {
+    "00_kaggle_data_download.ipynb",
+    "01_preprocessing.ipynb",
+    "04_rhythm_targets.ipynb",
+}
+
+
 def write(name: str, cells: list[dict]) -> None:
+    if name not in KEEP_NOTEBOOKS:
+        print(f"skipped retired notebook {name}")
+        return
     path = OUT / name
     path.write_text(json.dumps(nb(cells), indent=1), encoding="utf-8")
     print(f"wrote {path.relative_to(ROOT)}")
@@ -57,7 +68,7 @@ KAGGLE_SETUP = """\
 
 ### A. Settings
 1. Right sidebar → **Internet → On** (required for downloads).
-2. **GPU**: Off for `00`/`01`/`04`–`06`. **GPU (T4)** on for `02`/`03`/`07`.
+2. **GPU**: Off for `00`/`01`/`04`. Branch training uses package scripts, not notebooks 02–09.
 
 ### B. How data moves (do not skip)
 Kaggle **does not** keep `/kaggle/working` when you open a *new* notebook.
@@ -626,7 +637,7 @@ print("example shape:", sample.shape, "dtype:", sample.dtype)
     "instrument_available": int(manifest["instrument_available"].sum()),
     "example_shape": list(sample.shape),
 }, indent=2))
-print("Next: 02_direct_cnn_baseline.ipynb")
+print("Next: 04_rhythm_targets.ipynb, or a published branch package.")
 '''
         ),
     ],

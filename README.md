@@ -59,15 +59,15 @@ Each document has one purpose:
 
 ## Notebook workflows
 
-Choose one runtime for a complete experiment:
+Choose one runtime for the shared data path:
 
 - [Google Colab workflow](notebooks/colab/README.md) persists artifacts in Drive.
 - [Kaggle workflow](notebooks/kaggle/README.md) passes saved outputs between notebooks.
 
-The notebooks currently establish baselines and prepare targets; they do not
-implement the proposed four-branch model. Their generator scripts are the source of
-truth. Change a generator and regenerate the corresponding notebooks rather than
-creating notebook-only forks.
+Only `00` download, `01` preprocessing, and `04` rhythm-target extraction remain.
+The old numbered notebooks `02`–`03` and `05`–`09` are retired; instrument, timbre,
+harmony, and fusion now live in their packages. Generator scripts write only those
+three essential notebooks.
 
 ## Repository structure
 

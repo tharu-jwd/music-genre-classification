@@ -41,7 +41,7 @@ final genre evaluation. Those interfaces must be agreed with their owners.
 | Frozen-feature cache | Gate ready | Immutable CPU-only exporter is capped and tested; it requires a validated instrument checkpoint and frozen train/validation cohort |
 | Screening dataset join | Gate ready | Hash-checked feature/target join, per-split coverage, and 100 ms anti-coarsening contract pass CPU tests; awaits real pilot artifacts |
 | Temporal branch module | Code present | Lightweight reference temporal convolution, configurable embedding/chord head, masking, losses, gradients, and checkpoint restore pass CPU tests; no empirical architecture claim yet |
-| Frozen branch screen | Gate ready | One fixed CPU run plus preregistered decision is exposed as opt-in notebook 06 stages on both runtimes; no real report exists yet |
+| Frozen branch screen | Gate ready | One fixed CPU run plus preregistered decision is exposed through the harmony CPU scripts; no real report exists yet |
 | Cheap-ladder integration | Ready | A two-song synthetic test executes real region export, extractor selection, target generation, encoder cache, alignment, one-epoch screen, and decision without CUDA |
 | Full pseudo-label generation | Not approved | Wait for all preceding gates; do not process all MTG-Jamendo audio yet |
 

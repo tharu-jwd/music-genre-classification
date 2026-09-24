@@ -35,7 +35,7 @@ not evidence that a stage works end to end.
 | Descriptor-fusion baseline | Blocked | Normalize descriptors and use the same cohort as baseline A |
 | Baseline evaluation | Blocked | Recompute comparable results after upstream fixes |
 | Attention inspection | Code present | Treat it as inspection, not proof of explanation |
-| Shared encoder module | Code present | Reusable interface/cache/alignment code is wired into opt-in notebook 06 CPU stages; cache a real hosted cohort and later integrate the selected branch into the joint model |
+| Shared encoder module | Code present | Reusable interface/cache/alignment code is wired into the harmony CPU scripts; cache a real hosted cohort and later integrate the selected branch into the joint model |
 | Learned concept branches | Code present | Instrument, timbre, harmony, and the temporal rhythm branch have CPU-tested code; real-input branch evidence remains |
 | Joint loss and gated fusion | Integrated on fixtures | Fusion is merged into `harmony`; the temporal adapter, projection, masks, losses, gradients, checkpoint restore, and harmony removal pass CPU tests; real branch rows remain unavailable |
 | Proposed-model evaluation | Not started | Requires the integrated model and fair baselines |
