@@ -1,52 +1,60 @@
 # Concept-Guided Music Genre Classification
 
-This project is developing an explainable, multi-label music genre classifier for the MTG-Jamendo dataset.
-
-The research target is a neural network that learns four musical concepts from the same song representation:
+This project is developing an inspectable, multi-label music genre classifier for
+the MTG-Jamendo dataset. The proposed model learns four musical concepts from one
+shared audio representation:
 
 - instruments — what is playing;
 - rhythm — the beat and tempo;
 - timbre — the character of the sound;
-- harmony — how notes and chords relate.
+- harmony — pitch classes, tonal movement, and chord changes over time.
 
-The model will learn how much each concept matters, combine them, and predict every genre that fits the song.
+It learns how much each concept contributes, combines the four representations, and
+predicts every genre that applies to a song.
 
 <p align="center">
-  <img src="docs/diagrams/proposed-concept-guided-architecture.png" alt="Proposed concept-guided architecture" width="1100">
+  <img src="docs/diagrams/proposed-concept-guided-architecture.svg" alt="Proposed concept-guided architecture" width="1100">
 </p>
 
-## What exists today
+## Current state
 
-The proposed architecture is the target, not a completed implementation. The repository currently provides the data pipeline and two comparison baselines:
+The diagram is the target architecture, not a completed implementation. The
+repository contains generated workflows for data preparation, two comparison
+baselines, instrument pretraining, concept-target preparation, and harmony preflight.
+A full clean hosted run has not been proven. The split parser, fixed vocabularies,
+song windowing, cohort consistency, instrument-label availability, bounded harmony
+extractor/branch screening, and GPU runtime gates have CPU-tested implementations.
+Notebook 06 exposes that CPU ladder behind explicit flags and an exact Git commit.
+A bounded CPU Essentia chord-baseline generator and evaluator are ready, but their
+external benchmark has not run. Timbre supervision, real-audio harmony selection,
+chord-teacher acceptance, and a clean end-to-end hosted run remain unresolved before
+outputs are trustworthy.
 
-1. **Direct CNN baseline** — predicts genres directly from log-Mel spectrograms.
-2. **Descriptor-fusion baseline** — combines a learned instrument embedding with rhythm, timbre, and harmony descriptors.
+See the [project status and remaining work](docs/project-plan.md) for the exact
+blockers and implementation sequence.
 
-The existing concept extraction work is still useful: instrument pretraining can initialize the shared encoder, while rhythm, timbre, and harmony descriptors become supervision targets for the proposed concept branches.
+## Documentation
 
-See [current status](docs/current-status.md), [baseline architecture](docs/baseline-architecture.md), [proposed architecture](docs/proposed-architecture.md), and the [implementation roadmap](docs/roadmap.md).
+Each document has one purpose:
 
-## Notebook pipeline
-
-Choose one runtime and stay with it:
-
-- [Google Colab](notebooks/colab/README.md) stores artifacts in Google Drive.
-- [Kaggle](notebooks/kaggle/README.md) passes saved notebook outputs between stages.
-
-| Notebook | Role |
+| Document | Purpose |
 |---|---|
-| `00_download_*` | Download annotations and log-Mel shards |
-| `01_preprocessing` | Build the official `split-0` manifest |
-| `02_direct_cnn_baseline` | Train baseline A |
-| `03_instrument_pretraining` | Learn the instrument representation and reusable encoder |
-| `04_rhythm_targets` | Prepare rhythm supervision targets |
-| `05_timbre_targets` | Prepare timbre supervision targets |
-| `06_harmony_targets` | Prepare harmony supervision targets |
-| `07_descriptor_fusion_baseline` | Train baseline B |
-| `08_baseline_evaluation` | Compare recorded baseline metrics |
-| `09_baseline_explainability` | Inspect descriptor-fusion attention |
+| [Architecture](docs/architecture.md) | Existing baselines and the proposed model design |
+| [Project plan](docs/project-plan.md) | Current status, blockers, ownership boundaries, and remaining work |
+| [Harmony plan](docs/harmony-plan.md) | Step-by-step work owned by the harmony branch |
+| [Team standards](docs/team-standards.md) | Shared data, model, artifact, evaluation, and development contracts |
 
-The proposed-model training and evaluation notebooks will be added only when their implementation exists; the repository does not contain empty placeholder notebooks.
+## Notebook workflows
+
+Choose one runtime for a complete experiment:
+
+- [Google Colab workflow](notebooks/colab/README.md) persists artifacts in Drive.
+- [Kaggle workflow](notebooks/kaggle/README.md) passes saved outputs between notebooks.
+
+The notebooks currently establish baselines and prepare targets; they do not
+implement the proposed four-branch model. Their generator scripts are the source of
+truth. Change a generator and regenerate the corresponding notebooks rather than
+creating notebook-only forks.
 
 ## Repository structure
 
@@ -54,35 +62,42 @@ The proposed-model training and evaluation notebooks will be added only when the
 .
 ├── README.md
 ├── requirements.txt
-├── data/                              # ignored local datasets
+├── data/                         # ignored local datasets
 ├── docs/
-│   ├── baseline-architecture.md
-│   ├── proposed-architecture.md
-│   ├── current-status.md
-│   ├── roadmap.md
-│   ├── data-layout.md
-│   ├── development.md
-│   ├── project-guidelines.md
-│   ├── kaggle-how-to.md
+│   ├── architecture.md
+│   ├── project-plan.md
+│   ├── harmony-plan.md
+│   ├── team-standards.md
 │   └── diagrams/
-│       └── proposed-concept-guided-architecture.png
+│       ├── proposed-concept-guided-architecture.svg
+│       └── harmony-pseudo-supervision.svg
 ├── notebooks/
-│   ├── colab/                         # generated Colab workflow
-│   └── kaggle/                        # generated Kaggle workflow
-└── scripts/
-    ├── generate_colab_notebooks.py
-    └── generate_kaggle_notebooks.py
+│   ├── colab/
+│   └── kaggle/
+├── scripts/
+│   ├── generate_colab_notebooks.py
+│   ├── generate_kaggle_notebooks.py
+│   ├── harmony_chroma.py
+│   ├── benchmark_harmony_extractors.py
+│   ├── decide_harmony_extractor.py
+│   ├── materialize_harmony_target_pilot.py
+│   ├── harmony_alignment.py
+│   ├── shared_audio_encoder.py
+│   ├── cache_harmony_encoder_pilot.py
+│   ├── build_harmony_screen_dataset.py
+│   ├── temporal_harmony_branch.py
+│   ├── screen_temporal_harmony_branch.py
+│   ├── decide_harmony_branch_screen.py
+│   ├── prepare_chord_benchmark_source.py
+│   ├── generate_essentia_chord_estimates.py
+│   ├── evaluate_chord_teacher.py
+│   ├── decide_chord_teacher.py
+│   ├── freeze_experiment_cohort.py
+│   ├── manage_gpu_budget.py
+│   └── paired_bootstrap_compare.py
+└── tests/
+    └── test_*.py
 ```
 
-The generator scripts are the source of truth for notebook code. Change a generator and regenerate its notebook set; do not maintain notebook-only forks.
-
-## Non-negotiable evaluation rules
-
-- Use the official MTG-Jamendo `split-0` partitions.
-- Select models using validation data only.
-- Evaluate the test partition only after model selection.
-- Exclude undefined per-tag values from macro metrics rather than replacing them with zero.
-- Record the tag order and normalization statistics in checkpoints.
-- Keep datasets, extracted targets, checkpoints, and results outside Git.
-
-The default development subset uses shards `00–02`. Expand log-Mel and AcousticBrainz shards together when more storage is available.
+Large datasets, extracted targets, checkpoints, predictions, and results remain
+outside Git. Their agreed layout and metadata are defined in the team standards.

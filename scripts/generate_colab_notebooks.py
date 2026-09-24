@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from gpu_run_contract import NOTEBOOK_GPU_RUN_CONTRACT
+from mtg_data_contract import NOTEBOOK_DATA_CONTRACT
+
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "notebooks" / "colab"
 OUT.mkdir(parents=True, exist_ok=True)
@@ -104,8 +107,6 @@ NEEDED_ANN = [
     "splits/split-0/autotagging_instrument-train.tsv",
     "splits/split-0/autotagging_instrument-validation.tsv",
     "splits/split-0/autotagging_instrument-test.tsv",
-    "autotagging_genre.tsv",
-    "autotagging_instrument.tsv",
 ]
 SEED = 42
 random.seed(SEED)
@@ -120,11 +121,6 @@ def check_internet(host="github.com", port=443, timeout=5) -> bool:
         return False
 
 
-def normalize_track_id(raw) -> str | None:
-    m = re.search(r"(\d+)", str(raw))
-    return f"{int(m.group(1)):07d}" if m else None
-
-
 def ensure_annotations():
     dest_train = ANN_DIR / "splits" / "split-0" / "autotagging_genre-train.tsv"
     if dest_train.exists():
@@ -137,46 +133,6 @@ def ensure_annotations():
         dest.parent.mkdir(parents=True, exist_ok=True)
         urllib.request.urlretrieve(f"{RAW_ANN}/{rel}", dest)
         print(" ", dest)
-
-
-def load_split_ids(split: str, subset: str = "genre") -> set[str]:
-    """First column only — extra tag tabs break pandas read_csv."""
-    name = f"autotagging_{subset}-{split}.tsv"
-    path = ANN_DIR / "splits" / "split-0" / name
-    if not path.exists():
-        path = ANN_DIR / name
-    if not path.exists():
-        raise FileNotFoundError(path)
-    ids = set()
-    with open(path, encoding="utf-8", errors="replace") as f:
-        f.readline()
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            tid = normalize_track_id(line.split("\t")[0])
-            if tid:
-                ids.add(tid)
-    print(f"{split:12s} {len(ids):6d} ids ← {path}")
-    return ids
-
-
-def iter_tsv_rows(path: Path):
-    """Yield dict with TRACK_ID and remaining fields joined as TAGS."""
-    with open(path, encoding="utf-8", errors="replace") as f:
-        header = f.readline().strip().split("\t")
-        for line in f:
-            parts = line.rstrip("\n").split("\t")
-            if not parts:
-                continue
-            row = {"TRACK_ID": parts[0]}
-            if len(parts) >= 6:
-                row["TAGS"] = "\t".join(parts[5:])
-            elif len(parts) > 1:
-                row["TAGS"] = parts[-1]
-            else:
-                row["TAGS"] = ""
-            yield row
 
 
 def load_mel_npy(mel_abs, retries=5, pause=2.0):
@@ -232,6 +188,8 @@ print("MEL_DIR", MEL_DIR, "npy=", len(list(MEL_DIR.rglob("*.npy"))))
 print("ANN_DIR", ANN_DIR)
 print("MANIFEST", MANIFEST, "exists=", MANIFEST.exists())
 '''
+
+PATHS += "\n" + NOTEBOOK_DATA_CONTRACT + "\n" + NOTEBOOK_GPU_RUN_CONTRACT
 
 
 write(
@@ -334,8 +292,11 @@ for p in MEL_DIR.rglob("*.npy"):
     tid = normalize_track_id(p.stem)
     if not tid:
         continue
-    rows.append({"song_id": tid, "mel_path": str(p.relative_to(ROOT)), "mel_abs": str(p), "nbytes": p.stat().st_size})
-mel_df = pd.DataFrame(rows).drop_duplicates("song_id")
+    rows.append({"song_id": tid, "logmel_path": str(p.relative_to(ROOT)), "mel_abs": str(p), "nbytes": p.stat().st_size})
+mel_df = pd.DataFrame(rows)
+duplicate_ids = sorted(mel_df.loc[mel_df.duplicated("song_id", keep=False), "song_id"].unique())
+if duplicate_ids:
+    raise RuntimeError(f"duplicate log-Mels for {len(duplicate_ids)} songs; examples={duplicate_ids[:5]}")
 print("Unique songs with mel:", len(mel_df))
 if mel_df.empty:
     raise FileNotFoundError(f"No .npy under {MEL_DIR}. Run notebook 00 first.")
@@ -349,6 +310,13 @@ train_ids = load_split_ids("train")
 val_ids = load_split_ids("validation")
 test_ids = load_split_ids("test")
 assert train_ids.isdisjoint(val_ids) and train_ids.isdisjoint(test_ids) and val_ids.isdisjoint(test_ids)
+instrument_train_ids = load_split_ids("train", "instrument")
+instrument_val_ids = load_split_ids("validation", "instrument")
+instrument_test_ids = load_split_ids("test", "instrument")
+assert instrument_train_ids.isdisjoint(instrument_val_ids)
+assert instrument_train_ids.isdisjoint(instrument_test_ids)
+assert instrument_val_ids.isdisjoint(instrument_test_ids)
+instrument_ids = instrument_train_ids | instrument_val_ids | instrument_test_ids
 print("Split leakage check: OK")
 '''
         ),
@@ -367,6 +335,20 @@ def split_of(sid):
 mel_df["split"] = mel_df["song_id"].map(split_of)
 print(mel_df["split"].value_counts())
 manifest = mel_df[mel_df["split"] != "unused"].copy()
+if manifest.empty or set(manifest["split"]) != {"train", "validation", "test"}:
+    raise RuntimeError("manifest must contain at least one song from every official split")
+manifest["audio_path"] = ""
+manifest["waveform_available"] = False
+manifest["genre_available"] = True
+manifest["instrument_available"] = manifest["song_id"].isin(instrument_ids)
+manifest["rhythm_available"] = False
+manifest["timbre_available"] = False
+manifest["harmony_available"] = False
+manifest = manifest[[
+    "song_id", "split", "audio_path", "logmel_path", "mel_abs", "nbytes", "waveform_available",
+    "genre_available", "instrument_available", "rhythm_available",
+    "timbre_available", "harmony_available",
+]].sort_values("song_id").reset_index(drop=True)
 MANIFEST.parent.mkdir(parents=True, exist_ok=True)
 manifest.to_csv(MANIFEST, index=False)
 print("Wrote", MANIFEST, "rows=", len(manifest))
@@ -375,6 +357,7 @@ print("example shape", sample.shape)
 (RESULTS_DIR / "01_manifest_summary.json").write_text(json.dumps({
     "n_manifest": int(len(manifest)),
     "split_counts": manifest["split"].value_counts().to_dict(),
+    "instrument_available": int(manifest["instrument_available"].sum()),
 }, indent=2))
 print("Next: 02 (GPU) or 03 / 04 / 05 / 06 in parallel.")
 '''
@@ -386,7 +369,7 @@ print("Next: 02 (GPU) or 03 / 04 / 05 / 06 in parallel.")
 write(
     "02_direct_cnn_baseline.ipynb",
     [
-        md("# 02 — Direct CNN Baseline (Colab + Drive)\n\nDirect multi-label genre prediction from log-Mels. **Runtime → GPU**.\n\nNeeds: notebook 00 + 01 (`song_manifest.csv`).\n\nSaves: `checkpoints/baselines/direct_cnn/best.pt` and `results/baselines/02_baseline_test.json`."),
+        md("# 02 — Direct CNN Baseline (Colab + Drive)\n\nDirect multi-label genre prediction from log-Mels. **Runtime → GPU**.\n\nNeeds: notebook 00 + 01 (`song_manifest.csv`).\n\nAlways saves the best checkpoint and validation predictions. Test evaluation is disabled by default and is enabled only for the selected final run with `EVALUATE_TEST=1`."),
         md(COLAB_SETUP),
         code("""!pip install -q scikit-learn tqdm"""),
         md("## Mount Drive"),
@@ -401,42 +384,23 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 from tqdm.auto import tqdm
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+BATCH_SIZE = int(os.environ.get("GPU_BATCH_SIZE", "2"))
+if BATCH_SIZE < 1:
+    raise ValueError("GPU_BATCH_SIZE must be positive")
+GPU_RUN = require_gpu_run_approval(DEVICE, "direct_cnn")
+GPU_RUN_STARTED = time.perf_counter()
 print("device:", DEVICE)
 if not MANIFEST.exists():
     raise FileNotFoundError("Run 01 first — missing song_manifest.csv on Drive")
 manifest = pd.read_csv(MANIFEST)
 manifest["song_id"] = manifest["song_id"].astype(str).map(lambda s: normalize_track_id(s) or s)
-
-def load_genre_multihot(song_ids):
-    paths = [ANN_DIR / "autotagging_genre.tsv", *ANN_DIR.rglob("*genre*.tsv")]
-    tag_to_idx, rows = {}, {s: set() for s in song_ids}
-    for path in paths:
-        if not Path(path).exists():
-            continue
-        for rec in iter_tsv_rows(Path(path)):
-            sid = normalize_track_id(rec["TRACK_ID"])
-            if sid not in rows:
-                continue
-            for tag in rec.get("TAGS", "").replace("|", "\t").split("\t"):
-                leaf = tag.strip().split("/")[-1].split("---")[-1]
-                if not leaf or leaf.lower() in {"nan", "none", "tags", ""}:
-                    continue
-                tag_to_idx.setdefault(leaf, len(tag_to_idx))
-                rows[sid].add(leaf)
-        if tag_to_idx:
-            print("tags from", path, len(tag_to_idx))
-            break
-    names = [None] * len(tag_to_idx)
-    for t, i in tag_to_idx.items():
-        names[i] = t
-    Y = np.zeros((len(song_ids), len(names)), np.float32)
-    for i, sid in enumerate(song_ids):
-        for t in rows[sid]:
-            Y[i, tag_to_idx[t]] = 1.0
-    return Y, names
+manifest = apply_approved_cohort(manifest, GPU_RUN, MANIFEST)
 
 song_ids = manifest["song_id"].astype(str).tolist()
-Y, TAG_NAMES = load_genre_multihot(song_ids)
+Y, TAG_NAMES, genre_available = load_split_multihot(song_ids, "genre", "genre")
+if not genre_available.all():
+    missing = np.asarray(song_ids)[~genre_available]
+    raise RuntimeError(f"manifest contains {len(missing)} songs without split-0 genre labels")
 print("Y", Y.shape, "pos", float(Y.mean()))
 (RESULTS_DIR / "genre_tags.json").write_text(json.dumps(TAG_NAMES, indent=2))
 '''
@@ -445,7 +409,8 @@ print("Y", Y.shape, "pos", float(Y.mean()))
         code(
             r'''
 class MelGenreDataset(Dataset):
-    def __init__(self, df, Y, id_to_idx, max_windows=12, n_mels=96, n_frames=1366):
+    def __init__(self, df, Y, id_to_idx, max_windows=LOGMEL_MAX_WINDOWS,
+                 n_mels=LOGMEL_N_MELS, n_frames=LOGMEL_WINDOW_FRAMES):
         self.df = df.reset_index(drop=True)
         self.Y, self.id_to_idx = Y, id_to_idx
         self.max_windows, self.n_mels, self.n_frames = max_windows, n_mels, n_frames
@@ -453,43 +418,18 @@ class MelGenreDataset(Dataset):
     def __len__(self):
         return len(self.df)
 
-    def _fix2d(self, x):
-        """Every song must become (n_mels, n_frames) or the batch cannot stack."""
-        x = np.asarray(x, dtype=np.float32)
-        while x.ndim > 2:
-            x = np.squeeze(x, axis=0)
-        if x.ndim != 2:
-            raise ValueError(f"expected 2D mel, got {x.shape}")
-        if x.shape[0] != self.n_mels and x.shape[1] == self.n_mels:
-            x = x.T
-        if x.shape[0] > self.n_mels:
-            x = x[: self.n_mels]
-        elif x.shape[0] < self.n_mels:
-            x = np.pad(x, ((0, self.n_mels - x.shape[0]), (0, 0)))
-        if x.shape[1] > self.n_frames:
-            x = x[:, : self.n_frames]
-        elif x.shape[1] < self.n_frames:
-            x = np.pad(x, ((0, 0), (0, self.n_frames - x.shape[1])))
-        if x.shape != (self.n_mels, self.n_frames):
-            raise RuntimeError(f"mel fix failed: {x.shape}")
-        return x
-
     def __getitem__(self, i):
         row = self.df.iloc[i]
-        x = load_mel_npy(row["mel_abs"])
-        if x.ndim == 2:
-            x = x[None, ...]
-        W = x.shape[0]
-        x = x[: self.max_windows] if W >= self.max_windows else np.concatenate(
-            [x, np.zeros((self.max_windows - W, *x.shape[1:]), x.dtype)], 0
+        windows, mask = segment_logmel(
+            load_mel_npy(row["mel_abs"]), n_mels=self.n_mels,
+            n_frames=self.n_frames, max_windows=self.max_windows,
         )
-        x = self._fix2d(x.mean(0))
         y = self.Y[self.id_to_idx[str(row["song_id"])]]
-        return torch.tensor(x[None], dtype=torch.float32), torch.tensor(y)
+        return torch.from_numpy(windows[:, None]), torch.from_numpy(mask), torch.from_numpy(y)
 
 id_to_idx = {s: i for i, s in enumerate(song_ids)}
 
-def make_loader(split, bs=16, shuffle=False):
+def make_loader(split, bs=BATCH_SIZE, shuffle=False):
     sub = manifest[manifest["split"] == split]
     assert set(sub["split"].unique()) == {split}
     return DataLoader(MelGenreDataset(sub, Y, id_to_idx), batch_size=bs, shuffle=shuffle, num_workers=0)
@@ -503,9 +443,13 @@ class BaselineCNN(nn.Module):
             nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
             nn.AdaptiveAvgPool2d((4, 4)),
         )
-        self.head = nn.Sequential(nn.Flatten(), nn.Linear(128*4*4, 256), nn.ReLU(), nn.Dropout(0.3), nn.Linear(256, n_tags))
-    def forward(self, x):
-        return self.head(self.features(x))
+        self.window_proj = nn.Sequential(nn.Flatten(), nn.Linear(128*4*4, 256), nn.ReLU(), nn.Dropout(0.3))
+        self.head = nn.Linear(256, n_tags)
+    def forward(self, x, mask):
+        B,W,C,M,T = x.shape
+        z = self.window_proj(self.features(x.reshape(B*W,C,M,T))).reshape(B,W,-1)
+        weights = mask / mask.sum(1, keepdim=True).clamp_min(1.0)
+        return self.head((z * weights.unsqueeze(-1)).sum(1))
 
 model = BaselineCNN(Y.shape[1]).to(DEVICE)
 opt = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -523,45 +467,130 @@ def nan_safe(y_true, y_prob, kind="roc"):
     return float(np.mean(scores)) if scores else float("nan")
 
 @torch.no_grad()
-def evaluate(loader):
+def evaluate(loader, return_predictions=False):
     model.eval(); ys, ps = [], []
-    for x, y in loader:
-        ps.append(torch.sigmoid(model(x.to(DEVICE))).cpu().numpy()); ys.append(y.numpy())
+    for x, mask, y in loader:
+        ps.append(torch.sigmoid(model(x.to(DEVICE), mask.to(DEVICE))).cpu().numpy()); ys.append(y.numpy())
     yt, yp = np.concatenate(ys), np.concatenate(ps)
-    return {"macro_roc_auc": nan_safe(yt, yp, "roc"), "macro_pr_auc": nan_safe(yt, yp, "pr")}
+    metrics = {"macro_roc_auc": nan_safe(yt, yp, "roc"), "macro_pr_auc": nan_safe(yt, yp, "pr")}
+    return (metrics, yt, yp) if return_predictions else metrics
 
 train_loader, val_loader, test_loader = make_loader("train", shuffle=True), make_loader("validation"), make_loader("test")
-_x, _y = next(iter(train_loader))
-print("preflight batch", tuple(_x.shape), "expect (bs, 1, 96, 1366)")
-assert _x.shape[1:] == (1, 96, 1366), f"re-run this entire cell — got {_x.shape}"
+_x, _mask, _y = next(iter(train_loader))
+print("preflight batch", tuple(_x.shape), "expect (bs, 12, 1, 96, 1366)")
+assert _x.shape[1:] == (12, 1, 96, 1366), f"re-run this entire cell — got {_x.shape}"
+assert torch.all(_mask.sum(1) >= 1), "every song needs at least one real window"
 SCAN_MELS = False
 if SCAN_MELS:
     bad = scan_bad_mels(manifest, "all")
     if bad:
         raise RuntimeError(f"{len(bad)} bad mels — see {RESULTS_DIR}/bad_mels_all.json")
-best_macro_map = 0.0
+best_macro_map = float("-inf")
 ckpt = CKPT_DIR / "baselines" / "direct_cnn"; ckpt.mkdir(parents=True, exist_ok=True)
 hist = []
-for epoch in range(1, 11):
+PATIENCE = 2
+MAX_EPOCHS, MAX_WALL_MINUTES = approved_run_limits(
+    GPU_RUN, default_epochs=10,
+    requested_wall_minutes=float(os.environ.get("MAX_GPU_RUN_MINUTES", "120")),
+)
+EVALUATE_TEST = os.environ.get("EVALUATE_TEST", "0") == "1"
+epochs_without_improvement = 0
+GPU_DEADLINE = GPU_RUN_STARTED + MAX_WALL_MINUTES * 60
+TRAINING_DEADLINE = GPU_RUN_STARTED + MAX_WALL_MINUTES * 60 * 0.9
+wall_cap_reached = False
+if DEVICE.type == "cuda":
+    model.eval(); opt.zero_grad(set_to_none=True)
+    _preflight_loss = crit(model(_x.to(DEVICE), _mask.to(DEVICE)), _y.to(DEVICE))
+    _preflight_loss.backward(); opt.zero_grad(set_to_none=True)
+    del _preflight_loss
+    torch.cuda.empty_cache()
+    print("preflight backward: OK")
+for epoch in range(1, MAX_EPOCHS + 1):
     model.train(); total = 0
-    for x, y in tqdm(train_loader, leave=False):
-        x, y = x.to(DEVICE), y.to(DEVICE)
-        opt.zero_grad(); loss = crit(model(x), y); loss.backward(); opt.step()
+    for x, mask, y in tqdm(train_loader, leave=False):
+        if time.perf_counter() >= TRAINING_DEADLINE:
+            wall_cap_reached = True
+            break
+        x, mask, y = x.to(DEVICE), mask.to(DEVICE), y.to(DEVICE)
+        opt.zero_grad(); loss = crit(model(x, mask), y); loss.backward(); opt.step()
         total += loss.item() * len(x)
+    if wall_cap_reached:
+        print(f"training-time reserve reached between batches: {MAX_WALL_MINUTES:.0f} minute total cap")
+        break
     vm = evaluate(val_loader)
+    if not np.isfinite(vm["macro_pr_auc"]):
+        raise RuntimeError("validation PR-AUC is undefined; fix label coverage before spending more GPU time")
     hist.append({"epoch": epoch, "loss": total/len(train_loader.dataset), **vm})
     print(epoch, hist[-1])
     if vm["macro_pr_auc"] > best_macro_map:
         best_macro_map = vm["macro_pr_auc"]
-        torch.save({"model": model.state_dict(), "tags": TAG_NAMES, "best_macro_map": best_macro_map, "epoch": epoch}, ckpt/"best.pt")
+        epochs_without_improvement = 0
+        torch.save({
+            "model": model.state_dict(), "tags": TAG_NAMES,
+            "best_macro_map": best_macro_map, "epoch": epoch,
+            "training_config": {"max_epochs": MAX_EPOCHS, "patience": PATIENCE,
+                                "max_wall_minutes": MAX_WALL_MINUTES,
+                                "input_schema": LOGMEL_SCHEMA_VERSION,
+                                "max_windows": LOGMEL_MAX_WINDOWS,
+                                "batch_size": BATCH_SIZE,
+                                "gpu_run": GPU_RUN},
+        }, ckpt/"best.pt")
         print("  ✓ saved", best_macro_map)
+    else:
+        epochs_without_improvement += 1
+        if epochs_without_improvement >= PATIENCE:
+            print(f"early stop: no validation PR-AUC improvement for {PATIENCE} epochs")
+            break
+    if time.perf_counter() >= TRAINING_DEADLINE:
+        print(f"wall-time cap reached: {MAX_WALL_MINUTES:.0f} minutes")
+        break
 
+if not (ckpt/"best.pt").is_file():
+    write_gpu_termination_ledger(
+        BASELINE_RESULTS_DIR/"02_baseline_runtime.json", device=DEVICE,
+        started_at=GPU_RUN_STARTED, record=GPU_RUN, reason="no_complete_validation_epoch",
+        max_epochs=MAX_EPOCHS, max_wall_minutes=MAX_WALL_MINUTES,
+    )
+    raise RuntimeError("GPU cap reached before one complete validation epoch; no checkpoint was created")
 state = torch.load(ckpt/"best.pt", map_location=DEVICE, weights_only=False)
 model.load_state_dict(state["model"])
-test_m = evaluate(test_loader)
-print("TEST split-0", test_m)
+val_m, val_y, val_p = evaluate(val_loader, return_predictions=True)
 pd.DataFrame(hist).to_csv(BASELINE_RESULTS_DIR/"02_baseline_history.csv", index=False)
-(BASELINE_RESULTS_DIR/"02_baseline_test.json").write_text(json.dumps(test_m, indent=2))
+elapsed_seconds = time.perf_counter() - GPU_RUN_STARTED
+runtime = {
+    "device": str(DEVICE), "epochs_completed": len(hist),
+    "max_epochs": MAX_EPOCHS, "patience": PATIENCE,
+    "max_wall_minutes": MAX_WALL_MINUTES,
+    "batch_size": BATCH_SIZE, "input_schema": LOGMEL_SCHEMA_VERSION,
+    "evaluated_test": EVALUATE_TEST,
+    "gpu_run": GPU_RUN,
+    "wall_seconds": elapsed_seconds,
+    "gpu_wall_hours": elapsed_seconds / 3600 if DEVICE.type == "cuda" else 0.0,
+}
+(BASELINE_RESULTS_DIR/"02_baseline_runtime.json").write_text(json.dumps(runtime, indent=2))
+print("runtime", runtime)
+pred_dir = RESULTS_DIR / "predictions"; pred_dir.mkdir(parents=True, exist_ok=True)
+np.savez_compressed(
+    pred_dir / "02_direct_cnn_validation.npz",
+    song_ids=np.asarray(val_loader.dataset.df["song_id"].astype(str).to_numpy(), dtype=str),
+    label_names=np.asarray(TAG_NAMES, dtype=str), targets=val_y, scores=val_p,
+)
+if EVALUATE_TEST:
+    test_m, test_y, test_p = evaluate(test_loader, return_predictions=True)
+    print("FINAL TEST split-0", test_m)
+    (BASELINE_RESULTS_DIR/"02_baseline_test.json").write_text(json.dumps(test_m, indent=2))
+    np.savez_compressed(
+        pred_dir / "02_direct_cnn_test.npz",
+        song_ids=np.asarray(test_loader.dataset.df["song_id"].astype(str).to_numpy(), dtype=str),
+        label_names=np.asarray(TAG_NAMES, dtype=str), targets=test_y, scores=test_p,
+    )
+else:
+    print("Test evaluation skipped. Set EVALUATE_TEST=1 only for the selected final run.")
+elapsed_seconds = time.perf_counter() - GPU_RUN_STARTED
+runtime["wall_seconds"] = elapsed_seconds
+runtime["gpu_wall_hours"] = elapsed_seconds / 3600 if DEVICE.type == "cuda" else 0.0
+(BASELINE_RESULTS_DIR/"02_baseline_runtime.json").write_text(json.dumps(runtime, indent=2))
+print("final runtime", runtime)
 '''
         ),
     ],
@@ -586,36 +615,26 @@ from sklearn.metrics import average_precision_score
 from tqdm.auto import tqdm
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+BATCH_SIZE = int(os.environ.get("GPU_BATCH_SIZE", "2"))
+if BATCH_SIZE < 1:
+    raise ValueError("GPU_BATCH_SIZE must be positive")
+GPU_RUN = require_gpu_run_approval(DEVICE, "instrument_pretraining")
+GPU_RUN_STARTED = time.perf_counter()
 if not MANIFEST.exists():
     raise FileNotFoundError("Run 01 first")
 manifest = pd.read_csv(MANIFEST)
 manifest["song_id"] = manifest["song_id"].astype(str).map(lambda s: normalize_track_id(s) or s)
-EMBED_DIM, MAX_WINDOWS = 64, 12
-N_MELS, N_FRAMES = 96, 1366
+manifest = apply_approved_cohort(manifest, GPU_RUN, MANIFEST)
+EMBED_DIM, MAX_WINDOWS = 64, LOGMEL_MAX_WINDOWS
+N_MELS, N_FRAMES = LOGMEL_N_MELS, LOGMEL_WINDOW_FRAMES
 song_ids = manifest["song_id"].astype(str).tolist()
 id_to_idx = {s: i for i, s in enumerate(song_ids)}
 
-tag_to_idx, rows = {}, {s: set() for s in song_ids}
-for path in [ANN_DIR/"autotagging_instrument.tsv", *ANN_DIR.rglob("*instrument*.tsv")]:
-    if not Path(path).exists():
-        continue
-    for rec in iter_tsv_rows(Path(path)):
-        sid = normalize_track_id(rec["TRACK_ID"])
-        if sid not in rows:
-            continue
-        for tag in rec.get("TAGS", "").replace("|", "\t").split("\t"):
-            leaf = tag.strip().split("/")[-1].split("---")[-1]
-            if leaf and leaf.lower() not in {"nan", "tags", ""}:
-                tag_to_idx.setdefault(leaf, len(tag_to_idx))
-                rows[sid].add(leaf)
-    if tag_to_idx:
-        print("instruments", path, len(tag_to_idx)); break
-INST_NAMES = [None]*len(tag_to_idx)
-for t,i in tag_to_idx.items(): INST_NAMES[i]=t
-Y = np.zeros((len(song_ids), len(INST_NAMES)), np.float32)
-for sid, tags in rows.items():
-    i = id_to_idx[sid]
-    for t in tags: Y[i, tag_to_idx[t]] = 1.0
+Y, INST_NAMES, instrument_available = load_split_multihot(song_ids, "instrument", "instrument")
+manifest["instrument_available"] = instrument_available
+if not instrument_available.any():
+    raise RuntimeError("manifest has no songs with split-0 instrument annotations")
+print("Y_inst", Y.shape, "annotated songs", int(instrument_available.sum()))
 
 class WindowMIL(Dataset):
     def __init__(self, df, max_windows=MAX_WINDOWS, n_mels=N_MELS, n_frames=N_FRAMES):
@@ -625,53 +644,24 @@ class WindowMIL(Dataset):
     def __len__(self):
         return len(self.df)
 
-    def _fix2d(self, x):
-        """Force every window to exactly (n_mels, n_frames)."""
-        x = np.asarray(x, dtype=np.float32)
-        while x.ndim > 2:
-            x = np.squeeze(x, axis=0)
-        if x.ndim != 2:
-            raise ValueError(f"expected 2D mel window, got {x.shape}")
-        if x.shape[0] != self.n_mels and x.shape[1] == self.n_mels:
-            x = x.T
-        if x.shape[0] > self.n_mels:
-            x = x[: self.n_mels]
-        elif x.shape[0] < self.n_mels:
-            x = np.pad(x, ((0, self.n_mels - x.shape[0]), (0, 0)))
-        if x.shape[1] > self.n_frames:
-            x = x[:, : self.n_frames]
-        elif x.shape[1] < self.n_frames:
-            x = np.pad(x, ((0, 0), (0, self.n_frames - x.shape[1])))
-        if x.shape != (self.n_mels, self.n_frames):
-            raise RuntimeError(f"mel fix failed: {x.shape}")
-        return x
-
     def __getitem__(self, i):
         row = self.df.iloc[i]
-        raw = load_mel_npy(row["mel_abs"])
-        if raw.ndim == 2:
-            raw = raw[None, ...]
-        W = raw.shape[0]
-        if W >= self.max_windows:
-            windows, mask = raw[: self.max_windows], np.ones(self.max_windows, np.float32)
-        else:
-            windows = np.concatenate(
-                [raw, np.zeros((self.max_windows - W, *raw.shape[1:]), raw.dtype)]
-            )
-            mask = np.array([1] * W + [0] * (self.max_windows - W), np.float32)
-        out = np.zeros((self.max_windows, self.n_mels, self.n_frames), np.float32)
-        for j, w in enumerate(windows):
-            out[j] = self._fix2d(w)
+        windows, mask = segment_logmel(
+            load_mel_npy(row["mel_abs"]), n_mels=self.n_mels,
+            n_frames=self.n_frames, max_windows=self.max_windows,
+        )
         y = Y[id_to_idx[str(row["song_id"])]]
         return (
-            torch.from_numpy(out[:, None]),
+            torch.from_numpy(windows[:, None]),
             torch.from_numpy(mask),
             torch.from_numpy(y),
             str(row["song_id"]),
         )
 
-def make_loader(split, bs=8, shuffle=False):
-    sub = manifest[manifest.split==split]
+def make_loader(split, bs=BATCH_SIZE, shuffle=False):
+    sub = manifest[(manifest.split==split) & manifest.instrument_available]
+    if sub.empty:
+        raise RuntimeError(f"no instrument-annotated songs in {split}")
     assert set(sub.split.unique())=={split}
     return DataLoader(WindowMIL(sub), batch_size=bs, shuffle=shuffle, num_workers=0)
 
@@ -720,33 +710,120 @@ if SCAN_MELS:
     bad = scan_bad_mels(manifest, "all")
     if bad:
         raise RuntimeError(f"{len(bad)} bad mels — see {RESULTS_DIR}/bad_mels_all.json")
-best_macro_map = 0.0
+best_macro_map = float("-inf")
 ckpt = CKPT_DIR/"pretraining"/"instrument"; ckpt.mkdir(parents=True, exist_ok=True)
-for epoch in range(1, 9):
+PATIENCE = 2
+MAX_EPOCHS, MAX_WALL_MINUTES = approved_run_limits(
+    GPU_RUN, default_epochs=8,
+    requested_wall_minutes=float(os.environ.get("MAX_GPU_RUN_MINUTES", "120")),
+)
+EVALUATE_TEST = os.environ.get("EVALUATE_TEST", "0") == "1"
+epochs_without_improvement = 0
+history = []
+GPU_DEADLINE = GPU_RUN_STARTED + MAX_WALL_MINUTES * 60
+TRAINING_DEADLINE = GPU_RUN_STARTED + MAX_WALL_MINUTES * 60 * 0.9
+wall_cap_reached = False
+if DEVICE.type == "cuda":
+    model.eval(); opt.zero_grad(set_to_none=True)
+    _preflight_logits, _, _ = model(_x.to(DEVICE), _m.to(DEVICE))
+    _preflight_loss = crit(_preflight_logits, _y.to(DEVICE))
+    _preflight_loss.backward(); opt.zero_grad(set_to_none=True)
+    del _preflight_logits, _preflight_loss
+    torch.cuda.empty_cache()
+    print("preflight backward: OK")
+for epoch in range(1, MAX_EPOCHS + 1):
     model.train(); total=0
     for x,mask,y,_ in tqdm(tr, leave=False):
+        if time.perf_counter() >= TRAINING_DEADLINE:
+            wall_cap_reached = True
+            break
         x,mask,y = x.to(DEVICE), mask.to(DEVICE), y.to(DEVICE)
         opt.zero_grad(); logits,_,_=model(x,mask); loss=crit(logits,y); loss.backward(); opt.step()
         total += loss.item()*len(x)
+    if wall_cap_reached:
+        print(f"training-time reserve reached between batches: {MAX_WALL_MINUTES:.0f} minute total cap")
+        break
     vm = eval_split(va)
+    if not np.isfinite(vm):
+        raise RuntimeError("validation macro mAP is undefined; fix label coverage before spending more GPU time")
+    history.append({"epoch": epoch, "loss": total/len(tr.dataset), "val_macro_map": vm})
     print(epoch, "val_map", vm)
     if vm > best_macro_map:
         best_macro_map = vm
-        torch.save({"model": model.state_dict(), "best_macro_map": best_macro_map, "tags": INST_NAMES}, ckpt/"best.pt")
+        epochs_without_improvement = 0
+        torch.save({
+            "model": model.state_dict(), "best_macro_map": best_macro_map, "tags": INST_NAMES,
+            "training_config": {"max_epochs": MAX_EPOCHS, "patience": PATIENCE,
+                                "max_wall_minutes": MAX_WALL_MINUTES,
+                                "input_schema": LOGMEL_SCHEMA_VERSION,
+                                "max_windows": LOGMEL_MAX_WINDOWS,
+                                "batch_size": BATCH_SIZE,
+                                "gpu_run": GPU_RUN},
+        }, ckpt/"best.pt")
         print("  ✓", best_macro_map)
+    else:
+        epochs_without_improvement += 1
+        if epochs_without_improvement >= PATIENCE:
+            print(f"early stop: no validation PR-AUC improvement for {PATIENCE} epochs")
+            break
+    if time.perf_counter() >= TRAINING_DEADLINE:
+        print(f"wall-time cap reached: {MAX_WALL_MINUTES:.0f} minutes")
+        break
 
+if not (ckpt/"best.pt").is_file():
+    write_gpu_termination_ledger(
+        RESULTS_DIR/"pretraining"/"instrument"/"runtime.json", device=DEVICE,
+        started_at=GPU_RUN_STARTED, record=GPU_RUN, reason="no_complete_validation_epoch",
+        max_epochs=MAX_EPOCHS, max_wall_minutes=MAX_WALL_MINUTES,
+    )
+    raise RuntimeError("GPU cap reached before one complete validation epoch; no checkpoint was created")
 state = torch.load(ckpt/"best.pt", map_location=DEVICE, weights_only=False)
 model.load_state_dict(state["model"]); model.eval()
 embeds, ids = [], []
+export_cap_reached = False
 with torch.no_grad():
-    for x,mask,y,sid in tqdm(DataLoader(WindowMIL(manifest), batch_size=8, num_workers=0)):
+    for x,mask,y,sid in tqdm(DataLoader(WindowMIL(manifest), batch_size=BATCH_SIZE, num_workers=0)):
+        if time.perf_counter() >= GPU_DEADLINE:
+            export_cap_reached = True
+            break
         _, z, _ = model(x.to(DEVICE), mask.to(DEVICE))
         embeds.append(z.cpu().numpy()); ids.extend(list(sid))
+if export_cap_reached:
+    write_gpu_termination_ledger(
+        RESULTS_DIR/"pretraining"/"instrument"/"runtime.json", device=DEVICE,
+        started_at=GPU_RUN_STARTED, record=GPU_RUN, reason="embedding_export_cap_reached",
+        max_epochs=MAX_EPOCHS, max_wall_minutes=MAX_WALL_MINUTES,
+    )
+    raise RuntimeError("GPU wall-time cap reached during embedding export; no partial artifact was saved")
 E = np.concatenate(embeds, 0)
 out = FEAT_DIR/"instrument"; out.mkdir(parents=True, exist_ok=True)
 np.save(out/"instrument_embeddings.npy", E)
 (out/"song_ids.json").write_text(json.dumps(ids))
-print("saved", E.shape, "test", eval_split(te))
+result_dir = RESULTS_DIR/"pretraining"/"instrument"; result_dir.mkdir(parents=True, exist_ok=True)
+pd.DataFrame(history).to_csv(result_dir/"history.csv", index=False)
+elapsed_seconds = time.perf_counter() - GPU_RUN_STARTED
+runtime = {
+    "device": str(DEVICE), "epochs_completed": len(history),
+    "max_epochs": MAX_EPOCHS, "patience": PATIENCE,
+    "max_wall_minutes": MAX_WALL_MINUTES, "batch_size": BATCH_SIZE,
+    "input_schema": LOGMEL_SCHEMA_VERSION, "evaluated_test": EVALUATE_TEST,
+    "gpu_run": GPU_RUN,
+    "wall_seconds_including_export": elapsed_seconds,
+    "gpu_wall_hours_including_export": elapsed_seconds/3600 if DEVICE.type == "cuda" else 0.0,
+}
+(result_dir/"runtime.json").write_text(json.dumps(runtime, indent=2))
+print("saved", E.shape, "runtime", runtime)
+if EVALUATE_TEST:
+    test_metric = {"macro_pr_auc": eval_split(te)}
+    (result_dir/"test.json").write_text(json.dumps(test_metric, indent=2))
+    print("FINAL instrument TEST", test_metric)
+else:
+    print("Instrument test skipped. Set EVALUATE_TEST=1 only for the selected final run.")
+elapsed_seconds = time.perf_counter() - GPU_RUN_STARTED
+runtime["wall_seconds_including_export"] = elapsed_seconds
+runtime["gpu_wall_hours_including_export"] = elapsed_seconds/3600 if DEVICE.type == "cuda" else 0.0
+(result_dir/"runtime.json").write_text(json.dumps(runtime, indent=2))
+print("final runtime", runtime)
 '''
         ),
     ],
@@ -990,27 +1067,309 @@ def mel_proxy_features(S):
 ''',
     "timbre",
 )
-feature_nb(
-    "06",
-    "Harmony Supervision Targets",
-    "harmony",
-    '''
-def mel_proxy_features(S):
-    bands = np.array_split(S, 12, axis=0)
-    chroma = np.stack([b.mean() for b in bands]); chroma = chroma/(chroma.sum()+1e-6)
-    row = {f"chroma_{i}_mean": float(chroma[i]) for i in range(12)}
-    for i in range(6):
-        row[f"tonnetz_{i}_mean"] = float(np.dot(chroma, np.cos(2*np.pi*(i+1)*np.arange(12)/12)))
-    return row
-''',
-    "harmony",
+write(
+    "06_harmony_targets.ipynb",
+    [
+        md(
+            """# 06 — Harmony Target Preflight (Colab + Drive)
+
+The former notebook incorrectly split Mel bins into 12 groups and called them
+pitch classes. That path has been retired. The default path only audits waveform
+availability and writes no harmony targets. Explicit opt-in CPU cells below can run
+the reviewed extractor and branch-screening gates from an exact Git commit.
+
+The temporal chroma extractor and automatic chord teacher must pass the quality
+gates in `docs/harmony-plan.md` before this notebook becomes a target generator.
+The CPU-only CQT candidate has synthetic tests but is not selected until the
+real-audio comparison gate passes.
+GPU Off. Needs notebook 01 and waveform audio."""
+        ),
+        md(COLAB_SETUP),
+        md("## Mount Drive"),
+        code(MOUNT),
+        code(PATHS),
+        md("## Audit waveform availability (never fall back to Mel pseudo-chroma)"),
+        code(
+            r'''
+from datetime import datetime, timezone
+
+if not MANIFEST.exists():
+    raise FileNotFoundError("Run notebook 01 first.")
+
+manifest = pd.read_csv(MANIFEST)
+manifest["song_id"] = manifest["song_id"].astype(str).map(lambda s: normalize_track_id(s) or s)
+audio_root = ROOT / "dataset" / "audio"
+audio_index = {}
+if audio_root.exists():
+    for path in sorted(audio_root.rglob("*")):
+        if path.is_file() and path.suffix.lower() in {".mp3", ".wav", ".flac", ".ogg"}:
+            sid = normalize_track_id(path.stem)
+            if sid:
+                audio_index.setdefault(sid, []).append(path)
+
+rows = []
+for _, rec in manifest.iterrows():
+    sid = str(rec["song_id"])
+    declared = str(rec.get("audio_path", "")).strip() if pd.notna(rec.get("audio_path")) else ""
+    declared_path = Path(declared) if declared else None
+    if declared_path is not None and not declared_path.is_absolute():
+        declared_path = ROOT / declared_path
+    indexed = audio_index.get(sid, [])
+    resolved = declared_path if declared_path is not None and declared_path.is_file() else None
+    reason = ""
+    if resolved is None and len(indexed) == 1:
+        resolved = indexed[0]
+    elif resolved is None and len(indexed) > 1:
+        reason = "duplicate_waveform_candidates"
+    elif resolved is None:
+        reason = "waveform_not_found"
+    rows.append({
+        "song_id": sid,
+        "split": rec.get("split"),
+        "waveform_available": resolved is not None,
+        "audio_path": str(resolved) if resolved else "",
+        "reason": reason,
+    })
+
+availability = pd.DataFrame(rows)
+resolved_audio = availability.set_index("song_id")["audio_path"].to_dict()
+resolved_available = availability.set_index("song_id")["waveform_available"].to_dict()
+manifest["audio_path"] = manifest["song_id"].map(resolved_audio).fillna("")
+manifest["waveform_available"] = manifest["song_id"].map(resolved_available).fillna(False).astype(bool)
+manifest.to_csv(MANIFEST, index=False)
+out = FEAT_DIR / "harmony"
+out.mkdir(parents=True, exist_ok=True)
+availability.to_csv(out / "harmony_waveform_availability.csv", index=False)
+summary = {
+    "status": "preflight_only",
+    "created_at": datetime.now(timezone.utc).isoformat(),
+    "n_manifest": int(len(availability)),
+    "n_waveform_available": int(availability["waveform_available"].sum()),
+    "n_waveform_missing": int((~availability["waveform_available"]).sum()),
+    "n_duplicate_waveform_ids": int((availability["reason"] == "duplicate_waveform_candidates").sum()),
+    "creates_targets": False,
+    "mel_fallback_allowed": False,
+    "next_step": "Use the disabled-by-default CPU gate cells and docs/harmony-plan.md",
+}
+(out / "harmony_preflight.json").write_text(json.dumps(summary, indent=2))
+print(json.dumps(summary, indent=2))
+print("No harmony_song.csv was created.")
+availability.groupby(["split", "waveform_available"], dropna=False).size()
+'''
+        ),
+        md(
+            """## Optional CPU-only harmony gates (disabled by default)
+
+The availability audit above is safe to run normally. The cells below do nothing
+unless you explicitly set one of the `RUN_*` environment flags to `1`. They clone
+an exact reviewed Git commit, disable CUDA, and write into a new immutable run
+directory. Never point them at the held-out test split."""
+        ),
+        code(
+            r'''
+import platform, subprocess, sys
+
+RUN_HARMONY_CHROMA_GATE = os.environ.get("RUN_HARMONY_CHROMA_GATE", "0") == "1"
+PREPARE_HARMONY_SCREEN = os.environ.get("PREPARE_HARMONY_SCREEN", "0") == "1"
+RUN_HARMONY_SCREEN = os.environ.get("RUN_HARMONY_SCREEN", "0") == "1"
+PROJECT_CODE = None
+HARMONY_RUN_ROOT = None
+
+if any((RUN_HARMONY_CHROMA_GATE, PREPARE_HARMONY_SCREEN, RUN_HARMONY_SCREEN)):
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    code_commit = os.environ.get("HARMONY_CODE_COMMIT", "").strip()
+    run_name = os.environ.get("HARMONY_RUN_NAME", "").strip()
+    if re.fullmatch(r"[0-9a-f]{40}", code_commit) is None:
+        raise ValueError("HARMONY_CODE_COMMIT must be the reviewed 40-character Git commit")
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{2,63}", run_name) is None:
+        raise ValueError("HARMONY_RUN_NAME must be 3-64 safe filename characters")
+    PROJECT_CODE = Path("/content/dnn-project")
+    if PROJECT_CODE.exists() and not (PROJECT_CODE / ".git").is_dir():
+        raise RuntimeError(f"{PROJECT_CODE} exists but is not a Git checkout")
+    if not PROJECT_CODE.exists():
+        subprocess.check_call([
+            "git", "clone", "--filter=blob:none", "--no-checkout",
+            "https://github.com/tharu-jwd/dnn-project.git", str(PROJECT_CODE),
+        ])
+    subprocess.check_call(["git", "-C", str(PROJECT_CODE), "fetch", "origin", code_commit])
+    subprocess.check_call(["git", "-C", str(PROJECT_CODE), "checkout", "--detach", code_commit])
+    actual_commit = subprocess.check_output(
+        ["git", "-C", str(PROJECT_CODE), "rev-parse", "HEAD"], text=True
+    ).strip()
+    if actual_commit != code_commit:
+        raise RuntimeError("checked-out code does not match HARMONY_CODE_COMMIT")
+    if subprocess.run(["git", "-C", str(PROJECT_CODE), "diff", "--quiet"]).returncode != 0:
+        raise RuntimeError("harmony code checkout is dirty")
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install", "-q", "-r",
+        str(PROJECT_CODE / "requirements-harmony.txt"),
+    ])
+    HARMONY_RUN_ROOT = RESULTS_DIR / "harmony" / run_name
+    HARMONY_RUN_ROOT.mkdir(parents=True, exist_ok=True)
+    environment_path = HARMONY_RUN_ROOT / "run_environment.json"
+    environment = {
+        "schema_version": "harmony_hosted_environment_v1",
+        "code_commit": actual_commit,
+        "repository": "https://github.com/tharu-jwd/dnn-project.git",
+        "runtime": "colab",
+        "python": sys.version,
+        "platform": platform.platform(),
+        "cuda_visible_devices": os.environ["CUDA_VISIBLE_DEVICES"],
+    }
+    if environment_path.exists():
+        previous = json.loads(environment_path.read_text())
+        if previous.get("code_commit") != actual_commit:
+            raise RuntimeError("run directory was created by a different code commit")
+    else:
+        environment_path.write_text(json.dumps(environment, indent=2) + "\n")
+    print("CPU harmony code:", PROJECT_CODE, actual_commit)
+    print("Immutable run root:", HARMONY_RUN_ROOT)
+else:
+    print("Optional harmony CPU gates disabled; availability audit only.")
+'''
+        ),
+        md("### Stage A — capped real-audio chroma gate"),
+        code(
+            r'''
+if RUN_HARMONY_CHROMA_GATE:
+    def run_stage(output, command):
+        output = Path(output)
+        if output.exists():
+            print("Reusing immutable stage:", output)
+            return
+        print("Running:", " ".join(map(str, command)))
+        subprocess.check_call(list(map(str, command)), cwd=PROJECT_CODE)
+
+    py = sys.executable
+    scripts = PROJECT_CODE / "scripts"
+    cohort = HARMONY_RUN_ROOT / "harmony_extractor_seed42.json"
+    regions = HARMONY_RUN_ROOT / "harmony_regions_seed42.json"
+    comparison = HARMONY_RUN_ROOT / "harmony_extractor_candidates.json"
+    decision = HARMONY_RUN_ROOT / "harmony_extractor_decision.json"
+    targets = HARMONY_RUN_ROOT / "harmony-target-pilot"
+    run_stage(cohort, [
+        py, scripts / "freeze_experiment_cohort.py", MANIFEST,
+        "--splits", "train", "validation",
+        "--require-available", "waveform_available",
+        "--limit", "train=8", "--limit", "validation=2",
+        "--seed", "42", "--output", cohort,
+    ])
+    run_stage(regions, [
+        py, scripts / "export_harmony_regions.py", MANIFEST, cohort,
+        "--root", ROOT, "--regions-per-song", "2", "--output", regions,
+    ])
+    run_stage(comparison, [
+        py, scripts / "benchmark_harmony_extractors.py",
+        "--regions", regions, "--output", comparison,
+    ])
+    run_stage(decision, [
+        py, scripts / "decide_harmony_extractor.py", comparison,
+        "--output", decision,
+    ])
+    run_stage(targets, [
+        py, scripts / "materialize_harmony_target_pilot.py", regions, decision,
+        "--output-dir", targets,
+    ])
+    print("Chroma gate artifacts:", HARMONY_RUN_ROOT)
+else:
+    print("Stage A skipped (RUN_HARMONY_CHROMA_GATE=0).")
+'''
+        ),
+        md("### Stage B — prepare immutable cached screening data"),
+        code(
+            r'''
+if PREPARE_HARMONY_SCREEN:
+    checkpoint_text = os.environ.get("HARMONY_INSTRUMENT_CHECKPOINT", "").strip()
+    instrument_checkpoint = (
+        Path(checkpoint_text) if checkpoint_text
+        else CKPT_DIR / "pretraining" / "instrument" / "best.pt"
+    )
+    if not instrument_checkpoint.is_file():
+        raise FileNotFoundError(
+            "Validated instrument checkpoint not found. Run notebook 03 or set "
+            "HARMONY_INSTRUMENT_CHECKPOINT to its exact best.pt path."
+        )
+    py = sys.executable
+    scripts = PROJECT_CODE / "scripts"
+    cohort = HARMONY_RUN_ROOT / "harmony_extractor_seed42.json"
+    targets = HARMONY_RUN_ROOT / "harmony-target-pilot"
+    feature_cache = HARMONY_RUN_ROOT / "harmony-encoder-cache-pilot"
+    screen_dataset = HARMONY_RUN_ROOT / "harmony-screen-dataset-pilot"
+    if not feature_cache.exists():
+        subprocess.check_call([
+            py, scripts / "cache_harmony_encoder_pilot.py",
+            MANIFEST, cohort, instrument_checkpoint,
+            "--root", ROOT, "--max-songs", "10",
+            "--max-cpu-seconds", "600", "--cpu-threads", "4",
+            "--output-dir", feature_cache,
+        ], cwd=PROJECT_CODE)
+    else:
+        print("Reusing immutable stage:", feature_cache)
+    if not screen_dataset.exists():
+        subprocess.check_call([
+            py, scripts / "build_harmony_screen_dataset.py",
+            feature_cache, targets, "--output-dir", screen_dataset,
+        ], cwd=PROJECT_CODE)
+    else:
+        print("Reusing immutable stage:", screen_dataset)
+    template = HARMONY_RUN_ROOT / "harmony-branch-screen-policy.template.json"
+    if not template.exists():
+        with template.open("w") as handle:
+            subprocess.check_call([
+                py, scripts / "decide_harmony_branch_screen.py",
+                "--print-policy-template", "--dataset", screen_dataset / "index.json",
+            ], stdout=handle, cwd=PROJECT_CODE)
+    print("Review and fill policy before Stage C:", template)
+else:
+    print("Stage B skipped (PREPARE_HARMONY_SCREEN=0).")
+'''
+        ),
+        md("### Stage C — one fixed CPU screen and preregistered decision"),
+        code(
+            r'''
+if RUN_HARMONY_SCREEN:
+    policy_text = os.environ.get("HARMONY_SCREEN_POLICY", "").strip()
+    if not policy_text:
+        raise ValueError("Set HARMONY_SCREEN_POLICY to the completed preregistered policy JSON")
+    policy = Path(policy_text)
+    if not policy.is_file():
+        raise FileNotFoundError(policy)
+    sys.path.insert(0, str(PROJECT_CODE))
+    from scripts.decide_harmony_branch_screen import validate_policy
+    validate_policy(json.loads(policy.read_text()))
+    screen_dataset = HARMONY_RUN_ROOT / "harmony-screen-dataset-pilot"
+    screen_output = HARMONY_RUN_ROOT / "harmony-branch-screen"
+    screen_decision = HARMONY_RUN_ROOT / "harmony-branch-screen-decision.json"
+    py = sys.executable
+    scripts = PROJECT_CODE / "scripts"
+    if not screen_output.exists():
+        subprocess.check_call([
+            py, scripts / "screen_temporal_harmony_branch.py", screen_dataset,
+            "--max-epochs", "20", "--max-cpu-seconds", "300",
+            "--cpu-threads", "4", "--output-dir", screen_output,
+        ], cwd=PROJECT_CODE)
+    else:
+        print("Reusing immutable stage:", screen_output)
+    if not screen_decision.exists():
+        subprocess.check_call([
+            py, scripts / "decide_harmony_branch_screen.py",
+            policy, screen_output / "report.json", "--output", screen_decision,
+        ], cwd=PROJECT_CODE)
+    else:
+        print("Reusing immutable decision:", screen_decision)
+    print(json.loads(screen_decision.read_text())["decision"])
+else:
+    print("Stage C skipped (RUN_HARMONY_SCREEN=0).")
+'''
+        ),
+    ],
 )
 
 
 write(
     "07_descriptor_fusion_baseline.ipynb",
     [
-        md("# 07 — Descriptor-Fusion Baseline (Colab + Drive)\n\nCombines the learned instrument embedding with rhythm, timbre, and harmony descriptors. This is a comparison baseline, not the proposed four-branch model.\n\nNeeds 01 + 03 + 04 + 05 + 06 on Drive. **GPU On**.\n\nWrites `checkpoints/baselines/descriptor_fusion/` and test JSON."),
+        md("# 07 — Descriptor-Fusion Baseline (Colab + Drive)\n\nCombines the learned instrument embedding with rhythm, timbre, and a reviewed global harmony summary. This is a comparison baseline, not the proposed temporal four-branch model.\n\n**Blocked by design** until the harmony quality gates produce `global_tonal_summary_v1`; notebook 06 currently performs preflight only. Also needs 01 + 03 + 04 + 05. **GPU On**.\n\nAlways saves the best checkpoint and validation predictions. Test evaluation is disabled by default and is enabled only for the selected final run with `EVALUATE_TEST=1`."),
         md(COLAB_SETUP),
         code("""!pip install -q scikit-learn tqdm"""),
         md("## Mount Drive"),
@@ -1025,10 +1384,13 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 from tqdm.auto import tqdm
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+GPU_RUN = require_gpu_run_approval(DEVICE, "descriptor_fusion")
+GPU_RUN_STARTED = time.perf_counter()
 if not MANIFEST.exists():
     raise FileNotFoundError("Run 01 first")
 manifest = pd.read_csv(MANIFEST)
 manifest["song_id"] = manifest["song_id"].astype(str).map(lambda s: normalize_track_id(s) or s)
+manifest = apply_approved_cohort(manifest, GPU_RUN, MANIFEST)
 E = np.load(FEAT_DIR/"instrument"/"instrument_embeddings.npy")
 inst_ids = json.loads((FEAT_DIR/"instrument"/"song_ids.json").read_text())
 inst_map = {normalize_track_id(s) or str(s): E[i] for i,s in enumerate(inst_ids)}
@@ -1044,35 +1406,34 @@ def load_feat(sub):
 rhythm, timbre, harmony = load_feat("rhythm"), load_feat("timbre"), load_feat("harmony")
 if "source" in rhythm.columns and (rhythm["source"] == "mel_proxy").any():
     raise RuntimeError("rhythm_song.csv still has mel_proxy placeholders — re-run notebook 04 (AcousticBrainz)")
+required_harmony_meta = {"source", "schema_version", "target_variant"}
+missing_harmony_meta = required_harmony_meta - set(harmony.columns)
+if missing_harmony_meta:
+    raise RuntimeError(
+        "Harmony descriptors are stale or unvalidated; missing metadata columns: "
+        f"{sorted(missing_harmony_meta)}. Complete the harmony-plan quality gates."
+    )
+if harmony["source"].astype(str).str.contains("mel_proxy", case=False).any():
+    raise RuntimeError("Mel-proxy harmony is invalid and cannot enter descriptor fusion.")
+if not harmony["target_variant"].astype(str).eq("global_tonal_summary_v1").all():
+    raise RuntimeError("Descriptor fusion requires the reviewed global_tonal_summary_v1 artifact.")
 
 def ncols(df):
-    return [c for c in df.columns if c not in ("source","split") and pd.api.types.is_numeric_dtype(df[c])]
+    metadata = {"source", "split", "schema_version", "target_variant", "extractor_version", "teacher_name", "teacher_version"}
+    return [c for c in df.columns if c not in metadata and pd.api.types.is_numeric_dtype(df[c])]
 r_cols, t_cols, h_cols = ncols(rhythm), ncols(timbre), ncols(harmony)
 n_before = len(manifest)
 have = set(inst_map) & set(rhythm.index) & set(timbre.index) & set(harmony.index)
 manifest = manifest[manifest["song_id"].isin(have)].copy()
 print(f"Descriptor baseline overlap: {len(manifest)} / {n_before} songs have all four concepts")
 if manifest.empty:
-    raise RuntimeError("No overlapping songs — run 03–06 (04 must be AcousticBrainz, not mel-proxy)")
+    raise RuntimeError("No overlapping songs with validated descriptors — complete notebooks 03–06 and their quality gates.")
 ids = manifest["song_id"].astype(str).tolist()
 id_to_idx = {s:i for i,s in enumerate(ids)}
 
-tag_to_idx, rows = {}, {s:set() for s in ids}
-for path in [ANN_DIR/"autotagging_genre.tsv", *ANN_DIR.rglob("*genre*.tsv")]:
-    if not Path(path).exists(): continue
-    for rec in iter_tsv_rows(Path(path)):
-        sid = normalize_track_id(rec["TRACK_ID"])
-        if sid not in rows: continue
-        for tag in rec.get("TAGS","").replace("|","\t").split("\t"):
-            leaf = tag.strip().split("/")[-1].split("---")[-1]
-            if leaf and leaf.lower() not in {"nan","tags",""}:
-                tag_to_idx.setdefault(leaf, len(tag_to_idx)); rows[sid].add(leaf)
-    if tag_to_idx: break
-TAG_NAMES = [None]*len(tag_to_idx)
-for t,i in tag_to_idx.items(): TAG_NAMES[i]=t
-Y = np.zeros((len(ids), len(TAG_NAMES)), np.float32)
-for i,sid in enumerate(ids):
-    for t in rows[sid]: Y[i, tag_to_idx[t]] = 1.0
+Y, TAG_NAMES, genre_available = load_split_multihot(ids, "genre", "genre")
+if not genre_available.all():
+    raise RuntimeError("descriptor cohort contains songs without split-0 genre labels")
 
 class DS(Dataset):
     def __init__(self, df): self.df = df.reset_index(drop=True)
@@ -1115,35 +1476,120 @@ def nan_safe(yt,yp,kind="roc"):
     return float(np.mean(s)) if s else float("nan")
 
 @torch.no_grad()
-def evaluate(dl):
+def evaluate(dl, return_predictions=False):
     model.eval(); ys,ps=[],[]
     for inst,r,t,h,y in dl:
         logits,_=model(inst.to(DEVICE),r.to(DEVICE),t.to(DEVICE),h.to(DEVICE))
         ps.append(torch.sigmoid(logits).cpu().numpy()); ys.append(y.numpy())
     yt,yp=np.concatenate(ys),np.concatenate(ps)
-    return {"macro_roc_auc": nan_safe(yt,yp,"roc"), "macro_pr_auc": nan_safe(yt,yp,"pr")}
+    metrics = {"macro_roc_auc": nan_safe(yt,yp,"roc"), "macro_pr_auc": nan_safe(yt,yp,"pr")}
+    return (metrics, yt, yp) if return_predictions else metrics
 
 tr,va,te = loader("train", shuffle=True), loader("validation"), loader("test")
-best_macro_map=0.0
+best_macro_map=float("-inf")
 ckpt=CKPT_DIR/"baselines"/"descriptor_fusion"; ckpt.mkdir(parents=True, exist_ok=True)
 hist=[]
-for epoch in range(1,16):
+PATIENCE = 3
+MAX_EPOCHS, MAX_WALL_MINUTES = approved_run_limits(
+    GPU_RUN, default_epochs=15,
+    requested_wall_minutes=float(os.environ.get("MAX_GPU_RUN_MINUTES", "120")),
+)
+EVALUATE_TEST = os.environ.get("EVALUATE_TEST", "0") == "1"
+epochs_without_improvement = 0
+GPU_DEADLINE = GPU_RUN_STARTED + MAX_WALL_MINUTES * 60
+TRAINING_DEADLINE = GPU_RUN_STARTED + MAX_WALL_MINUTES * 60 * 0.9
+wall_cap_reached = False
+if DEVICE.type == "cuda":
+    _pi, _pr, _pt, _ph, _py = next(iter(tr))
+    model.eval(); opt.zero_grad(set_to_none=True)
+    _preflight_logits, _ = model(
+        _pi.to(DEVICE), _pr.to(DEVICE), _pt.to(DEVICE), _ph.to(DEVICE)
+    )
+    _preflight_loss = crit(_preflight_logits, _py.to(DEVICE))
+    _preflight_loss.backward(); opt.zero_grad(set_to_none=True)
+    del _pi, _pr, _pt, _ph, _py, _preflight_logits, _preflight_loss
+    torch.cuda.empty_cache()
+    print("preflight backward: OK")
+for epoch in range(1, MAX_EPOCHS + 1):
     model.train(); total=0
     for inst,r,t,h,y in tqdm(tr, leave=False):
+        if time.perf_counter() >= TRAINING_DEADLINE:
+            wall_cap_reached = True
+            break
         inst,r,t,h,y=[a.to(DEVICE) for a in (inst,r,t,h,y)]
         opt.zero_grad(); logits,_=model(inst,r,t,h); loss=crit(logits,y); loss.backward(); opt.step()
         total += loss.item()*len(y)
-    vm=evaluate(va); hist.append({"epoch":epoch,"loss":total/len(tr.dataset),**vm}); print(epoch, hist[-1])
+    if wall_cap_reached:
+        print(f"training-time reserve reached between batches: {MAX_WALL_MINUTES:.0f} minute total cap")
+        break
+    vm=evaluate(va)
+    if not np.isfinite(vm["macro_pr_auc"]):
+        raise RuntimeError("validation PR-AUC is undefined; fix label coverage before spending more GPU time")
+    hist.append({"epoch":epoch,"loss":total/len(tr.dataset),**vm}); print(epoch, hist[-1])
     if vm["macro_pr_auc"]>best_macro_map:
         best_macro_map=vm["macro_pr_auc"]
-        torch.save({"model":model.state_dict(),"fusion":FUSION,"best_macro_map":best_macro_map,"tags":TAG_NAMES}, ckpt/f"best_{FUSION}.pt")
+        epochs_without_improvement = 0
+        torch.save({
+            "model":model.state_dict(),"fusion":FUSION,
+            "best_macro_map":best_macro_map,"tags":TAG_NAMES,
+            "training_config":{"max_epochs":MAX_EPOCHS,"patience":PATIENCE,
+                               "max_wall_minutes":MAX_WALL_MINUTES,
+                               "gpu_run":GPU_RUN},
+        }, ckpt/f"best_{FUSION}.pt")
         print("  ✓", best_macro_map)
+    else:
+        epochs_without_improvement += 1
+        if epochs_without_improvement >= PATIENCE:
+            print(f"early stop: no validation PR-AUC improvement for {PATIENCE} epochs")
+            break
+    if time.perf_counter() >= TRAINING_DEADLINE:
+        print(f"wall-time cap reached: {MAX_WALL_MINUTES:.0f} minutes")
+        break
+if not (ckpt/f"best_{FUSION}.pt").is_file():
+    write_gpu_termination_ledger(
+        BASELINE_RESULTS_DIR/f"07_descriptor_fusion_{FUSION}_runtime.json", device=DEVICE,
+        started_at=GPU_RUN_STARTED, record=GPU_RUN, reason="no_complete_validation_epoch",
+        max_epochs=MAX_EPOCHS, max_wall_minutes=MAX_WALL_MINUTES,
+    )
+    raise RuntimeError("GPU cap reached before one complete validation epoch; no checkpoint was created")
 state=torch.load(ckpt/f"best_{FUSION}.pt", map_location=DEVICE, weights_only=False)
 model.load_state_dict(state["model"])
-test_m=evaluate(te)
-print("TEST split-0", test_m)
+val_m,val_y,val_p=evaluate(va, return_predictions=True)
 pd.DataFrame(hist).to_csv(BASELINE_RESULTS_DIR/f"07_descriptor_fusion_{FUSION}_history.csv", index=False)
-(BASELINE_RESULTS_DIR/f"07_descriptor_fusion_{FUSION}_test.json").write_text(json.dumps(test_m, indent=2))
+elapsed_seconds = time.perf_counter() - GPU_RUN_STARTED
+runtime = {
+    "device":str(DEVICE),"epochs_completed":len(hist),
+    "max_epochs":MAX_EPOCHS,"patience":PATIENCE,
+    "max_wall_minutes":MAX_WALL_MINUTES,
+    "evaluated_test":EVALUATE_TEST,
+    "gpu_run":GPU_RUN,
+    "wall_seconds":elapsed_seconds,
+    "gpu_wall_hours":elapsed_seconds/3600 if DEVICE.type=="cuda" else 0.0,
+}
+(BASELINE_RESULTS_DIR/f"07_descriptor_fusion_{FUSION}_runtime.json").write_text(json.dumps(runtime, indent=2))
+print("runtime", runtime)
+pred_dir = RESULTS_DIR / "predictions"; pred_dir.mkdir(parents=True, exist_ok=True)
+np.savez_compressed(
+    pred_dir / f"07_descriptor_fusion_{FUSION}_validation.npz",
+    song_ids=np.asarray(va.dataset.df["song_id"].astype(str).to_numpy(), dtype=str),
+    label_names=np.asarray(TAG_NAMES, dtype=str), targets=val_y, scores=val_p,
+)
+if EVALUATE_TEST:
+    test_m,test_y,test_p=evaluate(te, return_predictions=True)
+    print("FINAL TEST split-0", test_m)
+    (BASELINE_RESULTS_DIR/f"07_descriptor_fusion_{FUSION}_test.json").write_text(json.dumps(test_m, indent=2))
+    np.savez_compressed(
+        pred_dir / f"07_descriptor_fusion_{FUSION}_test.npz",
+        song_ids=np.asarray(te.dataset.df["song_id"].astype(str).to_numpy(), dtype=str),
+        label_names=np.asarray(TAG_NAMES, dtype=str), targets=test_y, scores=test_p,
+    )
+else:
+    print("Test evaluation skipped. Set EVALUATE_TEST=1 only for the selected final run.")
+elapsed_seconds = time.perf_counter() - GPU_RUN_STARTED
+runtime["wall_seconds"] = elapsed_seconds
+runtime["gpu_wall_hours"] = elapsed_seconds/3600 if DEVICE.type=="cuda" else 0.0
+(BASELINE_RESULTS_DIR/f"07_descriptor_fusion_{FUSION}_runtime.json").write_text(json.dumps(runtime, indent=2))
+print("final runtime", runtime)
 '''
         ),
     ],
@@ -1217,8 +1663,15 @@ def load_feat(sub):
 
 rhythm, timbre, harmony = load_feat("rhythm"), load_feat("timbre"), load_feat("harmony")
 
+required_harmony_meta = {"source", "schema_version", "target_variant"}
+if required_harmony_meta - set(harmony.columns):
+    raise RuntimeError("Harmony descriptor artifact predates the reviewed harmony schema; retrain notebook 07 after replacement.")
+if harmony["source"].astype(str).str.contains("mel_proxy", case=False).any():
+    raise RuntimeError("Mel-proxy harmony is invalid; notebook 09 refuses this checkpoint lineage.")
+
 def ncols(df):
-    return [c for c in df.columns if c not in ("source", "split") and pd.api.types.is_numeric_dtype(df[c])]
+    metadata = {"source", "split", "schema_version", "target_variant", "extractor_version", "teacher_name", "teacher_version"}
+    return [c for c in df.columns if c not in metadata and pd.api.types.is_numeric_dtype(df[c])]
 
 r_cols, t_cols, h_cols = ncols(rhythm), ncols(timbre), ncols(harmony)
 have = set(inst_map) & set(rhythm.index) & set(timbre.index) & set(harmony.index)
@@ -1231,26 +1684,10 @@ print("using checkpoint", CKPT_PATH, "bytes=", CKPT_PATH.stat().st_size)
 
 ids = manifest["song_id"].astype(str).tolist()
 id_to_idx = {s: i for i, s in enumerate(ids)}
-tag_to_idx, rows = {}, {s: set() for s in ids}
-for path in [ANN_DIR / "autotagging_genre.tsv", *ANN_DIR.rglob("*genre*.tsv")]:
-    if not Path(path).exists():
-        continue
-    for rec in iter_tsv_rows(Path(path)):
-        sid = normalize_track_id(rec["TRACK_ID"])
-        if sid not in rows:
-            continue
-        for tag in rec.get("TAGS", "").replace("|", "\t").split("\t"):
-            leaf = tag.strip().split("/")[-1].split("---")[-1]
-            if leaf and leaf.lower() not in {"nan", "tags", ""}:
-                tag_to_idx.setdefault(leaf, len(tag_to_idx))
-                rows[sid].add(leaf)
-    if tag_to_idx:
-        break
-n_tags = max(len(tag_to_idx), 1)
-Y = np.zeros((len(ids), n_tags), np.float32)
-for i, sid in enumerate(ids):
-    for t in rows[sid]:
-        Y[i, tag_to_idx[t]] = 1.0
+Y, TAG_NAMES, genre_available = load_split_multihot(ids, "genre", "genre")
+if not genre_available.all():
+    raise RuntimeError("explainability cohort contains songs without split-0 genre labels")
+n_tags = len(TAG_NAMES)
 
 
 class DS(Dataset):
