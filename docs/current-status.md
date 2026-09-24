@@ -21,8 +21,8 @@ Committed notebooks intentionally contain no execution outputs. Therefore, an en
 | Component | Status |
 |---|---|
 | Shared CNN and masked song pooling | Design agreed; reusable code exists in instrument pretraining |
-| Four learned concept branches | Instrument v2 implemented (`instrument_branch/`); rhythm/timbre/harmony not yet |
-| Target normalization and missing-label masks | **Implemented on fixtures** (`supervision_mask` vs `fusion_mask`; NaN ≠ zero) |
+| Four learned concept branches | Instrument v2 (`instrument_branch/`) and timbre 35-D (`timbre_branch/`) implemented; rhythm/harmony not yet |
+| Target normalization and missing-label masks | Timbre: training-only standardizer. Fusion: `supervision_mask` vs `fusion_mask` on fixtures |
 | Joint multi-task objective | **Implemented on fixtures** (element-level masks; missing labels do not drop tracks) |
 | Gated concept fusion | **Implemented on fixtures** (`concept_fusion/`, branch `thevindu-concept-fusion`) |
 | Proposed-model training notebook | Not implemented (one-shot runner: `scripts/run_all_fusion.py`) |
@@ -30,3 +30,5 @@ Committed notebooks intentionally contain no execution outputs. Therefore, an en
 | Gate and concept-removal evaluation | **Implemented on fixtures** (`concept_fusion/interventions.py`) |
 
 The architecture diagram is a target specification, not evidence of completion.
+
+The full story — original plan, first fusion implementation, Anupama’s instrument v2, Senindu’s timbre 35-D branch, and the current architecture — is in [architecture-from-plan-to-implementation.md](architecture-from-plan-to-implementation.md).
