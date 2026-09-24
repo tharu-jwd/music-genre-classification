@@ -27,7 +27,7 @@ not evidence that a stage works end to end.
 | Genre vocabulary | Code present | Official split files yield a fixed sorted 87-label vocabulary; verify generated artifacts |
 | Direct CNN baseline | Code present | Ordered masked windows are implemented; do not spend GPU until the comparison cohort is frozen |
 | Instrument pretraining | Code present | Uses only annotated songs for supervision; verify a capped hosted run after data preflight |
-| Rhythm targets | Code present | Define and validate the versioned target contract |
+| Rhythm targets | Code present | Ten-field v1 schema, split-aware join, train-only scaler, masks, and interval audit are implemented; run the audit on real artifacts |
 | Timbre targets | Code present | The 35-descriptor extractor and claimed 7,324-track audit are documented; supply the ignored real target table and check it against the canonical cohort |
 | Harmony preflight | Code present | Reports waveform availability and exports exact model-window regions; clean hosted decode checks remain |
 | Harmony target design | Code present | CQT and harmonic-HPCP pass synthetic CPU tests; aligned-region runner and immutable decision gate are ready, bounded real-audio comparison remains |
@@ -36,7 +36,7 @@ not evidence that a stage works end to end.
 | Baseline evaluation | Blocked | Recompute comparable results after upstream fixes |
 | Attention inspection | Code present | Treat it as inspection, not proof of explanation |
 | Shared encoder module | Code present | Reusable interface/cache/alignment code is wired into opt-in notebook 06 CPU stages; cache a real hosted cohort and later integrate the selected branch into the joint model |
-| Learned concept branches | Code present | Instrument (40 concepts), timbre (35 concepts), and harmony (temporal chroma plus configurable embedding) code exist; rhythm and real-input branch evidence remain |
+| Learned concept branches | Code present | Instrument, timbre, harmony, and the temporal rhythm branch have CPU-tested code; real-input branch evidence remains |
 | Joint loss and gated fusion | Integrated on fixtures | Fusion is merged into `harmony`; the temporal adapter, projection, masks, losses, gradients, checkpoint restore, and harmony removal pass CPU tests; real branch rows remain unavailable |
 | Proposed-model evaluation | Not started | Requires the integrated model and fair baselines |
 

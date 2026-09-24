@@ -49,6 +49,7 @@ class RunConfig:
     token_dim: int = TOKEN_DIM
     fused_dim: int = FUSED_DIM
     allow_shortcut: bool = False
+    lambda_rhythm: float = 1.0
     notes: str = ""
 
     def as_dict(self) -> dict[str, Any]:

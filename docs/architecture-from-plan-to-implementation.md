@@ -131,7 +131,8 @@ prediction/availability masks.
 ```text
 shared encoder
     ├── pooled song (B,128) → Instrument v2 → 40 probs → Linear(40,64)
-    ├── ordered features → Rhythm (pending) → token (B,64)
+    ├── ordered features (B,T,128) → Rhythm v1 → token (B,64)
+    │                                      └→ 10 AB regression predictions
     ├── pooled song (B,128) → Timbre v2 → 35 values → Linear(35,64)
     └── ordered features → Harmony v1 → embedding (B,D) → Linear(D,64)
                                       └→ temporal chroma/chord auxiliary losses

@@ -38,9 +38,14 @@ class PipelineConfig:
     warmup: int = 2
     infer_steps: int = 10
     fixture: bool = True
+    lambda_rhythm: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.lambda_rhythm < 0:
+            raise ValueError("lambda_rhythm must be non-negative")
 
 
-def _loss_weights(spec: ExperimentSpec) -> LossWeights:
+def _loss_weights(spec: ExperimentSpec, *, lambda_rhythm: float = 1.0) -> LossWeights:
     if not spec.aux:
         return LossWeights(
             instrument=0.0,
@@ -49,7 +54,7 @@ def _loss_weights(spec: ExperimentSpec) -> LossWeights:
             harmony=0.0,
             use_kendall=spec.use_kendall,
         )
-    return LossWeights(use_kendall=spec.use_kendall)
+    return LossWeights(rhythm=lambda_rhythm, use_kendall=spec.use_kendall)
 
 
 def _build_model(spec: ExperimentSpec) -> nn.Module:
@@ -138,7 +143,7 @@ def train_one(
     test = _prepare_split(cohort.test, spec)
 
     model = _build_model(spec)
-    loss_fn = JointLossOrchestrator(weights=_loss_weights(spec))
+    loss_fn = JointLossOrchestrator(weights=_loss_weights(spec, lambda_rhythm=cfg.lambda_rhythm))
     params = list(model.parameters()) + list(loss_fn.parameters())
     opt = torch.optim.Adam(params, lr=cfg.lr)
     g = torch.Generator().manual_seed(seed + 99)
@@ -189,6 +194,7 @@ def train_one(
             "thresholds": thr,
             "test_song_ids": test.song_ids,
             "fixture": cfg.fixture,
+            "lambda_rhythm": cfg.lambda_rhythm,
         },
         ckpt,
     )
@@ -200,6 +206,7 @@ def train_one(
         seed=seed,
         dropout_p=spec.dropout_p,
         allow_shortcut=spec.allow_shortcut,
+        lambda_rhythm=cfg.lambda_rhythm,
         notes=spec.purpose,
     )
     rec = RunRecord.create(
@@ -229,6 +236,7 @@ def train_one(
             "aux": spec.aux,
             "use_kendall": spec.use_kendall,
             "dropout_was_trained": spec.dropout_was_trained,
+            "lambda_rhythm": cfg.lambda_rhythm,
         },
         n_valid_tags=test_metrics["n_valid_tags"],
         checkpoint_path=str(ckpt),
@@ -331,8 +339,9 @@ def run_all(
     quick: bool = False,
     out_dir: Path | str = "results/proposed/mock",
     steps: int | None = None,
+    lambda_rhythm: float = 1.0,
 ) -> list[RunRecord]:
-    cfg = PipelineConfig(out_dir=Path(out_dir))
+    cfg = PipelineConfig(out_dir=Path(out_dir), lambda_rhythm=lambda_rhythm)
     if quick:
         cfg.steps = 5 if steps is None else steps
         cfg.batch_size = 8
