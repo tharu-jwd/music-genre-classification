@@ -2,7 +2,8 @@
 
 This branch predicts rhythm from the shared CNN's ordered mel-derived features. The
 ten AcousticBrainz descriptors are supervision targets only; they are never passed
-to the model as inputs.
+to the model as inputs. See [ARCHITECTURE.md](ARCHITECTURE.md) for the detailed
+network, tensor, masking, loss, target, and fusion contracts.
 
 ## Tensor contract
 

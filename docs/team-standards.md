@@ -142,6 +142,8 @@ sequence_end_times
 sequence_mask
 sequence_window_index
 pooled_song
+window_repr
+availability
 ```
 
 A branch may consume the ordered sequence, the pooled representation, or both. A

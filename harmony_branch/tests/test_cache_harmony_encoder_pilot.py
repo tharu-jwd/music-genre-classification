@@ -10,7 +10,7 @@ import torch
 
 from cache_harmony_encoder_pilot import cache_encoder_pilot
 from scripts.freeze_experiment_cohort import freeze_cohort
-from scripts.shared_audio_encoder import SharedAudioEncoder
+from scripts.shared_audio_encoder import SHARED_ENCODER_ARCHITECTURE, SharedAudioEncoder
 
 
 def write_fixture(root: Path):
@@ -26,10 +26,11 @@ def write_fixture(root: Path):
         writer.writerows(rows)
     cohort = root / "cohort.json"
     cohort.write_text(json.dumps(freeze_cohort(manifest, splits=("train", "validation"))))
-    model = SharedAudioEncoder(output_dim=6)
+    model = SharedAudioEncoder()
     checkpoint = root / "instrument.pt"
     torch.save({
         "model": model.state_dict(),
+        "encoder_architecture": SHARED_ENCODER_ARCHITECTURE,
         "best_macro_map": 0.5,
         "tags": ["instrument---guitar"],
         "training_config": {
@@ -60,10 +61,13 @@ class CacheHarmonyEncoderPilotTest(unittest.TestCase):
             self.assertEqual(result["device"], "cpu")
             self.assertFalse(result["contains_genre_labels"])
             self.assertEqual(result["cached_songs"], 2)
-            self.assertEqual(result["checkpoint_format"], "colab_v1")
+            self.assertEqual(result["checkpoint_format"], "shared_cnn_v2")
+            self.assertEqual(result["encoder_architecture"], SHARED_ENCODER_ARCHITECTURE)
+            self.assertAlmostEqual(result["token_stride_seconds"], 256 * 2 / 12000)
             item = result["items"][0]
             arrays = np.load(output / item["artifact"], allow_pickle=False)
-            self.assertEqual(arrays["encoded_sequence"].shape, (683, 6))
+            self.assertEqual(arrays["encoded_sequence"].shape, (683, 128))
+            self.assertEqual(arrays["window_repr"].shape, (1, 128))
             self.assertEqual(item["windows"], 1)
             self.assertEqual(item["tokens_per_window"], 683)
             self.assertEqual(item["valid_tokens"], 6)

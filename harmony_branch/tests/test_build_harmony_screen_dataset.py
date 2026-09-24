@@ -60,7 +60,7 @@ def write_sources(root: Path, *, coarse=False):
         })
     cohort_hash = "c" * 64
     (feature_dir / "index.json").write_text(json.dumps({
-        "schema_version": "harmony_encoder_cache_pilot_v1",
+        "schema_version": "harmony_encoder_cache_pilot_v2",
         "status": "ready",
         "failure_count": 0,
         "contains_genre_labels": False,

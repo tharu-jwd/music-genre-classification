@@ -42,8 +42,10 @@ harmony branch. Invalid Mel-band pitch-class proxies are forbidden.
 
 ![Proposed architecture](diagrams/proposed-concept-guided-architecture.svg)
 
-The encoder must preserve both ordered information and an optional pooled song
-summary:
+The encoder must preserve both ordered information and a pooled song summary. The
+exact implemented CNN, temporal geometry, timestamp convention, padding behavior,
+and checkpoint boundary are documented in the
+[shared CNN encoder architecture](shared-cnn-encoder-architecture.md):
 
 ```text
 audio windows → shared encoder ┬→ ordered encoded sequence + mask + timestamps
@@ -55,7 +57,8 @@ particular, one vector per approximately 29-second model window is still too coa
 it cannot preserve chord changes within that window. The shared encoder must expose
 its within-window temporal feature map before time averaging, together with token
 intervals and the originating window index. `scripts/shared_audio_encoder.py`
-provides the CPU-tested interface while preserving the existing song-window output.
+provides the CPU-tested interface and derives the ordered sequence, per-window
+representations, and pooled song representation from one shared forward pass.
 
 ### Branch inputs and outputs
 

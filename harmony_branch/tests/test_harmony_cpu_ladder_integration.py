@@ -18,7 +18,7 @@ from export_harmony_regions import export_regions
 from scripts.freeze_experiment_cohort import freeze_cohort
 from materialize_harmony_target_pilot import materialize_pilot
 from screen_temporal_harmony_branch import screen_branch
-from scripts.shared_audio_encoder import SharedAudioEncoder
+from scripts.shared_audio_encoder import SHARED_ENCODER_ARCHITECTURE, SharedAudioEncoder
 
 
 def sha256(path: Path) -> str:
@@ -96,10 +96,11 @@ class HarmonyCPULadderIntegrationTest(unittest.TestCase):
             targets = materialize_pilot(region_path, extractor_decision_path, target_dir)
             self.assertEqual(targets["status"], "ready")
 
-            encoder = SharedAudioEncoder(output_dim=6)
+            encoder = SharedAudioEncoder()
             checkpoint_path = root / "instrument.pt"
             torch.save({
                 "model": encoder.state_dict(),
+                "encoder_architecture": SHARED_ENCODER_ARCHITECTURE,
                 "best_macro_map": 0.5,
                 "tags": ["instrument---guitar"],
                 "training_config": {

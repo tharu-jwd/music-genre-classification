@@ -19,7 +19,7 @@ from harmony_branch.alignment import align_chroma_to_intervals
 
 
 SCHEMA_VERSION = "harmony_screen_dataset_v1"
-FEATURE_SCHEMA = "harmony_encoder_cache_pilot_v1"
+FEATURE_SCHEMA = "harmony_encoder_cache_pilot_v2"
 TARGET_SCHEMA = "harmony_target_pilot_v1"
 REGISTERED_MAX_TOKEN_SECONDS = 0.1
 
