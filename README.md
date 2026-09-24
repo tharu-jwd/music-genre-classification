@@ -29,14 +29,16 @@ Notebook 06 exposes that CPU ladder behind explicit flags and an exact Git commi
 A bounded CPU Essentia chord-baseline generator and evaluator are ready, but their
 external benchmark has not run. The timbre implementation and its synthetic smoke
 test are present, but its real target table and shared-encoder inputs are not tracked.
-Real-audio harmony selection, chord-teacher acceptance, the harmony/fusion adapter,
+Real-audio harmony selection, chord-teacher acceptance, real-branch data loading,
 and a clean end-to-end hosted run remain unresolved before joint-training outputs are
-trustworthy.
+trustworthy. The temporal harmony/fusion adapter and its CPU integration tests are
+implemented.
 
-The current `main` branch also includes the instrument and timbre workstreams. A
-fixture-tested fusion prototype exists on `origin/thevindu-concept-fusion`, but it is
-not merged here and its provisional 18-value harmony contract does not yet match the
-temporal harmony branch. See the project plan before starting training.
+The current `main` branch also includes the instrument and timbre workstreams. The
+fixture-tested fusion prototype from `origin/thevindu-concept-fusion` is integrated
+here with a revised harmony contract: temporal predictions remain auxiliary outputs,
+and fusion projects the configurable song embedding to 64D. See the project plan
+before starting real training.
 
 See the [project status and remaining work](docs/project-plan.md) for the exact
 blockers and implementation sequence.
@@ -50,6 +52,7 @@ Each document has one purpose:
 | [Architecture](docs/architecture.md) | Existing baselines and the proposed model design |
 | [Project plan](docs/project-plan.md) | Current status, blockers, ownership boundaries, and remaining work |
 | [Harmony plan](docs/harmony-plan.md) | Step-by-step work owned by the harmony branch |
+| [Harmony integration hand-off](docs/harmony-integration-handoff.md) | Current interface, required artifacts, and executable next commands |
 | [Team standards](docs/team-standards.md) | Shared data, model, artifact, evaluation, and development contracts |
 
 ## Notebook workflows
@@ -85,6 +88,7 @@ creating notebook-only forks.
 │   └── dataset_split/
 ├── instrument_branch/             # 40 instrument concepts from a 128D song input
 ├── timbre_branch/                  # 35 standardized timbre concepts from a 128D input
+├── concept_fusion/                # shared contracts, projections, losses, and fusion
 ├── scripts/
 │   ├── generate_colab_notebooks.py
 │   ├── generate_kaggle_notebooks.py

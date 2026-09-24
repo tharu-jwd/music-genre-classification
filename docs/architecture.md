@@ -83,10 +83,10 @@ Predictions supervise and evaluate the concept branch. The embedding is the outp
 sent to fusion. Harmony may expose several prediction heads—temporal chroma, chord
 probabilities, and optional key/mode—instead of one fixed 18-value head.
 
-The separate fixture fusion prototype has not yet adopted that harmony interface: it
-still declares 18 provisional harmony concepts and expects a 64D harmony token. That
-is an integration placeholder, not a reason to collapse temporal harmony into 18
-song-level means.
+The integrated fixture fusion now uses that interface. Harmony's configurable song
+embedding is projected to the 64D common token width by fusion. Temporal chroma and
+optional chord predictions remain intact for their masked auxiliary losses; the
+pooled chroma diagnostic is not used as a replacement supervision target.
 
 ### Harmony supervision boundary
 

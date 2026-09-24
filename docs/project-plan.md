@@ -37,7 +37,7 @@ not evidence that a stage works end to end.
 | Attention inspection | Code present | Treat it as inspection, not proof of explanation |
 | Shared encoder module | Code present | Reusable interface/cache/alignment code is wired into opt-in notebook 06 CPU stages; cache a real hosted cohort and later integrate the selected branch into the joint model |
 | Learned concept branches | Code present | Instrument (40 concepts), timbre (35 concepts), and harmony (temporal chroma plus configurable embedding) code exist; rhythm and real-input branch evidence remain |
-| Joint loss and gated fusion | Code present on a separate branch | `origin/thevindu-concept-fusion` runs on fixtures only; merge review and real branch adapters are still required |
+| Joint loss and gated fusion | Integrated on fixtures | Fusion is merged into `harmony`; the temporal adapter, projection, masks, losses, gradients, checkpoint restore, and harmony removal pass CPU tests; real branch rows remain unavailable |
 | Proposed-model evaluation | Not started | Requires the integrated model and fair baselines |
 
 Because real-branch joint training is not integrated, it is deliberately absent from
@@ -139,14 +139,12 @@ preflight, temporal chroma comparison, chord-teacher benchmark, immutable raw
 pseudo-labels, masks/schema, temporal model interface, standalone training, then
 joint integration. See [harmony-plan.md](harmony-plan.md) for exit criteria.
 
-Current integration finding (2026-09-24): the separate fusion prototype freezes
-`harmony=18` concept values and requires harmony to supply a 64D `fusion_token`.
-The implemented harmony reference branch instead produces temporal 12-bin chroma
-predictions, optional 25-class chord predictions, and a configurable song embedding
-(32D by default). Do not flatten or average these outputs merely to satisfy the old
-placeholder. Before joint training, the harmony and fusion owners must freeze an
-adapter that preserves temporal supervision while projecting the song embedding to
-the common fusion width, then test masks, gradients, and branch removal end to end.
+Integration update (2026-09-24): the old provisional `harmony=18` contract is
+removed. Harmony preserves temporal 12-bin chroma predictions and optional 25-class
+chord predictions for auxiliary loss, while fusion owns the configurable song
+embedding-to-64D projection. CPU tests cover masks, missing supervision, unavailable
+harmony, gradients, checkpoint restoration, and harmony removal. Team ratification
+and real branch rows are still required before joint training.
 
 ### Phase 6 — Evaluate the contribution
 
@@ -222,7 +220,7 @@ interface; one already-pooled song vector is insufficient for chord progressions
 | Review or import harmony code | Yes | Use the branch commit recorded by Git; interfaces and CPU tests are available |
 | Run synthetic and CPU contract tests | Yes | Do not report fixture scores as research results |
 | Run bounded harmony extractor and branch screens | Not yet | Supply the canonical real-audio manifest, waveform paths, selected cohort, and validated shared-encoder checkpoint |
-| Connect harmony to fixture fusion | Not yet | Ratify and implement the temporal-harmony adapter described above |
+| Connect harmony to fixture fusion | Yes | Adapter and temporal losses are CPU-tested; team ratification remains |
 | Start real joint GPU training | No | Real targets, four compatible branch adapters, a frozen cohort, passing CPU decisions, and an approved GPU run are required |
 
 ## Definition of project completion
