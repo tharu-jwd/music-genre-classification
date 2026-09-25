@@ -5,16 +5,18 @@ remain in the [harmony plan](plan.md).
 
 ## Interface frozen in code
 
-Harmony returns a configurable song embedding (32D in the first screen), temporal
+Harmony returns a configurable song embedding (32D for the ablation), temporal
 chroma logits `(B,T,12)`, optional chord logits `(B,T,25)`, prediction masks, and
-availability. It does not return a 64D fusion token. `concept_fusion` owns
-`Linear(D_harmony,64)` and applies the fusion mask after projection.
+availability. It does not return a 64D fusion token. Primary `concept_fusion`
+softmaxes the chroma logits per token, masked-means valid tokens, owns
+`Linear(12,64)`, and applies the fusion mask after projection. `Linear(32,64)` over
+the song embedding is retained as `embedding_fusion` only.
 
 Temporal chroma and chords keep separate target masks. Missing pseudo-supervision
 masks only the corresponding auxiliary loss; it does not remove an available
-harmony embedding from genre fusion. A missing/unusable audio branch sets the fusion
-mask to zero. The pooled 12-bin chroma in `BranchOutput.concept_values` is diagnostic
-only and is never substituted for the temporal target.
+predicted harmony branch from genre fusion. A missing/unusable audio branch sets the
+fusion mask to zero. The pooled 12-bin chroma in `BranchOutput.concept_values` is a
+prediction used by primary fusion and is never substituted for the temporal target.
 
 Run the contract and fixture checks with:
 
@@ -34,8 +36,8 @@ Fixture scores are discarded engineering checks, not research results.
 | Instrument v2 | Adapter accepts 40 probabilities/logits and fusion owns 40-to-64 projection | Implementation is notebook-contained and needs real 128D song representations |
 | Timbre v2 | Adapter accepts the fixed 35 standardized values and fusion owns 35-to-64 projection | Real target table and real 128D song representations are absent |
 | Shared encoder | `SharedAudioEncoder` can emit configurable-width ordered tokens and pooled output; harmony consumes the ordered tokens | The validated checkpoint must use the team-approved configuration; instrument/timbre require 128D pooled input |
-| Harmony v1 | Adapter preserves `(B,T,12)`/optional `(B,T,25)` and projects configurable song embedding to 64D | Real extractor decision, targets, and cached ordered features are absent |
-| Rhythm v1 | Adapter sends the learned `(B,64)` temporal embedding to fusion and retains ten AB predictions for masked loss | Real target coverage audit and cached `(B,T,128)` encoder features are absent |
+| Harmony v2 | Adapter preserves temporal logits and projects masked-pooled 12D predicted chroma; 32D embedding route is an ablation | Real extractor decision, targets, and cached ordered features are absent |
+| Rhythm v2 | Adapter sends ten predicted descriptors through fusion-owned 10→64; 64D embedding route is an ablation | Real target coverage audit and cached `(B,T,128)` encoder features are absent |
 | Fusion | Four 64D tokens, masks, joint losses, removal, gradients, and restore are fixture-tested | A real `BranchBundle` data loader remains project-level work |
 
 ## External inputs still required
@@ -46,7 +48,7 @@ Fixture scores are discarded engineering checks, not research results.
 | Shared-encoder/instrument owner | Validated checkpoint, vocabulary, validation metric, encoder configuration, and provenance | `checkpoints/pretraining/instrument/best.pt` and its metadata |
 | Chord-benchmark owner/team | Legally usable existing annotated benchmark and immutable audio/reference mapping; no new manual labels | mapping CSV passed to `prepare_chord_benchmark_source.py` |
 | Timbre owner | Ignored 7,324-row real target table when real joint rows are assembled | `timbre_branch/data/timbre_features_raw.csv` |
-| Fusion owner/team | Ratification of shared contract v0.2 | [ADR 0001](../../docs/adr/0001-concept-fusion-architecture.md) |
+| Fusion owner/team | Ratification of predicted-concept contract v0.3 | [ADR 0001](../../docs/adr/0001-concept-fusion-architecture.md) |
 
 No repository copy of these real artifacts is currently available. Therefore the
 following real-data commands are intentionally not claimed as completed.
@@ -99,5 +101,5 @@ until a passing branch decision and a separate GPU approval exist.
 - **Fixture integration:** ready and CPU-tested.
 - **Real-data screening:** blocked only on the external artifacts above.
 - **Joint GPU training:** not approved; it additionally requires all four real
-  branch rows, the frozen comparison cohort, team-ratified v0.2, and a passing CPU
+  branch rows, the frozen comparison cohort, team-ratified v0.3, and a passing CPU
   branch decision.

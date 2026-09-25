@@ -113,6 +113,7 @@ def test_rhythm_and_genre_gradients_reach_branch_and_shared_cnn():
     torch.nn.functional.binary_cross_entropy_with_logits(
         genre_logits, torch.rand_like(genre_logits)
     ).backward()
+    assert branch.regression_head.weight.grad.abs().sum() > 0
     assert branch.embedding_head[0].weight.grad.abs().sum() > 0
     assert encoder.cnn[0].weight.grad.abs().sum() > 0
 

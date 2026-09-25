@@ -1,14 +1,18 @@
-"""Shared-architecture contract v0.2.
+"""Shared-architecture contract v0.3.
 
 Reject violating tensors. Do not silently reshape, reorder, impute, or reinterpret.
 
+Primary fusion uses predicted concepts from all four branches. The former rhythm
+embedding / harmony embedding path remains available only as ``embedding_fusion``.
+
 Instrument v2: 40 probabilities + logits, no fusion token. Fusion owns Linear(40, 64).
-Rhythm v1: mel-derived temporal branch, 64D fusion token + 10 AB predictions.
+Rhythm v2: 10 standardized predictions are primary; the 64D embedding is retained
+for the embedding-fusion ablation. Fusion owns Linear(10, 64) in the primary mode.
 Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
 Fusion owns Linear(35, 64).
-Harmony v1: temporal 12-bin chroma predictions plus an independently configurable
-song embedding. Fusion owns the embedding-to-64 projection. Chords are an optional
-25-class temporal auxiliary target, never part of an 18-value song summary.
+Harmony v2: masked-pooled probabilities from temporal 12-bin chroma logits are
+primary. Its 32D song embedding is retained for the embedding-fusion ablation.
+Chords remain an optional temporal auxiliary target and never enter primary fusion.
 """
 
 from __future__ import annotations
@@ -17,6 +21,16 @@ import importlib.util
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
+
+FUSION_CONTRACT_VERSION = "predicted_concept_fusion_v1"
+FusionInputMode = Literal["predicted_concepts", "embedding_fusion"]
+PRIMARY_FUSION_INPUT_MODE: FusionInputMode = "predicted_concepts"
+EMBEDDING_FUSION_INPUT_MODE: FusionInputMode = "embedding_fusion"
+FUSION_INPUT_MODES: tuple[FusionInputMode, ...] = (
+    PRIMARY_FUSION_INPUT_MODE,
+    EMBEDDING_FUSION_INPUT_MODE,
+)
 
 CONCEPT_ORDER: tuple[str, ...] = ("instrument", "rhythm", "timbre", "harmony")
 N_CONCEPTS = 4
@@ -107,7 +121,7 @@ FUSION_BASELINE = "concat"
 FUSION_SECONDARY = "attention"
 
 # Seeds: three on the paper comparison; one elsewhere (Colab budget).
-MULTI_SEED_EXPERIMENTS = frozenset({"B1", "F-Concat", "F-Gated"})
+MULTI_SEED_EXPERIMENTS = frozenset({"B1", "F-Concat", "F-Gated", "F-Embedding"})
 N_SEEDS_FINAL = 3
 N_SEEDS_OTHER = 1
 DEFAULT_SEEDS = (0, 1, 2)
@@ -138,6 +152,7 @@ EXPERIMENT_MATRIX: tuple[tuple[str, str, str], ...] = (
     ("C-H", "concept_harmony", "Harmony concept only"),
     ("F-Concat", "concat", "All concepts, concatenation baseline"),
     ("F-Gated", "gated", "All concepts, masked gating (primary)"),
+    ("F-Embedding", "embedding_fusion", "Previous rhythm/harmony embedding route"),
     ("F-Attn", "attention", "All concepts, self-attention (optional)"),
     ("F-Hidden", "hidden", "Hidden branch embeddings (faithfulness tax)"),
     ("F-Shortcut", "shortcut", "Fusion plus direct audio path (bottleneck tax)"),

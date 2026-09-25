@@ -11,7 +11,10 @@ from concept_fusion.contract import (
     CONCEPT_DROPOUT_P,
     DEFAULT_HARMONY_EMBEDDING_DIM,
     FUSED_DIM,
+    FUSION_CONTRACT_VERSION,
     N_GENRE_TAGS,
+    PRIMARY_FUSION_INPUT_MODE,
+    FusionInputMode,
 )
 from concept_fusion.dropout import apply_concept_dropout
 from concept_fusion.fusion import FusionName, build_fusion
@@ -22,7 +25,7 @@ from concept_fusion.validation import ContractError
 
 
 class ConceptBottleneckModel(nn.Module):
-    """Primary proposed model. Fusion inputs are concept tokens only.
+    """Predicted-concept primary model with a selectable embedding ablation.
 
     Set `allow_shortcut=True` only for the named F-Shortcut ablation.
     """
@@ -39,6 +42,7 @@ class ConceptBottleneckModel(nn.Module):
         allow_no_dropout: bool = False,
         song_repr_dim: int = 128,
         harmony_embedding_dim: int = DEFAULT_HARMONY_EMBEDDING_DIM,
+        fusion_input_mode: FusionInputMode = PRIMARY_FUSION_INPUT_MODE,
     ):
         super().__init__()
         if n_tags != N_GENRE_TAGS:
@@ -50,7 +54,12 @@ class ConceptBottleneckModel(nn.Module):
         self.allow_shortcut = allow_shortcut
         self.use_hidden = use_hidden
         self.allow_no_dropout = allow_no_dropout
-        self.assembler = TokenAssembler(harmony_embedding_dim=harmony_embedding_dim)
+        self.fusion_contract_version = FUSION_CONTRACT_VERSION
+        self.fusion_input_mode = fusion_input_mode
+        self.assembler = TokenAssembler(
+            input_mode=fusion_input_mode,
+            harmony_embedding_dim=harmony_embedding_dim,
+        )
         self.fusion = build_fusion(fusion, fused_dim=fused_dim)
         self.head = GenreHead(fused_dim=fused_dim, n_tags=n_tags)
         if allow_shortcut:

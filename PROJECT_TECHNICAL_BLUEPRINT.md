@@ -741,6 +741,13 @@ There is no committed execution evidence for:
 
 ## 11. Recommended target architecture
 
+> **Historical planning note:** this section predates the implemented v0.3
+> predicted-concept fusion contract. The authoritative current architecture is
+> [`docs/architecture.md`](docs/architecture.md): primary fusion uses predicted
+> instrument `(B,40)`, rhythm `(B,10)`, timbre `(B,35)`, and masked-pooled chroma
+> `(B,12)` values, each projected to 64D. The embedding route below is retained
+> only as the versioned `embedding_fusion` ablation.
+
 ### 11.1 Two-stage delivery strategy
 
 Use two explicit milestones.

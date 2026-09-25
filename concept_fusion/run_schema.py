@@ -18,6 +18,8 @@ from concept_fusion.contract import (
     N_SEEDS_FINAL,
     N_SEEDS_OTHER,
     TOKEN_DIM,
+    FUSION_CONTRACT_VERSION,
+    PRIMARY_FUSION_INPUT_MODE,
 )
 
 
@@ -39,6 +41,23 @@ def seeds_for(experiment_id: str) -> tuple[int, ...]:
     return (0,) * N_SEEDS_OTHER if N_SEEDS_OTHER == 1 else tuple(range(N_SEEDS_OTHER))[:N_SEEDS_OTHER]
 
 
+def validate_fusion_checkpoint_metadata(
+    payload: dict[str, Any], *, expected_input_mode: str
+) -> None:
+    """Reject legacy or differently routed checkpoints before loading weights."""
+    version = payload.get("fusion_contract_version")
+    if version != FUSION_CONTRACT_VERSION:
+        raise RuntimeError(
+            f"checkpoint fusion contract {version!r} is incompatible with "
+            f"{FUSION_CONTRACT_VERSION!r}"
+        )
+    mode = payload.get("fusion_input_mode")
+    if mode != expected_input_mode:
+        raise RuntimeError(
+            f"checkpoint fusion input mode {mode!r} does not match {expected_input_mode!r}"
+        )
+
+
 @dataclass
 class RunConfig:
     experiment_id: str
@@ -50,6 +69,8 @@ class RunConfig:
     fused_dim: int = FUSED_DIM
     allow_shortcut: bool = False
     lambda_rhythm: float = 1.0
+    fusion_contract_version: str = FUSION_CONTRACT_VERSION
+    fusion_input_mode: str = PRIMARY_FUSION_INPUT_MODE
     notes: str = ""
 
     def as_dict(self) -> dict[str, Any]:

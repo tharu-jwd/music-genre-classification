@@ -5,8 +5,9 @@
 The rhythm branch learns a song-level rhythm representation from the shared CNN's
 ordered audio features. It has two outputs with different responsibilities:
 
-- a learned 64-dimensional embedding used by concept fusion; and
-- ten standardized rhythm predictions used for auxiliary supervision.
+- a learned internal 64-dimensional embedding; and
+- ten standardized rhythm predictions used for auxiliary supervision and primary
+  predicted-concept fusion.
 
 The AcousticBrainz rhythm descriptors are training targets only. They are never
 provided to the branch as model inputs.
@@ -33,16 +34,16 @@ shared CNN encoder
 +----------------------------------------------------------------+
       |                                      |
       | embedding (B, 64)                    | Linear(64,10)
-      v                                      v
-concept fusion                     standardized predictions (B,10)
-                                             |
-                                             v
-                                    masked Huber loss
+      | embedding-fusion ablation            v
+      |                            standardized predictions (B,10)
+      |                                      |             |
+      v                                      v             v
+embedding-fusion only                 masked Huber   fusion Linear(10,64)
 ```
 
-Unlike the instrument and timbre branches, the rhythm branch owns its
-64-dimensional fusion embedding. The ten predicted descriptors supervise the
-representation but are not the values sent to fusion.
+The primary model sends the ten predicted descriptors to fusion-owned
+`Linear(10,64)`. The branch's 64D embedding remains available only for the named,
+versioned `embedding_fusion` ablation.
 
 ## Default configuration
 
@@ -151,7 +152,7 @@ Audio availability is derived only from the encoder mask:
 availability = sequence_mask.any(dim=1)  # (B,)
 ```
 
-Target availability does not determine whether the learned rhythm embedding is
+Target availability does not determine whether the predicted rhythm concepts are
 available for fusion.
 
 ## Embedding and regression heads
@@ -162,8 +163,9 @@ The attention-pooled 64-dimensional state passes through:
 Linear(64,64) -> LayerNorm(64) -> GELU
 ```
 
-This produces `embedding (B,64)`, which is the rhythm fusion token. A final
-`Linear(64,10)` layer produces the auxiliary rhythm predictions.
+This produces `embedding (B,64)`. A final `Linear(64,10)` produces the rhythm
+predictions used by both the masked auxiliary loss and primary fusion. The
+embedding itself is used by fusion only in the embedding-fusion ablation.
 
 The predictions use no final activation because they estimate standardized
 continuous values.
@@ -174,8 +176,8 @@ continuous values.
 
 | Field | Shape | Meaning |
 |---|---:|---|
-| `embedding` | `(B,64)` | Learned rhythm token sent to fusion |
-| `predictions` | `(B,10)` | Standardized rhythm estimates used for auxiliary loss |
+| `embedding` | `(B,64)` | Internal representation; embedding-fusion ablation input |
+| `predictions` | `(B,10)` | Standardized estimates; primary fusion and auxiliary-loss input |
 | `availability` | `(B,)` | Whether each song has at least one valid audio token |
 
 Unavailable examples receive zero embeddings and zero predictions.
@@ -185,7 +187,7 @@ The fusion adapter adds two external masks:
 | Field | Shape | Meaning |
 |---|---:|---|
 | `supervision_mask` | `(B,10)` | Which target cells may enter rhythm loss |
-| `fusion_mask` | `(B,1)` | Whether the rhythm embedding participates in fusion |
+| `fusion_mask` | `(B,1)` | Whether rhythm predictions participate in fusion |
 
 When no explicit `fusion_mask` is supplied, it is derived from `availability`.
 
@@ -224,22 +226,22 @@ L_rhythm = sum(mask * SmoothL1(predictions, standardized_targets)) / sum(mask)
 ```
 
 Only observed, finite, interval-compatible targets contribute. Missing targets do
-not remove a song from genre training and do not disable its rhythm embedding in
+not remove a song from genre training and do not disable its rhythm predictions in
 fusion. If a batch contains no observed targets, the loss returns a differentiable
 zero.
 
 ## Fusion and joint training
 
-The 64-dimensional embedding already matches the common fusion token width:
+Primary fusion projects the ten standardized predictions to the common width:
 
 ```python
-rhythm_token = output.embedding
+rhythm_token = rhythm_projection(output.predictions)  # Linear(10,64)
 rhythm_token = rhythm_token * fusion_mask
 ```
 
-Fusion applies the shared token normalization, concept dropout, and selected
-gating/attention mechanism. It must not replace the embedding with the ten
-AcousticBrainz predictions.
+Fusion applies shared token normalization, concept dropout, and the selected
+gating/attention mechanism. The former `output.embedding` route remains selectable
+only as the versioned `embedding_fusion` ablation.
 
 During joint training, the relevant objective is conceptually:
 
@@ -251,9 +253,9 @@ Unless deliberately frozen, both genre and rhythm gradients propagate through th
 rhythm branch into the shared CNN:
 
 ```text
-genre loss  -> fusion -> rhythm embedding --+
-                                             +-> temporal encoder -> shared CNN
-rhythm loss -> regression head -------------+
+genre loss  -> fusion -> predictions -> regression head --+
+rhythm loss ----------------------------> regression head --+-> temporal encoder
+                                                             -> shared CNN
 ```
 
 ## Architectural boundaries
@@ -262,7 +264,7 @@ The following are changes to `temporal_rhythm_branch_v1` and require a new versi
 and matching evaluation:
 
 - passing AcousticBrainz descriptors into the branch as inputs;
-- replacing the learned 64D embedding with the ten predictions in fusion;
+- removing either versioned fusion mode or changing the 10→64 primary projection;
 - changing the fixed target order;
 - fitting normalization statistics on validation or test data;
 - treating separated sampled windows as continuous audio;

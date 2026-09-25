@@ -4,8 +4,9 @@
 
 The harmony branch learns tonal content and change over time from the shared CNN's
 ordered audio features. It predicts a 12-bin chroma distribution at every valid
-encoder token and produces a configurable song-level harmony embedding for genre
-fusion. An optional temporal chord-classification head can be enabled only when an
+encoder token and pools predicted probabilities for primary genre fusion. A
+configurable song embedding is retained for an ablation. An optional temporal
+chord-classification head can be enabled only when an
 accepted chord teacher is available.
 
 The project uses the name **harmony branch**. “Harmonic branch” refers to the same
@@ -42,17 +43,17 @@ shared CNN encoder
 |        +-> masked mean over time -> song embedding (B,32)        |
 +------------------------------------------------------------------+
    |
-   | embedding (B,32)
+   | softmax chroma logits; masked mean over valid tokens (B,12)
    v
-fusion-owned Linear(32,64)
+fusion-owned Linear(12,64)
    |
    v
 masked concept fusion with instrument, rhythm, and timbre
 ```
 
-The chroma and chord predictions are used for temporal auxiliary losses. The
-song-level embedding—not a pooled target or thresholded chord sequence—is the
-harmony representation sent toward fusion.
+Per-token chroma logits are used for temporal auxiliary loss. Their masked-pooled
+predicted probabilities—not targets or thresholded chord decisions—form the
+primary fusion input. The 32D song embedding is used only by `embedding_fusion`.
 
 ## Reference configuration
 
@@ -195,9 +196,9 @@ softmax when probabilities are required.
 
 Masked positions in both temporal heads are set to exactly zero.
 
-## Song-level harmony embedding
+## Song-level harmony embedding ablation
 
-The fusion embedding is a deterministic masked mean of the same per-token
+The ablation embedding is a deterministic masked mean of the same per-token
 embeddings used by the prediction heads:
 
 ```text
@@ -206,8 +207,8 @@ embedding = sum(weight_t * token_embedding_t)
 ```
 
 This is intentionally not an untrained or separate attention pool. Chroma and
-chord supervision therefore update the representation that is pooled and sent to
-fusion.
+chord supervision update this representation, although primary fusion instead
+uses masked-pooled predicted chroma probabilities.
 
 For a song with no valid encoder tokens:
 
@@ -222,7 +223,7 @@ For a song with no valid encoder tokens:
 
 | Field | Shape | Meaning |
 |---|---:|---|
-| `embedding` | `(B,D_harmony)` | Song-level representation sent toward fusion; initially 32D |
+| `embedding` | `(B,D_harmony)` | Song representation for embedding-fusion ablation; initially 32D |
 | `chroma_logits` | `(B,T,12)` | Temporal pitch-class logits |
 | `chord_logits` | `(B,T,25)` or `None` | Optional major/minor/no-chord logits |
 | `availability` | `(B,)` | Whether each song contains any valid audio token |
@@ -271,22 +272,24 @@ neither auxiliary loss.
 
 ## Fusion contract
 
-The branch does **not** own a 64-dimensional `fusion_token`. Concept fusion owns
-the projection from the configurable harmony width:
+The branch does **not** own a 64-dimensional `fusion_token`. For the primary
+predicted-concept route, the adapter applies pitch-class softmax per token, excludes
+padded tokens, and computes a masked mean:
 
 ```python
-harmony_token = harmony_projection(output.embedding)  # Linear(D_harmony, 64)
-harmony_token = harmony_token * fusion_mask
+probabilities = softmax(output.chroma_logits, dim=-1)       # (B,T,12)
+pooled_chroma = masked_mean(probabilities, prediction_mask) # (B,12)
+harmony_token = harmony_chroma_projection(pooled_chroma)    # Linear(12,64)
 ```
 
-The fusion adapter also computes a pooled 12-bin chroma probability vector from
-the temporal logits. That value is diagnostic and satisfies the common branch
-container; it is not a replacement for temporal chroma supervision and is not the
-harmony fusion input.
+The auxiliary chroma loss still operates on the original per-token logits and
+independent target mask. Chord-head values remain auxiliary and do not enter fusion.
+The old `Linear(D_harmony,64)(output.embedding)` path is retained only as the
+versioned `embedding_fusion` ablation.
 
 By default, `fusion_mask` comes from audio `availability`. Missing chroma or chord
 pseudo-labels mask only their matching auxiliary losses. They do not disable an
-otherwise available harmony embedding in genre fusion.
+otherwise available predicted harmony branch in genre fusion.
 
 ## Joint objective and gradient flow
 
@@ -303,11 +306,10 @@ Unless deliberately frozen, genre and auxiliary gradients propagate through the
 harmony branch and shared encoder:
 
 ```text
-genre loss  -> fusion projection -> pooled harmony embedding --+
-                                                            |
-chroma loss -> chroma head ----------------------------------+-> token bottleneck
-                                                            |   -> temporal CNN
-chord loss  -> optional chord head --------------------------+   -> shared CNN
+genre loss  -> fusion -> pooled chroma probabilities -> chroma head --+
+chroma loss -------------------------------------------> chroma head --+-> token bottleneck
+chord loss -------------------------------------> optional chord head --+   -> temporal CNN
+                                                                          -> shared CNN
 ```
 
 ## Architectural and scientific boundaries
@@ -320,7 +322,7 @@ new version with matching evaluation:
 - using adjacent Mel bands as if they were pitch classes;
 - describing automatic chroma or chord estimates as human ground truth;
 - replacing the temporal loss with loss on a pooled 12-bin diagnostic;
-- sending pooled chroma, chord decisions, or a branch-owned 64D token to fusion;
+- sending chord decisions or a branch-owned 64D token to primary fusion;
 - enabling the chord head before the teacher passes the registered quality gate;
 - using one shared validity mask when chroma and chord supervision differ;
 - treating missing pseudo-labels as zero-valued targets;

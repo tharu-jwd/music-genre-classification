@@ -88,8 +88,7 @@ def make_branch_output(
         )
     token = torch.randn(batch, TOKEN_DIM, generator=g)
     token = token / (token.norm(dim=-1, keepdim=True) + 1e-6)
-    # Missing supervision is NaN, not zero (continuous branches).
-    values = values.masked_fill(sup < 0.5, float("nan"))
+    # Predictions stay finite when targets are missing. Target tensors carry NaNs.
     hidden = torch.randn(batch, TOKEN_DIM, generator=g)
     hidden = hidden / (hidden.norm(dim=-1, keepdim=True) + 1e-6)
     return BranchOutput(
