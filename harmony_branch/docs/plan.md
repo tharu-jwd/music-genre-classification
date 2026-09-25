@@ -1,5 +1,12 @@
 # Harmony branch implementation plan
 
+> **Status update (2026-09-25):** This is the legacy temporal chroma/chord research
+> plan. The current baseline feature extraction is complete: 7,324 selected tracks,
+> first `min(duration, 240 s)`, and 45 finite track-level harmony descriptors per
+> track. See [feature-contract.md](feature-contract.md). Statements below that full
+> extraction is unapproved, unavailable, or limited to an 18-value candidate apply
+> only to the temporal experiment and no longer describe the descriptor dataset.
+
 ## Decision and scope
 
 The harmony branch is a **pseudo-supervised temporal concept branch**. It should
@@ -8,9 +15,9 @@ classification. MTG-Jamendo has no aligned human chord timelines, and this proje
 will not create manual annotations. Automatically extracted harmony information is
 therefore called a **reference feature** or **pseudo-label**, never ground truth.
 
-The first implementation is not permanently fixed to 12 mean chroma values, 6 mean
-Tonnetz values, an 18-value head, or a 32-dimensional embedding. Those are candidate
-baselines and hyperparameters to test.
+The earlier 18-value summary is superseded for the current descriptor baseline by
+the frozen 45-feature contract. The 32-dimensional embedding and temporal heads
+remain candidate architectural hyperparameters for the separate temporal path.
 
 The branch owns:
 
@@ -26,6 +33,18 @@ final genre evaluation. Those interfaces must be agreed with their owners.
 ![Pseudo-supervised harmony flow](diagrams/pseudo-supervision.svg)
 
 ### Current gate status
+
+The completed descriptor baseline has a separate status from the legacy temporal
+gates below:
+
+| Descriptor gate | Status | Evidence |
+|---|---|---|
+| First-four-minute waveform mapping | Complete | 7,324 selected IDs resolved and processed |
+| CQT-chroma descriptor extraction | Complete | `harmony_branch/data/harmony_features_raw.csv` |
+| Clean 45-D training table | Complete | `data/harmony_df.csv` |
+| Coverage and finite-value audit | Passed | 7,324 unique rows, 45 features, no missing/non-finite cells |
+
+The following table applies only to the optional temporal chroma/chord experiment.
 
 | Gate | Status | Evidence / next action |
 |---|---|---|

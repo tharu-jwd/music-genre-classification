@@ -1,6 +1,32 @@
 # Harmony branch architecture
 
-## Purpose
+## Active feature boundary and legacy scope
+
+The active extracted supervision table is a 45-dimensional, interpretable harmony
+concept vector per track. It is computed from the first `min(track duration,
+240 seconds)` at 16 kHz using CQT chroma, Tonnetz, tonal-concentration, entropy,
+flux, movement, and tonal-validity summaries. Its canonical definition is
+[docs/feature-contract.md](docs/feature-contract.md).
+
+For a shared-encoder concept-bottleneck baseline, the intended boundary is:
+
+```text
+shared 128-D audio embedding
+    -> harmony prediction head
+    -> 45 predicted harmony descriptors
+    -> fusion
+```
+
+The prediction head is supervised against standardized copies of the 45 extracted
+values. Standardization statistics are fitted on the training split only. The
+unstandardized predictions remain recoverable for per-feature explanations.
+
+The temporal chroma/chord architecture below predates the completed descriptor
+dataset and is retained as an experimental alternative. Its 12-bin pooled chroma
+output, optional chord head, 32-D embedding, and approximately 29-second timing
+contract are **not** descriptions of `data/harmony_df.csv`.
+
+## Legacy temporal architecture purpose
 
 The harmony branch learns tonal content and change over time from the shared CNN's
 ordered audio features. It predicts a 12-bin chroma distribution at every valid
