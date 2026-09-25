@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 
 from concept_fusion.compute import checkpoint_size_bytes, parameter_count
-from concept_fusion.contract import N_GENRE_TAGS
+from concept_fusion.contract import FUSION_CONTRACT_VERSION, N_GENRE_TAGS
 from concept_fusion.direct import DirectAudioBaseline
 from concept_fusion.experiments import ExperimentSpec, experiment_specs, jobs_for
 from concept_fusion.fixtures import FixtureCohort, FixtureSplit, make_cohort
@@ -20,7 +20,7 @@ from concept_fusion.interventions import gate_vs_occlusion_correlation, occlude_
 from concept_fusion.joint_loss import JointLossOrchestrator, LossWeights
 from concept_fusion.metrics import ranking_metrics
 from concept_fusion.model import ConceptBottleneckModel
-from concept_fusion.run_schema import RunConfig, RunRecord
+from concept_fusion.run_schema import RunConfig, RunRecord, validate_fusion_checkpoint_metadata
 from concept_fusion.tables import comparison_table, dataframe_markdown, mean_std_table
 from concept_fusion.thresholds import apply_thresholds, f1_precision_recall, fit_thresholds
 
@@ -66,6 +66,7 @@ def _build_model(spec: ExperimentSpec) -> nn.Module:
         allow_shortcut=spec.allow_shortcut,
         use_hidden=spec.use_hidden,
         allow_no_dropout=spec.allow_no_dropout,
+        fusion_input_mode=spec.fusion_input_mode,
     )
 
 
@@ -195,6 +196,8 @@ def train_one(
             "test_song_ids": test.song_ids,
             "fixture": cfg.fixture,
             "lambda_rhythm": cfg.lambda_rhythm,
+            "fusion_contract_version": FUSION_CONTRACT_VERSION,
+            "fusion_input_mode": spec.fusion_input_mode,
         },
         ckpt,
     )
@@ -207,6 +210,8 @@ def train_one(
         dropout_p=spec.dropout_p,
         allow_shortcut=spec.allow_shortcut,
         lambda_rhythm=cfg.lambda_rhythm,
+        fusion_contract_version=FUSION_CONTRACT_VERSION,
+        fusion_input_mode=spec.fusion_input_mode,
         notes=spec.purpose,
     )
     rec = RunRecord.create(
@@ -237,6 +242,8 @@ def train_one(
             "use_kendall": spec.use_kendall,
             "dropout_was_trained": spec.dropout_was_trained,
             "lambda_rhythm": cfg.lambda_rhythm,
+            "fusion_contract_version": FUSION_CONTRACT_VERSION,
+            "fusion_input_mode": spec.fusion_input_mode,
         },
         n_valid_tags=test_metrics["n_valid_tags"],
         checkpoint_path=str(ckpt),
@@ -315,6 +322,7 @@ def run_faithfulness(spec: ExperimentSpec, seed: int, cohort: FixtureCohort, cfg
         blob = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     except TypeError:
         blob = torch.load(ckpt_path, map_location="cpu")
+    validate_fusion_checkpoint_metadata(blob, expected_input_mode=spec.fusion_input_mode)
     model.load_state_dict(blob["model"])
     test = _prepare_split(cohort.test, spec)
     tokens = model.assemble_tokens(test.bundle)

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="760" viewBox="0 0 1600 760" role="img" aria-labelledby="title desc">
   <title id="title">Proposed concept-guided genre classification architecture</title>
-  <desc id="desc">Audio is encoded into an ordered sequence and pooled song representation. Four concept branches feed projected gated fusion. Harmony consumes the ordered sequence and predicts temporal chroma and optional chord pseudo-labels.</desc>
+  <desc id="desc">Audio is encoded into an ordered sequence and pooled song representation. Four branches send predicted concept values to fusion: 40 instrument probabilities, 10 rhythm descriptors, 35 timbre descriptors, and 12 masked-pooled chroma probabilities.</desc>
   <defs>
     <style>
       .bg{fill:#0b1020}.box{fill:#141b30;stroke:#7dd3fc;stroke-width:3}.concept{fill:#19162c;stroke:#c4a7ff;stroke-width:3}.fusion{fill:#10271f;stroke:#6ee7b7;stroke-width:3}.text{fill:#f8fafc;font-family:Arial,sans-serif;font-size:20px}.small{fill:#cbd5e1;font-family:Arial,sans-serif;font-size:16px}.label{fill:#93c5fd;font-family:Arial,sans-serif;font-size:18px;font-weight:bold}.conceptLabel{fill:#c4a7ff;font-family:Arial,sans-serif;font-size:18px;font-weight:bold}.fusionLabel{fill:#6ee7b7;font-family:Arial,sans-serif;font-size:18px;font-weight:bold}.line{stroke:#e2e8f0;stroke-width:3;fill:none;marker-end:url(#arrow)}.temporal{stroke:#fbbf24;stroke-width:4;fill:none;marker-end:url(#goldArrow)}
@@ -29,24 +29,24 @@
 
   <rect class="concept" x="880" y="50" width="240" height="120" rx="12"/>
   <text class="conceptLabel" x="1000" y="87" text-anchor="middle">INSTRUMENT</text>
-  <text class="small" x="1000" y="120" text-anchor="middle">embedding + tag head</text>
+  <text class="small" x="1000" y="120" text-anchor="middle">40 predicted probabilities</text>
   <rect class="concept" x="880" y="210" width="240" height="120" rx="12"/>
   <text class="conceptLabel" x="1000" y="247" text-anchor="middle">RHYTHM</text>
-  <text class="small" x="1000" y="280" text-anchor="middle">embedding + rhythm heads</text>
+  <text class="small" x="1000" y="280" text-anchor="middle">10 predicted descriptors</text>
   <rect class="concept" x="880" y="370" width="240" height="120" rx="12"/>
   <text class="conceptLabel" x="1000" y="407" text-anchor="middle">TIMBRE</text>
-  <text class="small" x="1000" y="440" text-anchor="middle">embedding + timbre heads</text>
+  <text class="small" x="1000" y="440" text-anchor="middle">35 predicted descriptors</text>
   <rect class="concept" x="850" y="555" width="300" height="150" rx="12"/>
   <text class="conceptLabel" x="1000" y="592" text-anchor="middle">TEMPORAL HARMONY</text>
-  <text class="small" x="1000" y="624" text-anchor="middle">embedding + chroma sequence</text>
-  <text class="small" x="1000" y="650" text-anchor="middle">+ optional chord/key heads</text>
-  <text class="small" x="1000" y="676" text-anchor="middle">confidence-masked pseudo-labels</text>
+  <text class="small" x="1000" y="624" text-anchor="middle">12 pooled chroma probabilities</text>
+  <text class="small" x="1000" y="650" text-anchor="middle">from valid token predictions</text>
+  <text class="small" x="1000" y="676" text-anchor="middle">optional chords stay auxiliary</text>
 
   <rect class="fusion" x="1220" y="265" width="190" height="170" rx="12"/>
   <text class="fusionLabel" x="1315" y="304" text-anchor="middle">PROJECTION</text>
   <text class="fusionLabel" x="1315" y="330" text-anchor="middle">+ GATED FUSION</text>
-  <text class="small" x="1315" y="367" text-anchor="middle">common width</text>
-  <text class="small" x="1315" y="395" text-anchor="middle">128D candidate</text>
+  <text class="small" x="1315" y="367" text-anchor="middle">four predicted concepts</text>
+  <text class="small" x="1315" y="395" text-anchor="middle">64D tokens → 128D</text>
   <rect class="fusion" x="1460" y="285" width="110" height="130" rx="12"/>
   <text class="fusionLabel" x="1515" y="323" text-anchor="middle">GENRE</text>
   <text class="small" x="1515" y="356" text-anchor="middle">multi-label</text>

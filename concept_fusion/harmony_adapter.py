@@ -16,11 +16,12 @@ def from_temporal_harmony_branch(
     fusion_mask: torch.Tensor | None = None,
     hidden_token: torch.Tensor | None = None,
 ) -> BranchOutput:
-    """Preserve temporal predictions and expose the song embedding to fusion.
+    """Pool predicted chroma probabilities and preserve the embedding for ablation.
 
-    Fusion owns the embedding-to-64 projection. ``concept_values`` is a pooled
-    chroma diagnostic required by the common branch container; joint supervision
-    uses ``temporal_chroma_logits`` and its frame mask, never this pooled value.
+    ``concept_values`` is the masked mean of per-token softmax probabilities and is
+    the primary fusion input. Joint chroma supervision continues to use temporal
+    logits and its own target mask. The song embedding is retained only for the
+    explicitly configured embedding-fusion ablation.
     """
     if getattr(output, "fusion_token", None) is not None:
         raise ContractError("harmony must not supply fusion_token; fusion owns its projection")
@@ -62,6 +63,8 @@ def from_temporal_harmony_branch(
         raise ContractError(f"harmony chord logits must have shape (B,T,{N_HARMONY_CHORDS})")
 
     valid = prediction_mask.to(dtype=torch.bool)
+    if not torch.equal(availability.to(torch.bool), valid.any(dim=1)):
+        raise ContractError("harmony availability must equal valid-token availability")
     probabilities = torch.softmax(chroma_logits, dim=-1)
     weights = valid.to(probabilities.dtype)
     pooled = (probabilities * weights.unsqueeze(-1)).sum(dim=1)

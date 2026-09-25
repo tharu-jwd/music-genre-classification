@@ -37,8 +37,8 @@ class BranchOutput:
     concept_values: torch.Tensor  # (B, C_k) probabilities / standardized values
     supervision_mask: torch.Tensor  # (B, C_k) 1 = target observed
     fusion_mask: torch.Tensor  # (B, 1) 1 = branch enabled for fusion
-    fusion_token: torch.Tensor | None = None  # (B, 64); learned rhythm supplies this
-    embedding: torch.Tensor | None = None  # harmony song embedding (B,D), projected by fusion
+    fusion_token: torch.Tensor | None = None  # rhythm 64D embedding-fusion ablation input
+    embedding: torch.Tensor | None = None  # harmony embedding-fusion ablation input
     hidden_token: torch.Tensor | None = None  # instrument: (B,128) detached; others (B,64)
     logits: torch.Tensor | None = None  # instrument BCE-with-logits (B,40)
     tag_order: tuple[str, ...] | None = None
@@ -96,6 +96,7 @@ class BranchOutput:
             if self.name == "rhythm":
                 if val.shape[1] != N_RHYTHM_CONCEPTS:
                     raise ContractError(f"rhythm C={val.shape[1]} != {N_RHYTHM_CONCEPTS}")
+                require_finite("rhythm.concept_values", val)
                 if self.tag_order is not None and self.tag_order != RHYTHM_FEATURES:
                     raise ContractError("rhythm tag_order must match RHYTHM_FEATURES")
 

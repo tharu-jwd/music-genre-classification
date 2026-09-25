@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from concept_fusion.contract import CONCEPT_DROPOUT_P, CONCEPT_ORDER
+from concept_fusion.contract import (
+    CONCEPT_DROPOUT_P,
+    CONCEPT_ORDER,
+    EMBEDDING_FUSION_INPUT_MODE,
+    PRIMARY_FUSION_INPUT_MODE,
+    FusionInputMode,
+)
 from concept_fusion.run_schema import seeds_for
 
 
@@ -21,6 +27,7 @@ class ExperimentSpec:
     allow_no_dropout: bool = False
     aux: bool = True
     use_kendall: bool = False
+    fusion_input_mode: FusionInputMode = PRIMARY_FUSION_INPUT_MODE
 
     @property
     def dropout_was_trained(self) -> bool:
@@ -50,6 +57,12 @@ def experiment_specs() -> tuple[ExperimentSpec, ...]:
         ExperimentSpec("C-H", "Harmony concept only", enabled_concepts=(h,)),
         ExperimentSpec("F-Concat", "All concepts, concatenation baseline", fusion="concat"),
         ExperimentSpec("F-Gated", "All concepts, masked gating (primary)", fusion="gated"),
+        ExperimentSpec(
+            "F-Embedding",
+            "Embedding-fusion ablation: rhythm/harmony embeddings",
+            fusion="gated",
+            fusion_input_mode=EMBEDDING_FUSION_INPUT_MODE,
+        ),
         ExperimentSpec("F-Attn", "All concepts, self-attention", fusion="attention"),
         ExperimentSpec("F-Hidden", "Hidden branch embeddings (faithfulness tax)", use_hidden=True),
         ExperimentSpec("F-Shortcut", "Fusion plus direct audio path (bottleneck tax)", allow_shortcut=True),

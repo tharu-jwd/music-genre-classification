@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import torch
 
-from concept_fusion.contract import CONCEPT_ORDER, N_HARMONY_CHORDS
+from concept_fusion.contract import (
+    CONCEPT_ORDER,
+    EMBEDDING_FUSION_INPUT_MODE,
+    N_HARMONY_CHORDS,
+)
 from concept_fusion.fixtures import make_bundle, make_genre_batch
 from concept_fusion.harmony_adapter import from_temporal_harmony_branch
 from concept_fusion.joint_loss import HarmonyTargets, JointLossOrchestrator
@@ -62,14 +66,18 @@ def _targets(mask: torch.Tensor) -> HarmonyTargets:
     return HarmonyTargets(chroma, mask, chords, mask)
 
 
-def test_adapter_preserves_temporal_predictions_and_projects_configurable_embedding():
+def test_adapter_preserves_predictions_and_embedding_ablation_is_selectable():
     _, bundle, raw, _ = _real_harmony_bundle(embedding_dim=13)
     harmony = bundle.branches["harmony"]
     assert harmony.fusion_token is None
     assert harmony.embedding is raw.embedding
     assert harmony.temporal_chroma_logits is raw.chroma_logits
     assert harmony.temporal_chord_logits is raw.chord_logits
-    model = ConceptBottleneckModel("gated", harmony_embedding_dim=13)
+    model = ConceptBottleneckModel(
+        "gated",
+        harmony_embedding_dim=13,
+        fusion_input_mode=EMBEDDING_FUSION_INPUT_MODE,
+    )
     tokens = model.assemble_tokens(bundle)
     assert tokens.shape == (4, len(CONCEPT_ORDER), 64)
 
@@ -131,7 +139,8 @@ def test_temporal_losses_and_genre_loss_backpropagate_through_harmony():
     assert breakdown.n_observed["harmony_chroma_frames"] == int(mask.sum())
     assert breakdown.n_observed["harmony_chord_frames"] == int(mask.sum())
     assert branch_model.embedding_projection.weight.grad is not None
-    assert model.assembler.harmony_projection.weight.grad is not None
+    assert branch_model.chroma_head.weight.grad is not None
+    assert model.assembler.harmony_chroma_projection.weight.grad is not None
 
 
 def test_checkpoint_restore_and_harmony_removal(tmp_path):

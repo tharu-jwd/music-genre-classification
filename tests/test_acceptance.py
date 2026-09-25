@@ -49,12 +49,12 @@ def test_rejects_nan_on_observed_values():
         inst.validate(batch=2, n_concepts=inst.concept_values.shape[1])
 
 
-def test_missing_supervision_is_nan_not_zero():
+def test_predictions_stay_finite_when_supervision_is_missing():
     b = make_bundle(4, seed=3, supervise_keep=0.5)
     v = b.concept_values("rhythm")
     m = b.supervision_mask("rhythm")
-    assert torch.isnan(v[m < 0.5]).all()
-    assert torch.isfinite(v[m > 0.5]).all()
+    assert torch.isfinite(v).all()
+    assert bool((m < 0.5).any())
 
 
 def test_masked_gate_exactly_zero():

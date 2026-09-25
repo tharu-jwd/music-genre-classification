@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import torch
+
 from concept_fusion.contract import CONCEPT_ORDER
+from concept_fusion.contract import FUSION_CONTRACT_VERSION, PRIMARY_FUSION_INPUT_MODE
 from concept_fusion.experiments import experiment_specs, jobs_for
 from concept_fusion.fixtures import make_cohort
 from concept_fusion.pipeline import PipelineConfig, run_all, train_one
@@ -27,7 +30,7 @@ def test_enabled_mask_zeroes_disabled_only():
 
 def test_jobs_include_required_matrix():
     ids = {s.experiment_id for s in experiment_specs()}
-    for required in ("B1", "C-I", "F-Concat", "F-Gated", "F-Hidden", "F-Shortcut"):
+    for required in ("B1", "C-I", "F-Concat", "F-Gated", "F-Embedding", "F-Hidden", "F-Shortcut"):
         assert required in ids
     assert len(jobs_for(quick=True)) == len(experiment_specs())
     assert len(jobs_for(quick=False)) > len(jobs_for(quick=True))
@@ -63,6 +66,9 @@ def test_lambda_rhythm_is_configurable_and_recorded(tmp_path):
     )
     assert rec.config["lambda_rhythm"] == 0.25
     assert rec.metrics["lambda_rhythm"] == 0.25
+    checkpoint = torch.load(rec.checkpoint_path, weights_only=False)
+    assert checkpoint["fusion_contract_version"] == FUSION_CONTRACT_VERSION
+    assert checkpoint["fusion_input_mode"] == PRIMARY_FUSION_INPUT_MODE
 
 
 def test_run_all_quick(tmp_path):

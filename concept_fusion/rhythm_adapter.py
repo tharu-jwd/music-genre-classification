@@ -15,7 +15,7 @@ def from_rhythm_branch(
     supervision_mask: torch.Tensor,
     fusion_mask: torch.Tensor | None = None,
 ) -> BranchOutput:
-    """Use the learned 64D embedding for fusion and 10 predictions for loss."""
+    """Expose 10 predictions for primary fusion and retain the embedding for ablation."""
     for name in ("embedding", "predictions", "availability"):
         if not hasattr(output, name):
             raise ContractError(f"rhythm output missing {name}")

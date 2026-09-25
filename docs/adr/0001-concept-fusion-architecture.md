@@ -6,7 +6,7 @@
 
 **Branch:** `harmony`
 
-**Contract:** shared architecture v0.2
+**Contract:** predicted-concept fusion v0.3 (`predicted_concept_fusion_v1` checkpoint contract)
 
 This record freezes the 11 decisions in the ownership brief §8. Branch owners should object in the meeting, not by silently reshaping tensors later.
 
@@ -75,23 +75,24 @@ Instrument (published): `concept_values (B,40)`, `logits (B,40)`, masks. **No `f
 
 Timbre (published): `z_timbre` / `d_hat_standardized (B,35)` in `FEATURE_COLUMNS` order. **No `fusion_token`. Never fuse `h_audio`.** Feature list: `timbre_branch/src/timbre_branch/constants.py`.
 
-Rhythm v1 consumes only the shared encoder's ordered `(B,T,128)` mel-derived features.
-It delivers ten ordered standardized predictions as `concept_values`, a learned
-`fusion_token (B,64)`, and separate supervision/fusion masks. AcousticBrainz values
-are training targets and never branch inputs.
+Rhythm v2 consumes only the shared encoder's ordered `(B,T,128)` mel-derived features.
+Its ten standardized predictions are `concept_values` and primary fusion owns
+`Linear(10,64)`. Its learned 64D embedding is retained for `embedding_fusion` only.
+AcousticBrainz values are targets and never branch inputs.
 
 Harmony (integration candidate): `embedding (B,D_harmony)`, temporal chroma logits
 `(B,T,12)`, optional chord logits `(B,T,25)`, prediction/target masks, and branch
-availability. **No `fusion_token`.** Fusion owns `Linear(D_harmony,64)`. The pooled
-12-bin chroma value in the common container is diagnostic only; auxiliary loss uses
-the temporal predictions through `HarmonyTargets`.
+availability. **No `fusion_token`.** Primary fusion owns `Linear(12,64)` over the
+valid-token mean of per-token predicted chroma probabilities. `Linear(D_harmony,64)`
+over the embedding remains an ablation. Auxiliary loss uses temporal logits through
+`HarmonyTargets`.
 
 ---
 
 ## Status of this branch (Step 1 + Step 2 on mocks)
 
 Implemented and unit-tested against fixtures, aligned to instrument v2
-(`Linear(40,64)`), timbre v2 (`Linear(35,64)`), and temporal harmony
-(`Linear(D_harmony,64)`). `python scripts/run_all_fusion.py --quick` trains the full
+(`Linear(40,64)`), rhythm v2 (`Linear(10,64)`), timbre v2 (`Linear(35,64)`), and
+temporal harmony v2 (`Linear(12,64)`). `python scripts/run_all_fusion.py --quick` trains the full
 matrix on fixtures. Harmony's real branch adapter is exercised end to end on
 synthetic ordered encoder inputs; official real-audio artifacts are still required.
