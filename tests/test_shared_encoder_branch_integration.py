@@ -33,7 +33,7 @@ class _InstrumentHead(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.1))
-        self.classifier = nn.Linear(128, 40)
+        self.classifier = nn.Linear(128, 41)
 
     def forward(self, pooled_song: torch.Tensor) -> dict:
         hidden = self.hidden(pooled_song)
@@ -113,7 +113,7 @@ def test_one_encoder_output_satisfies_all_four_branch_interfaces():
     assert encoded.pooled_song.shape == (2, 128)
     assert encoded.window_repr.shape == (2, 2, 128)
     assert encoded.encoded_sequence.shape == (2, 10, 128)
-    assert instrument["concept_values"].shape == (2, 40)
+    assert instrument["concept_values"].shape == (2, 41)
     assert timbre.shape == (2, 35)
     assert rhythm.embedding.shape == (2, 64)
     assert rhythm.predictions.shape == (2, 10)
@@ -145,7 +145,7 @@ def test_genre_head_through_concept_fusion_reaches_shared_cnn_without_shortcut()
     model = ConceptBottleneckModel(dropout_p=0, allow_no_dropout=True).eval()
     genre_logits, _ = model.from_bundle(bundle, apply_dropout=False)
     assert model.shortcut is None
-    assert genre_logits.shape == (2, 87)
+    assert genre_logits.shape == (2, 6)
     loss = F.binary_cross_entropy_with_logits(genre_logits, torch.rand_like(genre_logits))
     _assert_encoder_gradient(loss, encoder)
     assert encoded.pooled_song.grad_fn is not None

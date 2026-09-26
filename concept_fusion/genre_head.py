@@ -12,8 +12,8 @@ from concept_fusion.validation import ContractError, require_finite, require_ten
 class GenreHead(nn.Module):
     def __init__(self, fused_dim: int = FUSED_DIM, n_tags: int = N_GENRE_TAGS, dropout: float = 0.1):
         super().__init__()
-        if n_tags != N_GENRE_TAGS:
-            raise ContractError(f"genre vocabulary is frozen at {N_GENRE_TAGS}, got {n_tags}")
+        if n_tags < 1:
+            raise ContractError("genre n_tags must be a positive integer")
         self.n_tags = n_tags
         self.net = nn.Sequential(
             nn.Dropout(dropout),

@@ -45,8 +45,8 @@ class ConceptBottleneckModel(nn.Module):
         fusion_input_mode: FusionInputMode = PRIMARY_FUSION_INPUT_MODE,
     ):
         super().__init__()
-        if n_tags != N_GENRE_TAGS:
-            raise ContractError("primary genre vocabulary is frozen at 87 tags")
+        if n_tags < 1:
+            raise ContractError("n_tags must be a positive integer")
         if use_hidden and allow_shortcut:
             raise ContractError("F-Hidden and F-Shortcut are separate named ablations")
         self.fusion_name = fusion

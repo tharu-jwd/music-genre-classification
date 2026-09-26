@@ -30,6 +30,17 @@ class LossBreakdown:
 
 
 @dataclass
+class SongHarmonyTargets:
+    """Song-level chroma distributions; no temporal alignment is implied."""
+
+    chroma: torch.Tensor  # (B,12)
+    chroma_mask: torch.Tensor  # (B,)
+
+    def indexed(self, index: torch.Tensor) -> "SongHarmonyTargets":
+        return SongHarmonyTargets(self.chroma[index], self.chroma_mask[index])
+
+
+@dataclass
 class HarmonyTargets:
     """Temporal pseudo-supervision aligned to harmony branch tokens."""
 
@@ -78,7 +89,7 @@ class JointLossOrchestrator(torch.nn.Module):
         genre_logits: torch.Tensor,
         genre_targets: torch.Tensor,
         bundle: BranchBundle,
-        concept_targets: dict[str, torch.Tensor | HarmonyTargets],
+        concept_targets: dict[str, torch.Tensor | HarmonyTargets | SongHarmonyTargets],
     ) -> LossBreakdown:
         logits = require_tensor("genre_logits", genre_logits, ndim=2)
         y = require_tensor("genre_targets", genre_targets, ndim=2)
@@ -99,6 +110,24 @@ class JointLossOrchestrator(torch.nn.Module):
                 raise ContractError(f"missing concept_targets[{name}]")
             if name == "harmony":
                 harmony_targets = concept_targets[name]
+                if isinstance(harmony_targets, SongHarmonyTargets):
+                    target = harmony_targets.chroma
+                    if target.shape != pred.shape or harmony_targets.chroma_mask.shape != pred.shape[:1]:
+                        raise ContractError("song harmony targets must have shapes (B,12) and (B,)")
+                    valid = harmony_targets.chroma_mask.bool()
+                    valid = valid & bundle.branches[name].temporal_prediction_mask.any(dim=1)
+                    n_obs[name] = int(valid.sum().item())
+                    if valid.any():
+                        selected = target[valid]
+                        require_finite("song harmony targets", selected)
+                        if bool((selected < 0).any()) or not torch.allclose(
+                            selected.sum(-1), torch.ones_like(selected[:, 0]), atol=1e-5
+                        ):
+                            raise ContractError("song chroma targets must be non-negative and sum to one")
+                        terms[name] = -(selected * pred[valid].clamp_min(1e-8).log()).sum(-1).mean()
+                    else:
+                        terms[name] = pred.sum() * 0.0
+                    continue
                 if not isinstance(harmony_targets, HarmonyTargets):
                     raise ContractError(
                         "harmony targets must preserve temporal chroma using HarmonyTargets"

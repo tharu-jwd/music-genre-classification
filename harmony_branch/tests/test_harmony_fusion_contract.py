@@ -98,7 +98,7 @@ def test_missing_supervision_does_not_remove_available_harmony_from_fusion():
         for name in ("instrument", "rhythm", "timbre")
     }
     breakdown = JointLossOrchestrator()(
-        torch.zeros(4, 87, requires_grad=True),
+        torch.zeros(4, 6, requires_grad=True),
         make_genre_batch(4),
         bundle,
         {**fixed_targets, "harmony": no_temporal_targets},
