@@ -145,6 +145,7 @@ def main(
     gpu: str = "A10",
     quick: bool = False,
     skip_test: bool = False,
+    background: bool = False,
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_name):
@@ -152,7 +153,7 @@ def main(
     if epochs < 1 or batch_size < 1 or num_workers < 0 or max_windows < 1:
         raise ValueError("epochs, batch_size, and max_windows must be positive; workers cannot be negative")
 
-    result = train_remote.with_options(gpu=gpu).remote(
+    arguments = (
         run_name,
         epochs,
         batch_size,
@@ -162,4 +163,15 @@ def main(
         quick,
         skip_test,
     )
+    remote = train_remote.with_options(gpu=gpu)
+    if background:
+        call = remote.spawn(*arguments)
+        print(json.dumps({
+            "status": "submitted",
+            "run_name": run_name,
+            "function_call_id": call.object_id,
+            "results_volume": RUNS_VOLUME_NAME,
+        }, indent=2))
+        return
+    result = remote.remote(*arguments)
     print(json.dumps(result, indent=2))

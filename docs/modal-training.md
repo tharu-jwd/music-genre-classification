@@ -125,6 +125,7 @@ disconnects:
 
 ```bash
 modal run --detach modal_app.py \
+  --background \
   --run-name joint-full-v1 \
   --epochs 30 \
   --batch-size 1 \
@@ -134,6 +135,12 @@ modal run --detach modal_app.py \
 The GPU can be changed at submission time, for example `--gpu L40S` or
 `--gpu A100-40GB`. Start with batch size 1 because the model processes up to 12
 long windows per track; raise it only after observing GPU memory use.
+
+`--background` submits the training input with Modal's durable asynchronous
+invocation API and returns a function-call ID immediately. Use it together with
+the CLI's `--detach` flag for a long run that must survive terminal or network
+disconnection. Omit `--background` for smoke tests when you want logs and errors
+streamed synchronously.
 
 ## 4. Retrieve results
 
