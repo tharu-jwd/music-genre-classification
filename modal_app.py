@@ -17,14 +17,17 @@ import modal
 
 APP_NAME = "music-genre-joint-training"
 DATA_VOLUME_NAME = "music-genre-data"
+AUDIO_VOLUME_NAME = "mtg-jamendo"
 RUNS_VOLUME_NAME = "music-genre-runs"
 DATASET_FILENAME = "vector-dataset-normalized.csv"
 PROJECT_DIR = Path("/root/project")
 DATA_MOUNT = Path("/data")
+AUDIO_MOUNT = Path("/mtg")
 RUNS_MOUNT = Path("/runs")
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name(DATA_VOLUME_NAME, create_if_missing=True)
+audio_volume = modal.Volume.from_name(AUDIO_VOLUME_NAME)
 runs_volume = modal.Volume.from_name(RUNS_VOLUME_NAME, create_if_missing=True)
 
 # Only ship source and the small split manifest. The 8.5 MB combined table and
@@ -53,7 +56,11 @@ image = (
     cpu=4,
     memory=16_384,
     timeout=24 * 60 * 60,
-    volumes={str(DATA_MOUNT): data_volume, str(RUNS_MOUNT): runs_volume},
+    volumes={
+        str(DATA_MOUNT): data_volume,
+        str(AUDIO_MOUNT): audio_volume,
+        str(RUNS_MOUNT): runs_volume,
+    },
 )
 def train_remote(
     run_name: str,
@@ -74,7 +81,7 @@ def train_remote(
     dataset_dir = DATA_MOUNT / "dataset"
     dataset_csv = dataset_dir / DATASET_FILENAME
     split_csv = dataset_dir / "track_split_assignments.csv"
-    logmel_root = DATA_MOUNT / "logmel_songs"
+    logmel_root = AUDIO_MOUNT / "logmel_songs"
     required = (dataset_csv, split_csv, logmel_root)
     missing = [str(path) for path in required if not path.exists()]
     if missing:

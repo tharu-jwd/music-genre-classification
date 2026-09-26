@@ -48,7 +48,7 @@ head expects 12 pitch-class probabilities, so its auxiliary loss remains masked
 until that head is changed to descriptor regression. The vector is preserved in
 the CSV without misinterpreting or normalizing it.
 
-The log-mel arrays are not stored in Git. The Modal data Volume must look like:
+The log-mel arrays are not stored in Git. The runner mounts two input Volumes:
 
 ```text
 music-genre-data/
@@ -57,6 +57,8 @@ music-genre-data/
 │   ├── track_split_assignments.csv
 │   ├── logmel_config.json        # optional, required for stacked 3-D arrays
 │   └── logmel_audit.csv          # optional, required for stacked 3-D arrays
+
+mtg-jamendo/
 └── logmel_songs/
     └── <suffix>/<track-id>.npy
 ```
@@ -85,7 +87,7 @@ modal volume put music-genre-data \
   data/vector-dataset-normalized.csv \
   dataset/vector-dataset-normalized.csv
 modal volume put music-genre-data data/track_split_assignments.csv dataset/track_split_assignments.csv
-modal volume put music-genre-data /absolute/path/to/logmel_songs logmel_songs
+modal volume put mtg-jamendo /absolute/path/to/logmel_songs logmel_songs
 ```
 
 If `data/logmel_config.json` and `data/logmel_audit.csv` exist, upload them into
@@ -97,7 +99,7 @@ Confirm the upload:
 
 ```bash
 modal volume ls music-genre-data dataset
-modal volume ls music-genre-data logmel_songs
+modal volume ls mtg-jamendo logmel_songs
 ```
 
 ## 3. Smoke test and full training
