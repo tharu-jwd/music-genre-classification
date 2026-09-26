@@ -12,7 +12,7 @@ def test_missing_concept_labels_keep_genre_batch():
     model = ConceptBottleneckModel("concat")
     logits, _ = model.from_bundle(bundle, apply_dropout=False)
     br = JointLossOrchestrator()(logits, y, bundle, targets)
-    assert br.n_observed["genre"] == 8 * 87
+    assert br.n_observed["genre"] == 8 * 6
     assert br.n_observed["instrument"] == 0
     assert torch.isfinite(br.total)
     # Genre term still trains every track.

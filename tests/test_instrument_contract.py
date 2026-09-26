@@ -1,4 +1,4 @@
-"""Instrument v2 contract published on main: no fusion_token, fusion owns Linear(40,64)."""
+"""Instrument v2 contract published on main: no fusion_token, fusion owns Linear(41,64)."""
 
 import torch
 
@@ -12,10 +12,10 @@ import pytest
 
 
 def test_official_instrument_vocabulary():
-    assert len(INSTRUMENT_TAGS) == N_INSTRUMENT_TAGS == 40
+    assert len(INSTRUMENT_TAGS) == N_INSTRUMENT_TAGS == 41
     assert INSTRUMENT_TAGS == tuple(sorted(INSTRUMENT_TAGS))
-    assert INSTRUMENT_TAGS[0] == "instrument---accordion"
-    assert INSTRUMENT_TAGS[-1] == "instrument---voice"
+    assert INSTRUMENT_TAGS[0] == "accordion"
+    assert INSTRUMENT_TAGS[-1] == "voice"
 
 
 def test_rejects_instrument_fusion_token():
@@ -23,16 +23,16 @@ def test_rejects_instrument_fusion_token():
     inst = b.branches["instrument"]
     inst.fusion_token = torch.randn(2, 64)
     with pytest.raises(ContractError, match="must not return fusion_token"):
-        inst.validate(batch=2, n_concepts=40)
+        inst.validate(batch=2, n_concepts=41)
 
 
 def test_adapter_rejects_fusion_token_key():
     with pytest.raises(ContractError, match="must not return fusion_token"):
         from_instrument_branch(
             {
-                "concept_values": torch.rand(3, 40),
-                "logits": torch.randn(3, 40),
-                "supervision_mask": torch.ones(3, 40),
+                "concept_values": torch.rand(3, 41),
+                "logits": torch.randn(3, 41),
+                "supervision_mask": torch.ones(3, 41),
                 "fusion_mask": torch.ones(3, 1),
                 "fusion_token": torch.randn(3, 64),
             }
@@ -41,9 +41,9 @@ def test_adapter_rejects_fusion_token_key():
 
 def test_adapter_and_projection():
     raw = {
-        "concept_values": torch.rand(4, 40).clamp(0.02, 0.98),
-        "logits": torch.randn(4, 40),
-        "supervision_mask": torch.ones(4, 40),
+        "concept_values": torch.rand(4, 41).clamp(0.02, 0.98),
+        "logits": torch.randn(4, 41),
+        "supervision_mask": torch.ones(4, 41),
         "fusion_mask": torch.ones(4, 1),
         "diagnostics": {"hidden": torch.randn(4, 128)},
     }
@@ -72,4 +72,4 @@ def test_instrument_probs_always_finite():
     inst = make_bundle(2, seed=3).branches["instrument"]
     inst.concept_values[0, 0] = float("nan")
     with pytest.raises(ContractError, match="NaN"):
-        inst.validate(batch=2, n_concepts=40)
+        inst.validate(batch=2, n_concepts=41)

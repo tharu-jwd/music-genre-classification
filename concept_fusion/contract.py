@@ -5,7 +5,7 @@ Reject violating tensors. Do not silently reshape, reorder, impute, or reinterpr
 Primary fusion uses predicted concepts from all four branches. The former rhythm
 embedding / harmony embedding path remains available only as ``embedding_fusion``.
 
-Instrument v2: 40 probabilities + logits, no fusion token. Fusion owns Linear(40, 64).
+Instrument v2: 41 probabilities + logits, no fusion token. Fusion owns Linear(41, 64).
 Rhythm v2: 10 standardized predictions are primary; the 64D embedding is retained
 for the embedding-fusion ablation. Fusion owns Linear(10, 64) in the primary mode.
 Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
@@ -36,8 +36,11 @@ CONCEPT_ORDER: tuple[str, ...] = ("instrument", "rhythm", "timbre", "harmony")
 N_CONCEPTS = 4
 TOKEN_DIM = 64
 FUSED_DIM = 128
-N_GENRE_TAGS = 87
-N_INSTRUMENT_TAGS = 40
+N_GENRE_TAGS = 6
+GENRE_TAGS: tuple[str, ...] = (
+    "classical", "electronic", "folk", "hiphop", "jazz", "rock"
+)
+N_INSTRUMENT_TAGS = 41
 N_RHYTHM_CONCEPTS = 10
 N_TIMBRE_CONCEPTS = 35
 N_HARMONY_CHROMA = 12
@@ -55,6 +58,8 @@ def _load_instrument_tags() -> tuple[str, ...]:
     if not path.is_file():
         raise FileNotFoundError(f"instrument vocabulary missing: {path}")
     tags = json.loads(path.read_text(encoding="utf-8"))
+    # Strip the 'instrument---' prefix used by MTG-Jamendo for display; store bare names.
+    tags = [t.replace("instrument---", "") for t in tags]
     if len(tags) != N_INSTRUMENT_TAGS or len(set(tags)) != N_INSTRUMENT_TAGS:
         raise ValueError(f"instrument vocabulary must be {N_INSTRUMENT_TAGS} unique tags")
     if tags != sorted(tags):
@@ -129,10 +134,10 @@ DEFAULT_SEEDS = (0, 1, 2)
 
 @dataclass(frozen=True)
 class ConceptCounts:
-    instrument: int = N_INSTRUMENT_TAGS
-    rhythm: int = N_RHYTHM_CONCEPTS
-    timbre: int = N_TIMBRE_CONCEPTS
-    harmony: int = N_HARMONY_CHROMA
+    instrument: int = N_INSTRUMENT_TAGS  # 41
+    rhythm: int = N_RHYTHM_CONCEPTS       # 10
+    timbre: int = N_TIMBRE_CONCEPTS        # 35
+    harmony: int = N_HARMONY_CHROMA        # 12
 
     def for_name(self, name: str) -> int:
         if name not in CONCEPT_ORDER:
