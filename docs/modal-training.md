@@ -154,6 +154,11 @@ modal volume get music-genre-runs joint-full-v1 ./modal-results/joint-full-v1
 Use a new `--run-name` for every experiment. Runs with the same name share an
 output directory and can overwrite artifacts.
 
+`results.json` includes per-epoch validation metrics for the genre, instrument,
+rhythm, timbre, and (when chroma targets are available) harmony outputs. Aggregate
+branch metrics are printed after each validation pass; per-tag and per-feature
+details are retained in the JSON for architecture comparisons.
+
 ## Git hand-off
 
 The normalized vector dataset and split assignments are tracked, so collaborators

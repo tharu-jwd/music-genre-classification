@@ -39,3 +39,20 @@ python scripts/train_joint.py --quick --batch-size 1
 The quick run uses 32 tracks per split and three epochs. It is a smoke test, not
 a final evaluation. A single-window GPU gradient check is not a memory guarantee
 for a full batch. Increase batch size only after checking actual peak memory.
+
+## Validation metrics
+
+Validation runs evaluate the fusion output and every supervised branch after each
+epoch. The console prints the main branch aggregates, while `results.json` stores
+the complete metrics under each epoch's `val_branch_metrics` field:
+
+- genre and instrument: macro/micro average precision, macro/micro F1 at a 0.5
+  threshold, binary accuracy, and per-tag AP/F1/support;
+- rhythm and timbre: masked MAE and RMSE in standardized target units, macro R2,
+  and per-feature MAE/RMSE/R2/counts;
+- harmony: chroma cross-entropy, cosine similarity, and dominant-pitch-class
+  accuracy when valid 12-bin chroma targets exist.
+
+If the dataset contains harmony descriptors rather than chroma distributions,
+harmony metrics are marked unavailable instead of treating those descriptors as
+chroma labels. Final test metrics use the same schema in `test_branch_metrics`.

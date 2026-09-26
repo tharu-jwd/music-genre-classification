@@ -575,6 +575,142 @@ def _build_bundle(
 # Evaluation
 # ---------------------------------------------------------------------------
 
+def _average_precision(scores: Tensor, targets: Tensor) -> float | None:
+    """Average precision for one binary target, or None without positives."""
+    positives = targets.sum()
+    if positives <= 0:
+        return None
+    order = scores.argsort(descending=True)
+    ranked_targets = targets[order].float()
+    precision = ranked_targets.cumsum(0) / torch.arange(
+        1, len(ranked_targets) + 1, dtype=torch.float32
+    )
+    return float((precision * ranked_targets).sum() / positives)
+
+
+def _multilabel_metrics(
+    probabilities: Tensor,
+    targets: Tensor,
+    names: tuple[str, ...] | list[str],
+    *,
+    threshold: float = 0.5,
+) -> dict[str, Any]:
+    """Return ranking and threshold metrics for multilabel predictions."""
+    probabilities = probabilities.float()
+    targets = targets.float()
+    predicted = probabilities >= threshold
+    truth = targets >= 0.5
+
+    per_tag: dict[str, dict[str, float | int | None]] = {}
+    aps: list[float] = []
+    f1s: list[float] = []
+    for index, name in enumerate(names):
+        ap = _average_precision(probabilities[:, index], targets[:, index])
+        if ap is not None:
+            aps.append(ap)
+        tp = int((predicted[:, index] & truth[:, index]).sum())
+        fp = int((predicted[:, index] & ~truth[:, index]).sum())
+        fn = int((~predicted[:, index] & truth[:, index]).sum())
+        denominator = 2 * tp + fp + fn
+        f1 = 2 * tp / denominator if denominator else 0.0
+        f1s.append(f1)
+        per_tag[str(name)] = {
+            "average_precision": ap,
+            "f1": f1,
+            "support": int(truth[:, index].sum()),
+        }
+
+    flat_ap = _average_precision(probabilities.flatten(), targets.flatten())
+    tp = int((predicted & truth).sum())
+    fp = int((predicted & ~truth).sum())
+    fn = int((~predicted & truth).sum())
+    micro_denominator = 2 * tp + fp + fn
+    return {
+        "macro_average_precision": sum(aps) / len(aps) if aps else None,
+        "micro_average_precision": flat_ap,
+        "macro_f1": sum(f1s) / len(f1s) if f1s else None,
+        "micro_f1": 2 * tp / micro_denominator if micro_denominator else 0.0,
+        "binary_accuracy": float((predicted == truth).float().mean()),
+        "threshold": threshold,
+        "valid_ap_tags": len(aps),
+        "per_tag": per_tag,
+    }
+
+
+def _masked_regression_metrics(
+    predictions: Tensor,
+    targets: Tensor,
+    mask: Tensor,
+    names: tuple[str, ...] | list[str],
+) -> dict[str, Any]:
+    """Masked regression metrics in the standardized target space."""
+    predictions = predictions.float()
+    targets = targets.float()
+    observed = mask.bool()
+    per_feature: dict[str, dict[str, float | int | None]] = {}
+    total_absolute_error = 0.0
+    total_squared_error = 0.0
+    total_observed = 0
+    r2_values: list[float] = []
+
+    for index, name in enumerate(names):
+        valid = observed[:, index]
+        count = int(valid.sum())
+        if count == 0:
+            per_feature[str(name)] = {"mae": None, "rmse": None, "r2": None, "n_observed": 0}
+            continue
+        prediction = predictions[valid, index]
+        target = targets[valid, index]
+        residual = prediction - target
+        absolute_error = float(residual.abs().sum())
+        squared_error = float(residual.square().sum())
+        mae = absolute_error / count
+        rmse = (squared_error / count) ** 0.5
+        target_ss = float(((target - target.mean()) ** 2).sum())
+        r2 = 1.0 - squared_error / target_ss if count >= 2 and target_ss > 0 else None
+        if r2 is not None:
+            r2_values.append(r2)
+        per_feature[str(name)] = {"mae": mae, "rmse": rmse, "r2": r2, "n_observed": count}
+        total_absolute_error += absolute_error
+        total_squared_error += squared_error
+        total_observed += count
+
+    return {
+        "mae_standardized": total_absolute_error / total_observed if total_observed else None,
+        "rmse_standardized": (total_squared_error / total_observed) ** 0.5 if total_observed else None,
+        "macro_r2": sum(r2_values) / len(r2_values) if r2_values else None,
+        "n_observed": total_observed,
+        "per_feature": per_feature,
+    }
+
+
+def _harmony_metrics(predictions: Tensor, targets: Tensor, valid_rows: Tensor) -> dict[str, Any]:
+    """Evaluate song-level chroma distributions when valid targets exist."""
+    valid = valid_rows.bool()
+    count = int(valid.sum())
+    if count == 0:
+        return {
+            "available": False,
+            "n_observed": 0,
+            "reason": "dataset has no valid 12-bin chroma supervision",
+        }
+    prediction = predictions[valid].float().clamp_min(1e-8)
+    target = targets[valid].float()
+    cross_entropy = float(-(target * prediction.log()).sum(-1).mean())
+    cosine_similarity = float(F.cosine_similarity(prediction, target, dim=1).mean())
+    dominant_bin_accuracy = float((prediction.argmax(1) == target.argmax(1)).float().mean())
+    return {
+        "available": True,
+        "n_observed": count,
+        "cross_entropy": cross_entropy,
+        "cosine_similarity": cosine_similarity,
+        "dominant_pitch_class_accuracy": dominant_bin_accuracy,
+    }
+
+
+def _metric_text(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.4f}"
+
 @torch.no_grad()
 def evaluate(
     encoder: SharedAudioEncoder,
@@ -585,7 +721,7 @@ def evaluate(
     fusion_model: ConceptBottleneckModel,
     loader: DataLoader,
     device: torch.device,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     for m in (encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model):
         m.eval()
 
@@ -595,8 +731,12 @@ def evaluate(
 
     all_probs: list[Tensor] = []
     all_targets: list[Tensor] = []
+    concept_predictions: dict[str, list[Tensor]] = {name: [] for name in ("instrument", "rhythm", "timbre", "harmony")}
+    concept_targets_all: dict[str, list[Tensor]] = {name: [] for name in ("instrument", "rhythm", "timbre", "harmony")}
+    concept_masks: dict[str, list[Tensor]] = {name: [] for name in ("instrument", "rhythm", "timbre", "harmony")}
     total_loss = 0.0
     n_batches = 0
+    term_sums: dict[str, float] = {}
 
     for batch in loader:
         (mel, wm, vf, ws, genre_tgt, instr_tgt, timbre_tgt, timbre_msk,
@@ -614,26 +754,63 @@ def evaluate(
         br = genre_loss_fn(logits, genre_tgt, bundle, concept_targets)
         total_loss += br.total.item()
         n_batches += 1
+        for name, value in br.terms.items():
+            term_sums[name] = term_sums.get(name, 0.0) + value
         all_probs.append(logits.sigmoid().cpu())
         all_targets.append(genre_tgt.cpu())
+        batch_targets = {
+            "instrument": instr_tgt,
+            "rhythm": rhythm_tgt,
+            "timbre": timbre_tgt,
+            "harmony": harmony_chroma,
+        }
+        for name in concept_predictions:
+            concept_predictions[name].append(bundle.concept_values(name).detach().cpu())
+            concept_targets_all[name].append(batch_targets[name].detach().cpu())
+            if name == "harmony":
+                concept_masks[name].append(torch.isfinite(harmony_chroma).all(dim=1).detach().cpu())
+            else:
+                concept_masks[name].append(bundle.supervision_mask(name).detach().cpu())
 
     probs   = torch.cat(all_probs)     # (N, 6)
     targets = torch.cat(all_targets)   # (N, 6)
 
-    # Tag-wise average precision → macro AP
-    ap_list = []
-    for t in range(targets.shape[1]):
-        gt = targets[:, t]
-        if gt.sum() == 0:
-            continue
-        p = probs[:, t]
-        idx = p.argsort(descending=True)
-        tp  = gt[idx].float().cumsum(0)
-        pr  = tp / torch.arange(1, len(tp) + 1, dtype=torch.float32)
-        ap_list.append((pr * gt[idx].float()).sum() / gt.sum().clamp(min=1))
-
-    macro_ap = float(torch.stack(ap_list).mean()) if ap_list else 0.0
-    return {"loss": total_loss / max(n_batches, 1), "macro_ap": macro_ap}
+    genre_metrics = _multilabel_metrics(probs, targets, GENRE_TAGS)
+    instrument_metrics = _multilabel_metrics(
+        torch.cat(concept_predictions["instrument"]),
+        torch.cat(concept_targets_all["instrument"]),
+        INSTRUMENT_TAGS,
+    )
+    rhythm_metrics = _masked_regression_metrics(
+        torch.cat(concept_predictions["rhythm"]),
+        torch.cat(concept_targets_all["rhythm"]),
+        torch.cat(concept_masks["rhythm"]),
+        RHYTHM_FEATURES,
+    )
+    timbre_metrics = _masked_regression_metrics(
+        torch.cat(concept_predictions["timbre"]),
+        torch.cat(concept_targets_all["timbre"]),
+        torch.cat(concept_masks["timbre"]),
+        TIMBRE_FEATURES,
+    )
+    harmony_metrics = _harmony_metrics(
+        torch.cat(concept_predictions["harmony"]),
+        torch.cat(concept_targets_all["harmony"]),
+        torch.cat(concept_masks["harmony"]),
+    )
+    macro_ap = genre_metrics["macro_average_precision"]
+    return {
+        "loss": total_loss / max(n_batches, 1),
+        "loss_terms": {name: value / max(n_batches, 1) for name, value in term_sums.items()},
+        "macro_ap": 0.0 if macro_ap is None else macro_ap,
+        "genre": genre_metrics,
+        "branches": {
+            "instrument": instrument_metrics,
+            "rhythm": rhythm_metrics,
+            "timbre": timbre_metrics,
+            "harmony": harmony_metrics,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -773,10 +950,23 @@ def train(cfg: "TrainConfig") -> None:
             f"lr={scheduler.get_last_lr()[0]:.2e}  "
             f"({elapsed:.1f}s)"
         )
+        val_branches = val_metrics["branches"]
+        print(
+            "  Branch validation: "
+            f"instrument_mAP={_metric_text(val_branches['instrument']['macro_average_precision'])}  "
+            f"instrument_F1={_metric_text(val_branches['instrument']['macro_f1'])}  "
+            f"rhythm_RMSE={_metric_text(val_branches['rhythm']['rmse_standardized'])}  "
+            f"timbre_RMSE={_metric_text(val_branches['timbre']['rmse_standardized'])}  "
+            f"harmony_cosine={_metric_text(val_branches['harmony'].get('cosine_similarity'))}",
+            flush=True,
+        )
         log.append({
             "epoch": epoch, "train_loss": train_loss,
             "val_loss": val_metrics["loss"], "val_macro_ap": val_ap,
             "train_terms": {k: v / n_batches for k, v in term_sums.items()},
+            "val_loss_terms": val_metrics["loss_terms"],
+            "val_genre_metrics": val_metrics["genre"],
+            "val_branch_metrics": val_metrics["branches"],
             "train_seconds": elapsed,
         })
 
@@ -812,7 +1002,9 @@ def train(cfg: "TrainConfig") -> None:
             torch.save(ckpt, out_dir / "best.pt")
             print(f"  -> saved best checkpoint  (val_macro_ap={val_ap:.4f})")
 
-    test_metrics = {"macro_ap": None, "loss": None}
+    test_metrics: dict[str, Any] = {
+        "macro_ap": None, "loss": None, "loss_terms": {}, "genre": {}, "branches": {}
+    }
     best = {"epoch": best_epoch, "val_macro_ap": best_val_ap}
     if cfg.evaluate_test:
         # Test evaluation using best checkpoint
@@ -841,6 +1033,9 @@ def train(cfg: "TrainConfig") -> None:
         "val_macro_ap":  float(best["val_macro_ap"]),
         "test_macro_ap": test_metrics["macro_ap"],
         "test_loss":     test_metrics["loss"],
+        "test_loss_terms": test_metrics["loss_terms"],
+        "test_genre_metrics": test_metrics["genre"],
+        "test_branch_metrics": test_metrics["branches"],
         "genre_tags":    list(GENRE_TAGS),
         "n_train":       len(train_ds),
         "n_val":         len(val_ds),
