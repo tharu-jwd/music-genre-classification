@@ -72,6 +72,13 @@ The old numbered notebooks `02`–`03` and `05`–`09` are retired; instrument, 
 harmony, and fusion now live in their packages. Generator scripts write only those
 three essential notebooks.
 
+## Modal training
+
+The joint architecture can be trained from the combined `data/full_dataset.csv`
+on a persistent Modal GPU runner. See the [Modal training guide](docs/modal-training.md)
+for per-account Volume setup, data upload, smoke-test, full-run, and result-download
+commands.
+
 ## Repository structure
 
 ```text

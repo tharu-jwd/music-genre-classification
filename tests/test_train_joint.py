@@ -73,6 +73,29 @@ def test_relocates_colab_logmel_path(tmp_path):
                                  tmp_path, tmp_path) == str(tmp_path / '74/171074.npy')
 
 
+def test_combined_dataset_masks_missing_chroma_targets(tmp_path):
+    ids = [f"track_{i:07d}" for i in range(3)]
+    columns = [*j.INSTRUMENT_TAGS, *j.TIMBRE_FEATURES, *j.RHYTHM_FEATURES, *j.GENRE_TAGS]
+    frame = pd.DataFrame(np.ones((3, len(columns))), columns=columns)
+    frame.insert(0, "logmel_path", [f"logmel_songs/0/{i}.npy" for i in range(3)])
+    frame.insert(0, "TRACK_ID", ids)
+    dataset_csv = tmp_path / "full_dataset.csv"
+    split_csv = tmp_path / "splits.csv"
+    frame.to_csv(dataset_csv, index=False)
+    pd.DataFrame({"track_id": ids, "split": ["train", "validation", "test"]}).to_csv(
+        split_csv, index=False
+    )
+
+    train, val, test, *_ = j.build_datasets(
+        tmp_path, dataset_csv=dataset_csv, split_csv=split_csv,
+        logmel_root=tmp_path / "logmel_songs"
+    )
+
+    assert [len(train), len(val), len(test)] == [1, 1, 1]
+    assert train.harmony.shape == (1, 12)
+    assert torch.isnan(train.harmony).all()
+
+
 def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):
     path = tmp_path / 'stack.npy'
     np.save(path, np.ones((3, 128, 469), dtype=np.float32))

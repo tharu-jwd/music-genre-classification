@@ -2,8 +2,11 @@
 Joint training script for the 6-genre concept-bottleneck DNN.
 
 Data requirements (all in data/):
+  full_dataset.csv            Combined targets + logmel_path (preferred)
+  track_split_assignments.csv TRACK_ID, split (train/validation/test)
+
+The legacy seven-table layout is also supported:
   logmel_metadata.csv          TRACK_ID -> .npy log-mel path  (mel_bins, T) each
-  track_split_assignments.csv  TRACK_ID, split (train/validation/test)
   genres_df.csv                TRACK_ID + 6 genre columns
   instrument_df.csv            TRACK_ID + 41 instrument columns
   timbre_df.csv                TRACK_ID + 35 timbre descriptor columns
@@ -298,6 +301,8 @@ def resolve_logmel_path(raw: str, logmel_root: Path | None, data_dir: Path) -> s
 def build_datasets(
     data_dir: Path,
     *,
+    dataset_csv: Path | None = None,
+    split_csv: Path | None = None,
     timbre_std: TimbreStandardizer | None = None,
     rhythm_std: RhythmStandardizer | None = None,
     quick: bool = False,
@@ -308,8 +313,14 @@ def build_datasets(
     MultiTargetDataset, MultiTargetDataset, MultiTargetDataset,
     TimbreStandardizer, RhythmStandardizer,
 ]:
-    """Load, align, standardize, and split all data sources."""
-    dfs = _load_csvs(data_dir)
+    """Load, align, standardize, and split all data sources.
+
+    ``dataset_csv`` selects the combined-table contract used by Modal.  If it is
+    omitted, the original seven-table contract remains available.
+    """
+    data_dir = Path(data_dir)
+    dataset_csv = Path(dataset_csv) if dataset_csv is not None else None
+    split_csv = Path(split_csv) if split_csv is not None else data_dir / "track_split_assignments.csv"
     root_config = data_dir / "logmel_root.txt"
     if logmel_root is None and root_config.is_file():
         logmel_root = Path(root_config.read_text(encoding="utf-8-sig").strip())
@@ -322,29 +333,61 @@ def build_datasets(
         audit = _norm_col(pd.read_csv(audit_path), "TRACK_ID")
         durations = dict(zip(audit["TRACK_ID"], audit["track_duration_sec"]))
 
-    logmel = _norm_col(dfs["logmel_metadata"], "TRACK_ID")
-    splits = _norm_col(
-        dfs["track_split_assignments"].rename(columns={"track_id": "TRACK_ID"}), "TRACK_ID"
-    )
-    genres = _norm_col(dfs["genres_df"], "TRACK_ID")
-    instr  = _norm_col(dfs["instrument_df"], "TRACK_ID")
-    timbre = _norm_col(dfs["timbre_df"], "TRACK_ID")
-    rhythm = _norm_col(dfs["rhythm_df"], "TRACK_ID")
-    harmony = _norm_col(dfs["harmony_df"], "TRACK_ID")
-
     timbre_feat = list(TIMBRE_FEATURES)
     rhythm_feat = list(RHYTHM_FEATURES)
+    if dataset_csv is not None:
+        if not dataset_csv.is_file():
+            raise FileNotFoundError(dataset_csv)
+        if not split_csv.is_file():
+            raise FileNotFoundError(split_csv)
+        master = _norm_col(
+            pd.read_csv(dataset_csv, dtype={"TRACK_ID": str}), "TRACK_ID"
+        )
+        splits = pd.read_csv(split_csv, dtype={"TRACK_ID": str, "track_id": str})
+        splits = _norm_col(splits.rename(columns={"track_id": "TRACK_ID"}), "TRACK_ID")
+        required = {
+            "TRACK_ID", "logmel_path", *GENRE_TAGS, *INSTRUMENT_TAGS,
+            *timbre_feat, *rhythm_feat,
+        }
+        missing_columns = sorted(required - set(master.columns))
+        if missing_columns:
+            raise ValueError(f"Combined dataset is missing columns: {missing_columns}")
+        if master["TRACK_ID"].duplicated().any():
+            raise ValueError("Combined dataset contains duplicate TRACK_ID values")
+        if splits["TRACK_ID"].duplicated().any():
+            raise ValueError("Split table contains duplicate TRACK_ID values")
+        master = master.merge(
+            splits[["TRACK_ID", "split"]], on="TRACK_ID", how="left", validate="one_to_one"
+        )
+        if master["split"].isna().any():
+            examples = master.loc[master["split"].isna(), "TRACK_ID"].head().tolist()
+            raise ValueError(f"Combined dataset has tracks without split assignments: {examples}")
+    else:
+        dfs = _load_csvs(data_dir)
+        logmel = _norm_col(dfs["logmel_metadata"], "TRACK_ID")
+        splits = _norm_col(
+            dfs["track_split_assignments"].rename(columns={"track_id": "TRACK_ID"}), "TRACK_ID"
+        )
+        genres = _norm_col(dfs["genres_df"], "TRACK_ID")
+        instr  = _norm_col(dfs["instrument_df"], "TRACK_ID")
+        timbre = _norm_col(dfs["timbre_df"], "TRACK_ID")
+        rhythm = _norm_col(dfs["rhythm_df"], "TRACK_ID")
+        harmony = _norm_col(dfs["harmony_df"], "TRACK_ID")
 
-    # Join everything; left-join targets so no audio row is dropped
-    master = (
-        logmel
-        .merge(splits[["TRACK_ID", "split"]], on="TRACK_ID", how="inner")
-        .merge(genres[["TRACK_ID"] + list(GENRE_TAGS)], on="TRACK_ID", how="inner")
-        .merge(instr[["TRACK_ID"] + list(INSTRUMENT_TAGS)], on="TRACK_ID", how="left")
-        .merge(timbre[["TRACK_ID"] + timbre_feat], on="TRACK_ID", how="left")
-        .merge(rhythm[["TRACK_ID"] + rhythm_feat], on="TRACK_ID", how="left")
-        .merge(harmony[["TRACK_ID"] + CHROMA_COLS], on="TRACK_ID", how="left")
-    )
+        # Join everything; left-join targets so no audio row is dropped.
+        master = (
+            logmel
+            .merge(splits[["TRACK_ID", "split"]], on="TRACK_ID", how="inner")
+            .merge(genres[["TRACK_ID"] + list(GENRE_TAGS)], on="TRACK_ID", how="inner")
+            .merge(instr[["TRACK_ID"] + list(INSTRUMENT_TAGS)], on="TRACK_ID", how="left")
+            .merge(timbre[["TRACK_ID"] + timbre_feat], on="TRACK_ID", how="left")
+            .merge(rhythm[["TRACK_ID"] + rhythm_feat], on="TRACK_ID", how="left")
+            .merge(harmony[["TRACK_ID"] + CHROMA_COLS], on="TRACK_ID", how="left")
+        )
+
+    invalid_splits = sorted(set(master["split"].dropna()) - {"train", "validation", "test"})
+    if invalid_splits:
+        raise ValueError(f"Unsupported split values: {invalid_splits}")
 
     # Fit standardizers on training rows only (leakage-safe)
     train_mask = master["split"] == "train"
@@ -376,7 +419,13 @@ def build_datasets(
         r_std[~r_msk] = 0.0
 
         # Normalise chroma to sum-1 distribution
-        h_raw = subset[CHROMA_COLS].to_numpy(dtype=np.float32)
+        # The combined initial-run table has harmony descriptors, but not the
+        # 12-bin chroma distribution required by the harmony auxiliary loss.
+        # Keep the predicted harmony branch in fusion and mask only its loss.
+        if set(CHROMA_COLS).issubset(subset.columns):
+            h_raw = subset[CHROMA_COLS].to_numpy(dtype=np.float32)
+        else:
+            h_raw = np.full((len(subset), N_HARMONY_CHROMA), np.nan, dtype=np.float32)
         sums = h_raw.sum(axis=1, keepdims=True)
         valid_h = np.isfinite(h_raw).all(axis=1) & (h_raw >= 0).all(axis=1) & (sums[:, 0] > 1e-8)
         h_norm = np.full_like(h_raw, np.nan)
@@ -538,9 +587,10 @@ def train(cfg: "TrainConfig") -> None:
     print(f"Device: {device}")
 
     print("Loading data...")
-    data_dir = ROOT / "data"
+    data_dir = cfg.data_dir or ROOT / "data"
     train_ds, val_ds, test_ds, timbre_std, rhythm_std = build_datasets(
-        data_dir, quick=cfg.quick, logmel_root=cfg.logmel_root,
+        data_dir, dataset_csv=cfg.dataset_csv, split_csv=cfg.split_csv,
+        quick=cfg.quick, logmel_root=cfg.logmel_root,
         window_frames=cfg.window_frames, max_windows=cfg.max_windows
     )
 
@@ -762,6 +812,9 @@ class TrainConfig:
     num_workers:        int   = 0
     quick:              bool  = False
     evaluate_test:      bool  = True
+    data_dir:           Path | None = None
+    dataset_csv:        Path | None = None
+    split_csv:          Path | None = None
     logmel_root:        Path | None = None
     window_frames:     int = 1366
     max_windows:       int = 12
@@ -786,6 +839,12 @@ def main() -> None:
     p.add_argument("--window-frames", type=int, default=1366)
     p.add_argument("--max-windows", type=int, default=12)
     p.add_argument("--skip-test", action="store_true", help="Reserve the test split for final evaluation")
+    p.add_argument("--data-dir", type=Path, default=ROOT / "data",
+                   help="Directory containing metadata/config files")
+    p.add_argument("--dataset-csv", type=Path,
+                   help="Combined full_dataset.csv (preferred over legacy separate target CSVs)")
+    p.add_argument("--split-csv", type=Path,
+                   help="TRACK_ID/track_id + split CSV; defaults to DATA_DIR/track_split_assignments.csv")
     args = p.parse_args()
     if args.window_frames < 1 or args.max_windows < 1:
         p.error("window-frames and max-windows must be positive")
@@ -804,6 +863,9 @@ def main() -> None:
         num_workers       = args.num_workers,
         quick             = args.quick,
         evaluate_test     = not args.skip_test,
+        data_dir          = args.data_dir,
+        dataset_csv       = args.dataset_csv,
+        split_csv         = args.split_csv,
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,
