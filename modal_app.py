@@ -37,6 +37,7 @@ image = (
     .pip_install(
         "numpy==2.2.6",
         "pandas==2.2.3",
+        "scikit-learn==1.6.1",
         "torch==2.7.1",
     )
     .add_local_dir("concept_fusion", str(PROJECT_DIR / "concept_fusion"))
@@ -47,6 +48,10 @@ image = (
     .add_local_dir("instrument_branch/docs", str(PROJECT_DIR / "instrument_branch/docs"))
     .add_local_file("scripts/train_joint.py", str(PROJECT_DIR / "scripts/train_joint.py"))
     .add_local_file("scripts/mtg_data_contract.py", str(PROJECT_DIR / "scripts/mtg_data_contract.py"))
+    .add_local_file(
+        "scripts/build_vector_dataset.py",
+        str(PROJECT_DIR / "scripts/build_vector_dataset.py"),
+    )
 )
 
 
