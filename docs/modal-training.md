@@ -95,6 +95,15 @@ If `data/logmel_config.json` and `data/logmel_audit.csv` exist, upload them into
 `(windows, mel_bins, frames)` and optional for a continuous `(mel_bins, frames)`
 array.
 
+For the tracked `(windows, 128, 469)` cache, generate both files from the
+canonical duration manifest with:
+
+```bash
+python scripts/build_logmel_metadata.py
+modal volume put music-genre-data data/logmel_config.json dataset/logmel_config.json
+modal volume put music-genre-data data/logmel_audit.csv dataset/logmel_audit.csv
+```
+
 Confirm the upload:
 
 ```bash
