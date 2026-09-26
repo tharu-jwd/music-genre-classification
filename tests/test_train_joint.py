@@ -3,9 +3,19 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 
 from scripts import train_joint as j
+
+
+def test_combined_dataset_schema_has_one_vector_per_branch():
+    schema = j.dataset_schema()
+    assert schema["logmel_input"] == "logmel_path"
+    assert {name: len(columns) for name, columns in schema["branch_targets"].items()} == {
+        "instrument": 41, "rhythm": 10, "timbre": 35, "harmony": 12,
+    }
+    assert len(schema["fusion_target"]) == 6
 
 
 def test_harmony_supervision_reaches_branch_and_encoder_without_target_leakage():
@@ -94,6 +104,12 @@ def test_combined_dataset_masks_missing_chroma_targets(tmp_path):
     assert [len(train), len(val), len(test)] == [1, 1, 1]
     assert train.harmony.shape == (1, 12)
     assert torch.isnan(train.harmony).all()
+
+    with pytest.raises(ValueError, match="chroma_asharp_mean"):
+        j.build_datasets(
+            tmp_path, dataset_csv=dataset_csv, split_csv=split_csv,
+            logmel_root=tmp_path / "logmel_songs", require_harmony_targets=True,
+        )
 
 
 def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):

@@ -85,6 +85,22 @@ CHROMA_COLS: list[str] = [
 ]
 assert len(CHROMA_COLS) == N_HARMONY_CHROMA, "CHROMA_COLS must have 12 entries"
 
+
+def dataset_schema() -> dict[str, Any]:
+    """Return the canonical combined-CSV vector contract."""
+    return {
+        "id": "TRACK_ID",
+        "logmel_input": "logmel_path",
+        "branch_targets": {
+            "instrument": list(INSTRUMENT_TAGS),
+            "rhythm": list(RHYTHM_FEATURES),
+            "timbre": list(TIMBRE_FEATURES),
+            "harmony": list(CHROMA_COLS),
+        },
+        "fusion_target": list(GENRE_TAGS),
+        "split_table": {"id": "TRACK_ID (or track_id)", "split": "split"},
+    }
+
 # Use the same windowing implementation as the preprocessing notebooks.
 _data_contract = {"np": np, "Path": Path}
 exec(NOTEBOOK_DATA_CONTRACT, _data_contract)
@@ -303,6 +319,7 @@ def build_datasets(
     *,
     dataset_csv: Path | None = None,
     split_csv: Path | None = None,
+    require_harmony_targets: bool = False,
     timbre_std: TimbreStandardizer | None = None,
     rhythm_std: RhythmStandardizer | None = None,
     quick: bool = False,
@@ -349,6 +366,8 @@ def build_datasets(
             "TRACK_ID", "logmel_path", *GENRE_TAGS, *INSTRUMENT_TAGS,
             *timbre_feat, *rhythm_feat,
         }
+        if require_harmony_targets:
+            required.update(CHROMA_COLS)
         missing_columns = sorted(required - set(master.columns))
         if missing_columns:
             raise ValueError(f"Combined dataset is missing columns: {missing_columns}")
@@ -590,6 +609,7 @@ def train(cfg: "TrainConfig") -> None:
     data_dir = cfg.data_dir or ROOT / "data"
     train_ds, val_ds, test_ds, timbre_std, rhythm_std = build_datasets(
         data_dir, dataset_csv=cfg.dataset_csv, split_csv=cfg.split_csv,
+        require_harmony_targets=cfg.require_harmony_targets,
         quick=cfg.quick, logmel_root=cfg.logmel_root,
         window_frames=cfg.window_frames, max_windows=cfg.max_windows
     )
@@ -748,6 +768,7 @@ def train(cfg: "TrainConfig") -> None:
                 "max_windows": cfg.max_windows,
                 "harmony_target_columns": CHROMA_COLS,
                 "harmony_strategy":  "predicted_chroma_song_mean_supervision",
+                "harmony_supervised": bool(torch.isfinite(train_ds.harmony).all(dim=1).any()),
             }
             torch.save(ckpt, out_dir / "best.pt")
             print(f"  -> saved best checkpoint  (val_macro_ap={val_ap:.4f})")
@@ -785,6 +806,7 @@ def train(cfg: "TrainConfig") -> None:
         "n_train":       len(train_ds),
         "n_val":         len(val_ds),
         "n_test":        len(test_ds),
+        "harmony_supervised": bool(torch.isfinite(train_ds.harmony).all(dim=1).any()),
         "log":           log,
     }
     out_path = out_dir / "results.json"
@@ -815,6 +837,7 @@ class TrainConfig:
     data_dir:           Path | None = None
     dataset_csv:        Path | None = None
     split_csv:          Path | None = None
+    require_harmony_targets: bool = False
     logmel_root:        Path | None = None
     window_frames:     int = 1366
     max_windows:       int = 12
@@ -845,7 +868,14 @@ def main() -> None:
                    help="Combined full_dataset.csv (preferred over legacy separate target CSVs)")
     p.add_argument("--split-csv", type=Path,
                    help="TRACK_ID/track_id + split CSV; defaults to DATA_DIR/track_split_assignments.csv")
+    p.add_argument("--require-harmony-targets", action="store_true",
+                   help="Require all 12 chroma columns in the combined dataset")
+    p.add_argument("--print-dataset-schema", action="store_true",
+                   help="Print the canonical dataset.csv vector groups and exit")
     args = p.parse_args()
+    if args.print_dataset_schema:
+        print(json.dumps(dataset_schema(), indent=2))
+        return
     if args.window_frames < 1 or args.max_windows < 1:
         p.error("window-frames and max-windows must be positive")
 
@@ -866,6 +896,7 @@ def main() -> None:
         data_dir          = args.data_dir,
         dataset_csv       = args.dataset_csv,
         split_csv         = args.split_csv,
+        require_harmony_targets = args.require_harmony_targets,
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,

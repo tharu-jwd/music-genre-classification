@@ -1,6 +1,7 @@
 # Training the joint architecture on Modal
 
-The Modal runner trains `scripts/train_joint.py` against `data/full_dataset.csv`.
+The Modal runner trains `scripts/train_joint.py` against the future
+`data/dataset.csv` contract.
 Source code is built into a reproducible image, while large data and run outputs
 remain in persistent Modal Volumes. Each collaborator creates the same two Volume
 names in their own Modal workspace, so no credentials or workspace IDs belong in
@@ -8,19 +9,41 @@ Git.
 
 ## 1. Expected data
 
-`full_dataset.csv` contains the log-mel path, 41 instrument labels, 10 rhythm
-targets, 35 timbre targets, and 6 genre labels. It does not contain the 12-bin
-chroma distribution used by the harmony auxiliary loss. The trainer therefore
-still predicts harmony and feeds it into fusion, but masks the harmony auxiliary
-loss for this dataset. This is intentional; do not treat the existing tonal
-summary columns as chroma bins.
+Each CSV row represents one track and logically contains six vectors:
+
+| Field | Shape | Role |
+|---|---:|---|
+| `logmel_path` | path to `(mel, time)` or `(windows, mel, time)` | input to the shared CNN encoder |
+| instrument columns | 41 | supervision for the instrument branch |
+| rhythm columns | 10 | supervision for the rhythm branch |
+| timbre columns | 35 | supervision for the timbre branch |
+| `chroma_*_mean` columns | 12 | supervision for the harmony branch |
+| genre columns | 6 | final multi-label target after concept fusion |
+
+The vectors are stored as explicit numeric columns rather than JSON strings in a
+single CSV cell. The exact vector dimensions and column names are defined by
+`concept_fusion/contract.py` and `scripts/train_joint.py`. The four branch vectors
+are training targets: the fusion layer receives the four **predicted** concept
+vectors, preventing ground-truth concepts from leaking into genre inference.
+
+Print the machine-readable contract at any time with:
+
+```bash
+python scripts/train_joint.py --print-dataset-schema
+```
+
+The existing `full_dataset.csv` can still be used locally as a transitional
+dataset, but it has no 12-bin chroma vector. In that compatibility mode the
+harmony auxiliary loss is masked. Modal deliberately enables
+`--require-harmony-targets` for the future `dataset.csv`, so an incomplete file
+fails validation immediately.
 
 The log-mel arrays are not stored in Git. The Modal data Volume must look like:
 
 ```text
 music-genre-data/
 ├── dataset/
-│   ├── full_dataset.csv
+│   ├── dataset.csv
 │   ├── track_split_assignments.csv
 │   ├── logmel_config.json        # optional, required for stacked 3-D arrays
 │   └── logmel_audit.csv          # optional, required for stacked 3-D arrays
@@ -48,7 +71,7 @@ Upload the combined table, the tracked split assignments, and your local log-mel
 cache:
 
 ```bash
-modal volume put music-genre-data data/full_dataset.csv dataset/full_dataset.csv
+modal volume put music-genre-data data/dataset.csv dataset/dataset.csv
 modal volume put music-genre-data data/track_split_assignments.csv dataset/track_split_assignments.csv
 modal volume put music-genre-data /absolute/path/to/logmel_songs logmel_songs
 ```
@@ -103,7 +126,8 @@ output directory and can overwrite artifacts.
 
 ## Git hand-off
 
-The combined CSV and split assignments are already tracked, so a collaborator can
-upload both immediately after cloning. Do not commit `.npy` arrays, Modal
-credentials, checkpoints, or results; the existing `.gitignore` keeps those large
-or private artifacts out of Git.
+The split assignments are already tracked. Once prepared, distribute
+`data/dataset.csv` through the project-approved dataset channel, then upload it to
+each collaborator's Modal Volume. Do not commit `.npy` arrays, Modal credentials,
+checkpoints, or results; the existing `.gitignore` keeps those large or private
+artifacts out of Git.

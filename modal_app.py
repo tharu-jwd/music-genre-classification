@@ -71,7 +71,7 @@ def train_remote(
         raise RuntimeError("Modal allocated no CUDA device")
 
     dataset_dir = DATA_MOUNT / "dataset"
-    dataset_csv = dataset_dir / "full_dataset.csv"
+    dataset_csv = dataset_dir / "dataset.csv"
     split_csv = dataset_dir / "track_split_assignments.csv"
     logmel_root = DATA_MOUNT / "logmel_songs"
     required = (dataset_csv, split_csv, logmel_root)
@@ -97,6 +97,7 @@ def train_remote(
         "--lr", str(learning_rate),
         "--num-workers", str(num_workers),
         "--max-windows", str(max_windows),
+        "--require-harmony-targets",
     ]
     if quick:
         command.append("--quick")
