@@ -74,6 +74,7 @@ from rhythm_branch.preprocessing import RhythmStandardizer
 from shared_encoder import SharedAudioEncoder
 from timbre_branch.model import TimbreBranch
 from timbre_branch.preprocessing import TimbreStandardizer
+from scripts.build_vector_dataset import HARMONY_FEATURES, VECTOR_GROUPS
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -89,15 +90,15 @@ assert len(CHROMA_COLS) == N_HARMONY_CHROMA, "CHROMA_COLS must have 12 entries"
 def dataset_schema() -> dict[str, Any]:
     """Return the canonical combined-CSV vector contract."""
     return {
-        "id": "TRACK_ID",
-        "logmel_input": "logmel_path",
-        "branch_targets": {
-            "instrument": list(INSTRUMENT_TAGS),
-            "rhythm": list(RHYTHM_FEATURES),
-            "timbre": list(TIMBRE_FEATURES),
-            "harmony": list(CHROMA_COLS),
+        "id": "track_id",
+        "logmel_input": "path",
+        "branch_vectors": {
+            "instrument_vector": list(INSTRUMENT_TAGS),
+            "rhythm_vector": list(RHYTHM_FEATURES),
+            "timbre_vector": list(TIMBRE_FEATURES),
+            "harmony_vector": list(HARMONY_FEATURES),
         },
-        "fusion_target": list(GENRE_TAGS),
+        "fusion_target": {"genre": list(GENRE_TAGS)},
         "split_table": {"id": "TRACK_ID (or track_id)", "split": "split"},
     }
 
@@ -300,6 +301,43 @@ def _norm_col(df: pd.DataFrame, col: str) -> pd.DataFrame:
     return df
 
 
+def _expand_vector_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Expand canonical JSON vector cells into named internal training columns."""
+    vector_names = {name for name, _ in VECTOR_GROUPS}
+    present = vector_names & set(frame.columns)
+    if not present:
+        return frame
+    if present != vector_names:
+        raise ValueError(f"Vector dataset is missing vector columns: {sorted(vector_names - present)}")
+    expanded = frame.copy()
+    for vector_name, columns in VECTOR_GROUPS:
+        rows: list[list[float]] = []
+        for row_number, raw in enumerate(expanded[vector_name], start=2):
+            try:
+                values = json.loads(raw) if isinstance(raw, str) else raw
+                array = np.asarray(values, dtype=np.float64)
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise ValueError(f"Invalid {vector_name} JSON at CSV row {row_number}") from error
+            if array.shape != (len(columns),) or not np.isfinite(array).all():
+                raise ValueError(
+                    f"{vector_name} at CSV row {row_number} must contain "
+                    f"{len(columns)} finite numbers"
+                )
+            rows.append(array.tolist())
+        expanded.loc[:, list(columns)] = np.asarray(rows, dtype=np.float64)
+    return expanded
+
+
+def _canonicalize_combined_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Map the compact public CSV names to the trainer's internal names."""
+    aliases = {}
+    if "track_id" in frame.columns and "TRACK_ID" not in frame.columns:
+        aliases["track_id"] = "TRACK_ID"
+    if "path" in frame.columns and "logmel_path" not in frame.columns:
+        aliases["path"] = "logmel_path"
+    return frame.rename(columns=aliases)
+
+
 def resolve_logmel_path(raw: str, logmel_root: Path | None, data_dir: Path) -> str:
     normalized = str(raw).replace("\\", "/")
     if logmel_root is not None:
@@ -357,9 +395,10 @@ def build_datasets(
             raise FileNotFoundError(dataset_csv)
         if not split_csv.is_file():
             raise FileNotFoundError(split_csv)
-        master = _norm_col(
-            pd.read_csv(dataset_csv, dtype={"TRACK_ID": str}), "TRACK_ID"
-        )
+        master = pd.read_csv(dataset_csv, dtype={"TRACK_ID": str, "track_id": str})
+        master = _expand_vector_columns(_norm_col(
+            _canonicalize_combined_columns(master), "TRACK_ID"
+        ))
         splits = pd.read_csv(split_csv, dtype={"TRACK_ID": str, "track_id": str})
         splits = _norm_col(splits.rename(columns={"track_id": "TRACK_ID"}), "TRACK_ID")
         required = {

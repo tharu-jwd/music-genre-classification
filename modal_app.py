@@ -97,7 +97,6 @@ def train_remote(
         "--lr", str(learning_rate),
         "--num-workers", str(num_workers),
         "--max-windows", str(max_windows),
-        "--require-harmony-targets",
     ]
     if quick:
         command.append("--quick")

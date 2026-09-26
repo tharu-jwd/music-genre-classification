@@ -9,22 +9,26 @@ Git.
 
 ## 1. Expected data
 
-Each CSV row represents one track and logically contains six vectors:
+Each CSV row represents one track with this compact seven-column schema:
+
+```text
+track_id,path,instrument_vector,rhythm_vector,timbre_vector,harmony_vector,genre
+```
 
 | Field | Shape | Role |
 |---|---:|---|
-| `logmel_path` | path to `(mel, time)` or `(windows, mel, time)` | input to the shared CNN encoder |
-| instrument columns | 41 | supervision for the instrument branch |
-| rhythm columns | 10 | supervision for the rhythm branch |
-| timbre columns | 35 | supervision for the timbre branch |
-| `chroma_*_mean` columns | 12 | supervision for the harmony branch |
-| genre columns | 6 | final multi-label target after concept fusion |
+| `path` | path to `(mel, time)` or `(windows, mel, time)` | input to the shared CNN encoder |
+| `instrument_vector` | 41 | supervision for the instrument branch |
+| `rhythm_vector` | 10 | supervision for the rhythm branch |
+| `timbre_vector` | 35 | supervision for the timbre branch |
+| `harmony_vector` | 12 | tonal descriptor vector from the source dataset |
+| `genre` | 6 | final multi-label target after concept fusion |
 
-The vectors are stored as explicit numeric columns rather than JSON strings in a
-single CSV cell. The exact vector dimensions and column names are defined by
-`concept_fusion/contract.py` and `scripts/train_joint.py`. The four branch vectors
-are training targets: the fusion layer receives the four **predicted** concept
-vectors, preventing ground-truth concepts from leaking into genre inference.
+Each vector cell is a compact JSON array such as `[0,1,0]`. The exact vector
+dimensions and member order are defined by `scripts/build_vector_dataset.py` and
+can be printed by the trainer. The branch vectors are training targets: the fusion
+layer receives **predicted** concepts, preventing ground-truth concepts from
+leaking into genre inference.
 
 Print the machine-readable contract at any time with:
 
@@ -32,11 +36,17 @@ Print the machine-readable contract at any time with:
 python scripts/train_joint.py --print-dataset-schema
 ```
 
-The existing `full_dataset.csv` can still be used locally as a transitional
-dataset, but it has no 12-bin chroma vector. In that compatibility mode the
-harmony auxiliary loss is masked. Modal deliberately enables
-`--require-harmony-targets` for the future `dataset.csv`, so an incomplete file
-fails validation immediately.
+Regenerate the compact dataset deterministically with:
+
+```bash
+python scripts/build_vector_dataset.py --overwrite
+```
+
+The generated harmony vector contains the 12 tonal summary descriptors present in
+`full_dataset.csv`; it is not a chroma distribution. The current temporal harmony
+head expects 12 pitch-class probabilities, so its auxiliary loss remains masked
+until that head is changed to descriptor regression. The vector is preserved in
+the CSV without misinterpreting or normalizing it.
 
 The log-mel arrays are not stored in Git. The Modal data Volume must look like:
 
@@ -51,7 +61,7 @@ music-genre-data/
     └── <suffix>/<track-id>.npy
 ```
 
-The `logmel_songs` relative path is taken from each CSV `logmel_path`; its old
+The `logmel_songs` relative path is taken from each CSV `path`; its old
 Colab prefix is replaced by the Volume mount automatically.
 
 ## 2. One-time setup per collaborator

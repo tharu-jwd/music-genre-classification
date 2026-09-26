@@ -11,11 +11,12 @@ from scripts import train_joint as j
 
 def test_combined_dataset_schema_has_one_vector_per_branch():
     schema = j.dataset_schema()
-    assert schema["logmel_input"] == "logmel_path"
-    assert {name: len(columns) for name, columns in schema["branch_targets"].items()} == {
-        "instrument": 41, "rhythm": 10, "timbre": 35, "harmony": 12,
+    assert schema["logmel_input"] == "path"
+    assert {name: len(columns) for name, columns in schema["branch_vectors"].items()} == {
+        "instrument_vector": 41, "rhythm_vector": 10,
+        "timbre_vector": 35, "harmony_vector": 12,
     }
-    assert len(schema["fusion_target"]) == 6
+    assert len(schema["fusion_target"]["genre"]) == 6
 
 
 def test_harmony_supervision_reaches_branch_and_encoder_without_target_leakage():
@@ -110,6 +111,35 @@ def test_combined_dataset_masks_missing_chroma_targets(tmp_path):
             tmp_path, dataset_csv=dataset_csv, split_csv=split_csv,
             logmel_root=tmp_path / "logmel_songs", require_harmony_targets=True,
         )
+
+
+def test_compact_json_vectors_expand_for_training(tmp_path):
+    ids = [f"track_{i:07d}" for i in range(3)]
+    row = {
+        "instrument_vector": json.dumps([0] * 41),
+        "rhythm_vector": json.dumps([1.0] * 10),
+        "timbre_vector": json.dumps([2.0] * 35),
+        "harmony_vector": json.dumps([3.0] * 12),
+        "genre": json.dumps([0, 1, 0, 0, 0, 0]),
+    }
+    dataset = pd.DataFrame([
+        {"track_id": track_id, "path": f"logmel_songs/0/{i}.npy", **row}
+        for i, track_id in enumerate(ids)
+    ])
+    dataset_csv, split_csv = tmp_path / "dataset.csv", tmp_path / "splits.csv"
+    dataset.to_csv(dataset_csv, index=False)
+    pd.DataFrame({"track_id": ids, "split": ["train", "validation", "test"]}).to_csv(
+        split_csv, index=False
+    )
+
+    train, val, test, *_ = j.build_datasets(
+        tmp_path, dataset_csv=dataset_csv, split_csv=split_csv,
+        logmel_root=tmp_path / "logmel_songs",
+    )
+
+    assert [len(train), len(val), len(test)] == [1, 1, 1]
+    assert train.instrument.shape == (1, 41)
+    assert train.genre.tolist() == [[0, 1, 0, 0, 0, 0]]
 
 
 def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):
