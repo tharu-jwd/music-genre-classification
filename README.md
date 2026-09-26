@@ -74,8 +74,8 @@ three essential notebooks.
 
 ## Modal training
 
-The joint architecture is configured for the future combined `data/dataset.csv`
-contract on a persistent Modal GPU runner. See the [Modal training guide](docs/modal-training.md)
+The joint architecture is configured for `data/vector-dataset-normalized.csv`
+on a persistent Modal GPU runner. See the [Modal training guide](docs/modal-training.md)
 for per-account Volume setup, data upload, smoke-test, full-run, and result-download
 commands.
 

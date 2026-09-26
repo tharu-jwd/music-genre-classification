@@ -18,6 +18,7 @@ import modal
 APP_NAME = "music-genre-joint-training"
 DATA_VOLUME_NAME = "music-genre-data"
 RUNS_VOLUME_NAME = "music-genre-runs"
+DATASET_FILENAME = "vector-dataset-normalized.csv"
 PROJECT_DIR = Path("/root/project")
 DATA_MOUNT = Path("/data")
 RUNS_MOUNT = Path("/runs")
@@ -71,7 +72,7 @@ def train_remote(
         raise RuntimeError("Modal allocated no CUDA device")
 
     dataset_dir = DATA_MOUNT / "dataset"
-    dataset_csv = dataset_dir / "dataset.csv"
+    dataset_csv = dataset_dir / DATASET_FILENAME
     split_csv = dataset_dir / "track_split_assignments.csv"
     logmel_root = DATA_MOUNT / "logmel_songs"
     required = (dataset_csv, split_csv, logmel_root)

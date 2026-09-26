@@ -1,7 +1,7 @@
 # Training the joint architecture on Modal
 
-The Modal runner trains `scripts/train_joint.py` against the future
-`data/dataset.csv` contract.
+The Modal runner trains `scripts/train_joint.py` against
+`data/vector-dataset-normalized.csv`.
 Source code is built into a reproducible image, while large data and run outputs
 remain in persistent Modal Volumes. Each collaborator creates the same two Volume
 names in their own Modal workspace, so no credentials or workspace IDs belong in
@@ -53,7 +53,7 @@ The log-mel arrays are not stored in Git. The Modal data Volume must look like:
 ```text
 music-genre-data/
 ├── dataset/
-│   ├── dataset.csv
+│   ├── vector-dataset-normalized.csv
 │   ├── track_split_assignments.csv
 │   ├── logmel_config.json        # optional, required for stacked 3-D arrays
 │   └── logmel_audit.csv          # optional, required for stacked 3-D arrays
@@ -81,7 +81,9 @@ Upload the combined table, the tracked split assignments, and your local log-mel
 cache:
 
 ```bash
-modal volume put music-genre-data data/dataset.csv dataset/dataset.csv
+modal volume put music-genre-data \
+  data/vector-dataset-normalized.csv \
+  dataset/vector-dataset-normalized.csv
 modal volume put music-genre-data data/track_split_assignments.csv dataset/track_split_assignments.csv
 modal volume put music-genre-data /absolute/path/to/logmel_songs logmel_songs
 ```
@@ -136,8 +138,7 @@ output directory and can overwrite artifacts.
 
 ## Git hand-off
 
-The split assignments are already tracked. Once prepared, distribute
-`data/dataset.csv` through the project-approved dataset channel, then upload it to
-each collaborator's Modal Volume. Do not commit `.npy` arrays, Modal credentials,
+The normalized vector dataset and split assignments are tracked, so collaborators
+can upload both after cloning. Do not commit `.npy` arrays, Modal credentials,
 checkpoints, or results; the existing `.gitignore` keeps those large or private
 artifacts out of Git.
