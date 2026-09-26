@@ -11,9 +11,10 @@ Git.
 `full_dataset.csv` contains the log-mel path, instrument labels (official **40**
 are used; a leftover `ukulele` column is ignored), 10 rhythm targets, 35 timbre
 targets, and 6 genre labels. It does not contain the 12-bin chroma distribution
-used by the harmony auxiliary loss. The trainer still predicts harmony and feeds
-the pooled 12-D chroma into fusion, but masks the harmony auxiliary loss for this
-dataset. Do not treat the extra tonal summary columns as chroma bins.
+used by the harmony auxiliary loss, so the image ships the committed
+`data/harmony_df.csv` and passes it as `--harmony-csv`; the trainer joins the 12
+`chroma_*_mean` columns by `TRACK_ID`. A `dataset/harmony_df.csv` on the Volume
+takes precedence. Do not treat the extra tonal summary columns as chroma bins.
 
 The log-mel arrays are not stored in Git. The Modal data Volume must look like:
 

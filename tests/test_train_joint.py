@@ -98,6 +98,33 @@ def test_combined_dataset_masks_missing_chroma_targets(tmp_path):
     assert torch.isnan(train.harmony).all()
 
 
+def test_combined_dataset_takes_chroma_targets_from_harmony_table(tmp_path):
+    ids = [f"track_{i:07d}" for i in range(3)]
+    columns = [*j.INSTRUMENT_TAGS, *j.TIMBRE_FEATURES, *j.RHYTHM_FEATURES, *j.GENRE_TAGS]
+    frame = pd.DataFrame(np.ones((3, len(columns))), columns=columns)
+    frame.insert(0, "logmel_path", [f"logmel_songs/0/{i}.npy" for i in range(3)])
+    frame.insert(0, "TRACK_ID", ids)
+    frame["chroma_entropy_mean"] = 0.5  # tonal summaries are not chroma bins
+    frame.to_csv(tmp_path / "full_dataset.csv", index=False)
+    pd.DataFrame({"track_id": ids, "split": ["train", "validation", "test"]}).to_csv(
+        tmp_path / "track_split_assignments.csv", index=False
+    )
+    # Rows 0 and 2 have chroma; row 1 (validation) is absent from the harmony table.
+    chroma = np.arange(1, 13, dtype=float)
+    harmony = pd.DataFrame([chroma, chroma[::-1]], columns=j.CHROMA_COLS)
+    harmony.insert(0, "TRACK_ID", ["0", "track_0000002"])
+    harmony.to_csv(tmp_path / "harmony_df.csv", index=False)
+
+    train, val, test, *_ = j.build_datasets(
+        tmp_path, dataset_csv=tmp_path / "full_dataset.csv",
+        logmel_root=tmp_path / "logmel_songs",
+    )
+
+    torch.testing.assert_close(train.harmony[0], torch.tensor(chroma / chroma.sum(), dtype=torch.float32))
+    torch.testing.assert_close(test.harmony[0], torch.tensor(chroma[::-1] / chroma.sum(), dtype=torch.float32))
+    assert torch.isnan(val.harmony).all()
+
+
 def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):
     path = tmp_path / 'stack.npy'
     np.save(path, np.ones((3, 128, 469), dtype=np.float32))

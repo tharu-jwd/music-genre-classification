@@ -4,6 +4,8 @@ Joint training script for the 6-genre concept-bottleneck DNN.
 Data requirements (all in data/):
   full_dataset.csv            Combined targets + logmel_path (preferred)
   track_split_assignments.csv TRACK_ID, split (train/validation/test)
+  harmony_df.csv              TRACK_ID + chroma_*_mean; fills the 12 chroma
+                              targets the combined table does not carry
 
 The legacy seven-table layout is also supported:
   logmel_metadata.csv          TRACK_ID -> .npy log-mel path  (mel_bins, T) each
@@ -289,11 +291,34 @@ def resolve_logmel_path(raw: str, logmel_root: Path | None, data_dir: Path) -> s
     return str(path if path.is_absolute() else data_dir / path)
 
 
+def _attach_chroma_targets(master: pd.DataFrame, harmony_csv: Path | None) -> pd.DataFrame:
+    """Left-join the 12 chroma means by TRACK_ID when the combined table lacks them."""
+    if set(CHROMA_COLS).issubset(master.columns):
+        return master
+    if harmony_csv is None or not harmony_csv.is_file():
+        print("WARNING: no chroma_*_mean targets found; the harmony auxiliary loss is masked.")
+        return master
+    harmony = _norm_col(pd.read_csv(harmony_csv, dtype={"TRACK_ID": str}), "TRACK_ID")
+    missing_columns = sorted(set(CHROMA_COLS) - set(harmony.columns))
+    if missing_columns:
+        raise ValueError(f"{harmony_csv} is missing chroma columns: {missing_columns}")
+    if harmony["TRACK_ID"].duplicated().any():
+        raise ValueError(f"{harmony_csv} contains duplicate TRACK_ID values")
+    partial = sorted(set(CHROMA_COLS) & set(master.columns))
+    master = master.drop(columns=partial).merge(
+        harmony[["TRACK_ID", *CHROMA_COLS]], on="TRACK_ID", how="left", validate="one_to_one"
+    )
+    covered = int(master[CHROMA_COLS].notna().all(axis=1).sum())
+    print(f"  chroma targets from {harmony_csv.name}: {covered}/{len(master)} tracks")
+    return master
+
+
 def build_datasets(
     data_dir: Path,
     *,
     dataset_csv: Path | None = None,
     split_csv: Path | None = None,
+    harmony_csv: Path | None = None,
     timbre_std: TimbreStandardizer | None = None,
     rhythm_std: RhythmStandardizer | None = None,
     quick: bool = False,
@@ -307,11 +332,14 @@ def build_datasets(
     """Load, align, standardize, and split all data sources.
 
     ``dataset_csv`` selects the combined-table contract used by Modal.  If it is
-    omitted, the original seven-table contract remains available.
+    omitted, the original seven-table contract remains available. The combined
+    table has no 12-bin chroma, so ``harmony_csv`` (default
+    ``DATA_DIR/harmony_df.csv``) supplies the harmony auxiliary targets.
     """
     data_dir = Path(data_dir)
     dataset_csv = Path(dataset_csv) if dataset_csv is not None else None
     split_csv = Path(split_csv) if split_csv is not None else data_dir / "track_split_assignments.csv"
+    harmony_csv = Path(harmony_csv) if harmony_csv is not None else data_dir / "harmony_df.csv"
     root_config = data_dir / "logmel_root.txt"
     if logmel_root is None and root_config.is_file():
         logmel_root = Path(root_config.read_text(encoding="utf-8-sig").strip())
@@ -360,6 +388,7 @@ def build_datasets(
         if master["split"].isna().any():
             examples = master.loc[master["split"].isna(), "TRACK_ID"].head().tolist()
             raise ValueError(f"Combined dataset has tracks without split assignments: {examples}")
+        master = _attach_chroma_targets(master, harmony_csv)
     else:
         dfs = _load_csvs(data_dir)
         logmel = _norm_col(dfs["logmel_metadata"], "TRACK_ID")
@@ -418,10 +447,8 @@ def build_datasets(
         r_std = rhythm_std.transform(np.where(r_msk, r_raw, 0.0))
         r_std[~r_msk] = 0.0
 
-        # Normalise chroma to sum-1 distribution
-        # The combined initial-run table has harmony descriptors, but not the
-        # 12-bin chroma distribution required by the harmony auxiliary loss.
-        # Keep the predicted harmony branch in fusion and mask only its loss.
+        # Normalise chroma to sum-1 distribution. Tracks without chroma targets
+        # keep the predicted harmony branch in fusion and mask only its loss.
         if set(CHROMA_COLS).issubset(subset.columns):
             h_raw = subset[CHROMA_COLS].to_numpy(dtype=np.float32)
         else:
@@ -624,7 +651,7 @@ def train(cfg: "TrainConfig") -> None:
             print(f"  using combined table {dataset_csv}")
     train_ds, val_ds, test_ds, timbre_std, rhythm_std = build_datasets(
         data_dir, dataset_csv=dataset_csv, split_csv=cfg.split_csv,
-        quick=cfg.quick, logmel_root=cfg.logmel_root,
+        harmony_csv=cfg.harmony_csv, quick=cfg.quick, logmel_root=cfg.logmel_root,
         window_frames=cfg.window_frames, max_windows=cfg.max_windows
     )
 
@@ -871,6 +898,7 @@ class TrainConfig:
     data_dir:           Path | None = None
     dataset_csv:        Path | None = None
     split_csv:          Path | None = None
+    harmony_csv:        Path | None = None
     logmel_root:        Path | None = None
     window_frames:     int = 1366
     max_windows:       int = 12
@@ -901,6 +929,9 @@ def main() -> None:
                    help="Combined full_dataset.csv (preferred over legacy separate target CSVs)")
     p.add_argument("--split-csv", type=Path,
                    help="TRACK_ID/track_id + split CSV; defaults to DATA_DIR/track_split_assignments.csv")
+    p.add_argument("--harmony-csv", type=Path,
+                   help="TRACK_ID + chroma_*_mean CSV used when --dataset-csv lacks chroma; "
+                        "defaults to DATA_DIR/harmony_df.csv")
     args = p.parse_args()
     if args.window_frames < 1 or args.max_windows < 1:
         p.error("window-frames and max-windows must be positive")
@@ -922,6 +953,7 @@ def main() -> None:
         data_dir          = args.data_dir,
         dataset_csv       = args.dataset_csv,
         split_csv         = args.split_csv,
+        harmony_csv       = args.harmony_csv,
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,

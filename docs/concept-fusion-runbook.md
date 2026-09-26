@@ -106,8 +106,9 @@ python scripts/train_joint.py --quick --batch-size 1
 ```
 
 If `data/full_dataset.csv` exists it is used automatically. Extra `ukulele` is
-ignored. Missing chroma columns mask the harmony **loss** only; predicted chroma
-still enters fusion. Hosted GPU: [modal-training.md](modal-training.md).
+ignored. Its missing chroma columns are joined from `data/harmony_df.csv`
+(`--harmony-csv`). Tracks still without chroma mask the harmony **loss** only;
+predicted chroma still enters fusion. Hosted GPU: [modal-training.md](modal-training.md).
 
 1. Do not implement a second fusion in the trainer.
 2. Do not report scoped-6 AP as official 87-tag results.

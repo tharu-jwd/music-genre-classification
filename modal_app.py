@@ -26,8 +26,9 @@ app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name(DATA_VOLUME_NAME, create_if_missing=True)
 runs_volume = modal.Volume.from_name(RUNS_VOLUME_NAME, create_if_missing=True)
 
-# Only ship source and the small split manifest. The 8.5 MB combined table and
-# thousands of log-mel arrays are uploaded once to the persistent data Volume.
+# Only ship source and the committed chroma targets (full_dataset.csv has no
+# chroma_*_mean). The 8.5 MB combined table and thousands of log-mel arrays are
+# uploaded once to the persistent data Volume.
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
@@ -46,6 +47,7 @@ image = (
     .add_local_file("scripts/__init__.py", str(PROJECT_DIR / "scripts/__init__.py"))
     .add_local_file("scripts/train_joint.py", str(PROJECT_DIR / "scripts/train_joint.py"))
     .add_local_file("scripts/mtg_data_contract.py", str(PROJECT_DIR / "scripts/mtg_data_contract.py"))
+    .add_local_file("data/harmony_df.csv", str(PROJECT_DIR / "data/harmony_df.csv"))
 )
 
 
@@ -76,6 +78,9 @@ def train_remote(
     dataset_dir = DATA_MOUNT / "dataset"
     dataset_csv = dataset_dir / "full_dataset.csv"
     split_csv = dataset_dir / "track_split_assignments.csv"
+    harmony_csv = dataset_dir / "harmony_df.csv"
+    if not harmony_csv.is_file():
+        harmony_csv = PROJECT_DIR / "data/harmony_df.csv"
     logmel_root = DATA_MOUNT / "logmel_songs"
     required = (dataset_csv, split_csv, logmel_root)
     missing = [str(path) for path in required if not path.exists()]
@@ -92,6 +97,7 @@ def train_remote(
         "--data-dir", str(dataset_dir),
         "--dataset-csv", str(dataset_csv),
         "--split-csv", str(split_csv),
+        "--harmony-csv", str(harmony_csv),
         "--logmel-root", str(logmel_root),
         "--out-dir", str(out_dir),
         "--device", "cuda",

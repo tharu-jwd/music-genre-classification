@@ -14,7 +14,9 @@ and fusion. Frozen choices from the published branch contracts:
 Harmony is predicted from the shared audio sequence. The loss compares pooled
 predicted chroma against the 12 `chroma_*_mean` columns of `harmony_df.csv`,
 normalized to sum to one. These are song-level targets, not frame-level labels.
-Missing or invalid chroma rows are masked. Checkpoints include the learned
+`full_dataset.csv` carries no chroma bins, so the trainer joins them by
+`TRACK_ID` from `--harmony-csv` (default `DATA_DIR/harmony_df.csv`, which covers
+all 7,324 tracks). Missing or invalid chroma rows are masked. Checkpoints include the learned
 harmony weights, validation F1 thresholds, and one-batch gate-vs-occlusion.
 
 The instrument head is `instrument_branch.src.instrument_branch.InstrumentBranch`,
