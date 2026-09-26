@@ -25,7 +25,7 @@ from concept_fusion.validation import ContractError, require_finite, require_ten
 class TokenAssembler(nn.Module):
     """Build tokens (B, 4, 64) in CONCEPT_ORDER.
 
-    Primary ``predicted_concepts`` mode owns 40→64, 10→64, 35→64, and
+    Primary ``predicted_concepts`` mode owns official 40→64, 10→64, 35→64, and
     12→64 projections. ``embedding_fusion`` preserves the previous rhythm 64D
     embedding and harmony D→64 embedding route. Masks are applied after projection.
     """

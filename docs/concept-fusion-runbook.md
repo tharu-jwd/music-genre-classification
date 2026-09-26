@@ -96,13 +96,22 @@ B0 (legacy notebook CNN) is not in this runner.
 
 ---
 
-## After real branches land
+## Real joint training (fusion is already the mixer)
 
-1. Ratify the v0.3 predicted-concept contract and temporal masks.
-2. Supply real `BranchBundle` rows on official split-0 IDs instead of `make_cohort`.
-3. Supply accepted temporal harmony targets and ordered encoder features.
-4. Replace B1 with Dehan's CNN. Keep the same `run_all` entry point.
-5. Do not disable dropout on F-Gated if you will report occlusion.
+Predicted-concept fusion is the only mixer: official 40 / 10 / 35 / 12 → 64,
+masked gated fusion, 6 scoped genre logits. The live path is:
+
+```powershell
+python scripts/train_joint.py --quick --batch-size 1
+```
+
+If `data/full_dataset.csv` exists it is used automatically. Extra `ukulele` is
+ignored. Missing chroma columns mask the harmony **loss** only; predicted chroma
+still enters fusion. Hosted GPU: [modal-training.md](modal-training.md).
+
+1. Do not implement a second fusion in the trainer.
+2. Do not report scoped-6 AP as official 87-tag results.
+3. Do not disable dropout on F-Gated if you will report occlusion.
 
 ---
 

@@ -1,4 +1,4 @@
-"""Concept fusion, 87-label genre head, joint loss, metrics, and explainability.
+"""Concept fusion, scoped/official genre head, joint loss, metrics, and explainability.
 
 Built against the v0.3 predicted-concept fusion contract. Integration with real
 branch owners is a shape/mask assertion, not a reshape step.
@@ -11,7 +11,9 @@ from concept_fusion.contract import (
     FUSION_CONTRACT_VERSION,
     FUSED_DIM,
     DEFAULT_HARMONY_EMBEDDING_DIM,
+    GENRE_SCOPE,
     N_GENRE_TAGS,
+    OFFICIAL_N_GENRE_TAGS,
     N_INSTRUMENT_TAGS,
     N_RHYTHM_CONCEPTS,
     N_HARMONY_CHROMA,
@@ -27,9 +29,12 @@ from concept_fusion.types import BranchBundle, BranchOutput, FusionOutput
 from concept_fusion.model import ConceptBottleneckModel
 from concept_fusion.pipeline import run_all
 from concept_fusion.projections import TokenAssembler
+from concept_fusion.fusion import build_fusion
+from concept_fusion.instrument_adapter import from_instrument_branch
 from concept_fusion.rhythm_adapter import from_rhythm_branch
+from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.harmony_adapter import from_temporal_harmony_branch
-from concept_fusion.joint_loss import HarmonyTargets
+from concept_fusion.joint_loss import HarmonyTargets, JointLossOrchestrator, SongHarmonyTargets
 
 __all__ = [
     "CONCEPT_DROPOUT_P",
@@ -38,7 +43,9 @@ __all__ = [
     "FUSION_CONTRACT_VERSION",
     "FUSED_DIM",
     "DEFAULT_HARMONY_EMBEDDING_DIM",
+    "GENRE_SCOPE",
     "N_GENRE_TAGS",
+    "OFFICIAL_N_GENRE_TAGS",
     "N_INSTRUMENT_TAGS",
     "N_RHYTHM_CONCEPTS",
     "N_HARMONY_CHROMA",
@@ -54,8 +61,13 @@ __all__ = [
     "FusionOutput",
     "ConceptBottleneckModel",
     "TokenAssembler",
+    "build_fusion",
+    "from_instrument_branch",
     "from_rhythm_branch",
-    "HarmonyTargets",
+    "from_timbre_branch",
     "from_temporal_harmony_branch",
+    "HarmonyTargets",
+    "SongHarmonyTargets",
+    "JointLossOrchestrator",
     "run_all",
 ]

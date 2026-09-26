@@ -5,7 +5,7 @@ Reject violating tensors. Do not silently reshape, reorder, impute, or reinterpr
 Primary fusion uses predicted concepts from all four branches. The former rhythm
 embedding / harmony embedding path remains available only as ``embedding_fusion``.
 
-Instrument v2: 41 probabilities + logits, no fusion token. Fusion owns Linear(41, 64).
+Instrument v2: 40 official probabilities + logits, no fusion token. Fusion owns Linear(40, 64).
 Rhythm v2: 10 standardized predictions are primary; the 64D embedding is retained
 for the embedding-fusion ablation. Fusion owns Linear(10, 64) in the primary mode.
 Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
@@ -36,11 +36,16 @@ CONCEPT_ORDER: tuple[str, ...] = ("instrument", "rhythm", "timbre", "harmony")
 N_CONCEPTS = 4
 TOKEN_DIM = 64
 FUSED_DIM = 128
+# Official MTG-Jamendo split-0 has 87 genres. The current joint-training table
+# only labels these six; GenreHead is sized to this scoped set until an 87-column
+# table exists. Do not report scoped-6 scores as official 87-tag results.
+OFFICIAL_N_GENRE_TAGS = 87
 N_GENRE_TAGS = 6
 GENRE_TAGS: tuple[str, ...] = (
     "classical", "electronic", "folk", "hiphop", "jazz", "rock"
 )
-N_INSTRUMENT_TAGS = 41
+GENRE_SCOPE = "scoped_6_from_genres_df"
+N_INSTRUMENT_TAGS = 40
 N_RHYTHM_CONCEPTS = 10
 N_TIMBRE_CONCEPTS = 35
 N_HARMONY_CHROMA = 12
@@ -134,10 +139,10 @@ DEFAULT_SEEDS = (0, 1, 2)
 
 @dataclass(frozen=True)
 class ConceptCounts:
-    instrument: int = N_INSTRUMENT_TAGS  # 41
-    rhythm: int = N_RHYTHM_CONCEPTS       # 10
-    timbre: int = N_TIMBRE_CONCEPTS        # 35
-    harmony: int = N_HARMONY_CHROMA        # 12
+    instrument: int = N_INSTRUMENT_TAGS
+    rhythm: int = N_RHYTHM_CONCEPTS
+    timbre: int = N_TIMBRE_CONCEPTS
+    harmony: int = N_HARMONY_CHROMA
 
     def for_name(self, name: str) -> int:
         if name not in CONCEPT_ORDER:

@@ -8,7 +8,7 @@ Data requirements (all in data/):
 The legacy seven-table layout is also supported:
   logmel_metadata.csv          TRACK_ID -> .npy log-mel path  (mel_bins, T) each
   genres_df.csv                TRACK_ID + 6 genre columns
-  instrument_df.csv            TRACK_ID + 41 instrument columns
+  instrument_df.csv            TRACK_ID + official 40 instrument columns
   timbre_df.csv                TRACK_ID + 35 timbre descriptor columns
   rhythm_df.csv                TRACK_ID + 10 rhythm columns
   harmony_df.csv               TRACK_ID + chroma_*_mean cols (12 used)
@@ -42,6 +42,7 @@ from torch.utils.data import DataLoader, Dataset
 ROOT = Path(__file__).resolve().parents[1]
 for p in (
     ROOT,
+    ROOT / "instrument_branch" / "src",
     ROOT / "rhythm_branch" / "src",
     ROOT / "timbre_branch" / "src",
     ROOT / "harmony_branch" / "src",
@@ -51,6 +52,7 @@ for p in (
         sys.path.insert(0, s)
 
 from concept_fusion.contract import (
+    GENRE_SCOPE,
     GENRE_TAGS,
     INSTRUMENT_TAGS,
     N_GENRE_TAGS,
@@ -58,22 +60,35 @@ from concept_fusion.contract import (
     N_INSTRUMENT_TAGS,
     N_RHYTHM_CONCEPTS,
     N_TIMBRE_CONCEPTS,
+    OFFICIAL_N_GENRE_TAGS,
     ConceptCounts, TIMBRE_FEATURES, RHYTHM_FEATURES,
 )
 from concept_fusion.harmony_adapter import from_temporal_harmony_branch
 from concept_fusion.instrument_adapter import from_instrument_branch
+from concept_fusion.interventions import gate_vs_occlusion_correlation, occlude_each_concept
 from concept_fusion.joint_loss import SongHarmonyTargets, JointLossOrchestrator, LossWeights
+from concept_fusion.metrics import ranking_metrics
 from concept_fusion.model import ConceptBottleneckModel
 from concept_fusion.rhythm_adapter import from_rhythm_branch
+from concept_fusion.thresholds import apply_thresholds, f1_precision_recall, fit_thresholds
 from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.types import BranchBundle
 from harmony_branch.model import TemporalHarmonyBranch
+from instrument_branch.model import InstrumentBranch
 from scripts.mtg_data_contract import NOTEBOOK_DATA_CONTRACT
 from rhythm_branch.model import RhythmBranch
 from rhythm_branch.preprocessing import RhythmStandardizer
 from shared_encoder import SharedAudioEncoder
+from shared_encoder.constants import LOGMEL_HOP_LENGTH, LOGMEL_SAMPLE_RATE
 from timbre_branch.model import TimbreBranch
 from timbre_branch.preprocessing import TimbreStandardizer
+
+BEATS_COUNT_INDEX = RHYTHM_FEATURES.index("beats_count")
+ENCODER_MEL_DEFAULTS = {
+    "sample_rate": LOGMEL_SAMPLE_RATE,
+    "hop_length": LOGMEL_HOP_LENGTH,
+    "n_mels": 96,
+}
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -114,7 +129,7 @@ class MultiTargetDataset(Dataset):
         track_ids: list[str],
         npy_paths: list[str],
         genre_targets: np.ndarray,       # (N, 6)  float32 binary
-        instrument_targets: np.ndarray,  # (N, 41) float32 binary
+        instrument_targets: np.ndarray,  # (N, 40) float32 binary
         timbre_targets: np.ndarray,      # (N, 35) float32 standardized
         timbre_mask: np.ndarray,         # (N, 35) bool
         rhythm_targets: np.ndarray,      # (N, 10) float32 standardized
@@ -126,8 +141,8 @@ class MultiTargetDataset(Dataset):
         durations: dict[str, float] | None = None,
     ) -> None:
         self.mel_config = mel_config or {}
-        self.sample_rate = int(self.mel_config.get("sample_rate", 12000))
-        self.hop_length = int(self.mel_config.get("hop_length", 256))
+        self.sample_rate = int(self.mel_config.get("sample_rate", ENCODER_MEL_DEFAULTS["sample_rate"]))
+        self.hop_length = int(self.mel_config.get("hop_length", ENCODER_MEL_DEFAULTS["hop_length"]))
         self.durations = durations or {}
         self.window_frames = window_frames
         self.max_windows = max_windows
@@ -176,7 +191,7 @@ class MultiTargetDataset(Dataset):
                 window[:, frames:] = 0
         elif mel.ndim == 2:
             windows, mask, valid, starts = segment_logmel_with_metadata(
-                mel, n_mels=int(self.mel_config.get("n_mels", 96)),
+                mel, n_mels=int(self.mel_config.get("n_mels", ENCODER_MEL_DEFAULTS["n_mels"])),
                 n_frames=self.window_frames, max_windows=self.max_windows
             )
             # The shared window helper uses 12kHz/256; scale to this cache's geometry.
@@ -226,7 +241,7 @@ def collate_fn(batch):
         valid_frames,                          # (B, 1)
         window_start,                          # (B, 1)
         torch.stack(genre),                    # (B, 6)
-        torch.stack(instr),                    # (B, 41)
+        torch.stack(instr),                    # (B, 40)
         torch.stack(timbre),                   # (B, 35)
         torch.stack(timbre_mask),              # (B, 35)
         torch.stack(rhythm),                   # (B, 10)
@@ -234,30 +249,6 @@ def collate_fn(batch):
         torch.stack(harmony),                  # (B, 12)
         list(ids),
     )
-
-
-# ---------------------------------------------------------------------------
-# Instrument head (equivalent of the notebook v2 head)
-# ---------------------------------------------------------------------------
-
-class InstrumentHead(nn.Module):
-    """pooled_song (B, 128) -> 41 probabilities + logits."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.15))
-        self.classifier = nn.Linear(128, N_INSTRUMENT_TAGS)
-
-    def forward(self, pooled_song: Tensor) -> dict:
-        h = self.hidden(pooled_song)
-        logits = self.classifier(h)
-        return {
-            "concept_values": logits.sigmoid(),
-            "logits": logits,
-            "supervision_mask": torch.ones_like(logits),
-            "fusion_mask": torch.ones(len(logits), 1, device=logits.device),
-            "diagnostics": {"hidden": h.detach()},
-        }
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +317,14 @@ def build_datasets(
         logmel_root = Path(root_config.read_text(encoding="utf-8-sig").strip())
 
     config_path = data_dir / "logmel_config.json"
-    mel_config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.is_file() else {}
+    mel_config = dict(ENCODER_MEL_DEFAULTS)
+    if config_path.is_file():
+        mel_config.update(json.loads(config_path.read_text(encoding="utf-8-sig")))
+    if int(mel_config.get("n_mels", 96)) != 96 or int(mel_config["sample_rate"]) != LOGMEL_SAMPLE_RATE:
+        print(
+            "WARNING: log-Mel config is not shared_cnn_audio_encoder_v2 "
+            f"(96 mels, {LOGMEL_SAMPLE_RATE} Hz). Fusion will see a different geometry."
+        )
     audit_path = data_dir / "logmel_audit.csv"
     durations = {}
     if audit_path.is_file():
@@ -415,6 +413,8 @@ def build_datasets(
 
         r_raw = subset[rhythm_feat].to_numpy(dtype=np.float64)
         r_msk = np.isfinite(r_raw)
+        # Sampled encoder windows are not the full AcousticBrainz recording.
+        r_msk[:, BEATS_COUNT_INDEX] = False
         r_std = rhythm_std.transform(np.where(r_msk, r_raw, 0.0))
         r_std[~r_msk] = 0.0
 
@@ -447,7 +447,7 @@ def build_datasets(
 
 def _build_bundle(
     encoded,
-    instrument_head: InstrumentHead,
+    instrument_head: InstrumentBranch,
     timbre_head: TimbreBranch,
     rhythm_head: RhythmBranch,
     harmony_head: TemporalHarmonyBranch,
@@ -520,14 +520,14 @@ def _build_bundle(
 @torch.no_grad()
 def evaluate(
     encoder: SharedAudioEncoder,
-    instrument_head: InstrumentHead,
+    instrument_head: InstrumentBranch,
     timbre_head: TimbreBranch,
     rhythm_head: RhythmBranch,
     harmony_head: TemporalHarmonyBranch,
     fusion_model: ConceptBottleneckModel,
     loader: DataLoader,
     device: torch.device,
-) -> dict[str, float]:
+) -> tuple[dict[str, float], np.ndarray, np.ndarray]:
     for m in (encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model):
         m.eval()
 
@@ -559,23 +559,51 @@ def evaluate(
         all_probs.append(logits.sigmoid().cpu())
         all_targets.append(genre_tgt.cpu())
 
-    probs   = torch.cat(all_probs)     # (N, 6)
-    targets = torch.cat(all_targets)   # (N, 6)
+    probs = torch.cat(all_probs).numpy()
+    targets = torch.cat(all_targets).numpy()
+    ranking = ranking_metrics(targets, probs)
+    return (
+        {
+            "loss": total_loss / max(n_batches, 1),
+            "macro_ap": ranking.macro_ap,
+            "micro_ap": ranking.micro_ap,
+            "n_valid_tags": float(ranking.n_valid_tags),
+        },
+        probs,
+        targets,
+    )
 
-    # Tag-wise average precision → macro AP
-    ap_list = []
-    for t in range(targets.shape[1]):
-        gt = targets[:, t]
-        if gt.sum() == 0:
-            continue
-        p = probs[:, t]
-        idx = p.argsort(descending=True)
-        tp  = gt[idx].float().cumsum(0)
-        pr  = tp / torch.arange(1, len(tp) + 1, dtype=torch.float32)
-        ap_list.append((pr * gt[idx].float()).sum() / gt.sum().clamp(min=1))
 
-    macro_ap = float(torch.stack(ap_list).mean()) if ap_list else 0.0
-    return {"loss": total_loss / max(n_batches, 1), "macro_ap": macro_ap}
+@torch.no_grad()
+def faithfulness_on_loader(
+    encoder: SharedAudioEncoder,
+    instrument_head: InstrumentBranch,
+    timbre_head: TimbreBranch,
+    rhythm_head: RhythmBranch,
+    harmony_head: TemporalHarmonyBranch,
+    fusion_model: ConceptBottleneckModel,
+    loader: DataLoader,
+    device: torch.device,
+) -> dict[str, Any]:
+    batch = next(iter(loader))
+    (mel, wm, vf, ws, genre_tgt, instr_tgt, timbre_tgt, timbre_msk,
+     rhythm_tgt, rhythm_msk, harmony_chroma, _ids) = [
+        b.to(device) if isinstance(b, Tensor) else b for b in batch
+    ]
+    encoded = encoder(mel, wm, vf, ws, sample_rate=loader.dataset.sample_rate, hop_length=loader.dataset.hop_length)
+    bundle, _ = _build_bundle(
+        encoded, instrument_head, timbre_head, rhythm_head, harmony_head,
+        instr_tgt=instr_tgt, timbre_tgt=timbre_tgt, timbre_msk=timbre_msk,
+        rhythm_tgt=rhythm_tgt, rhythm_msk=rhythm_msk,
+        harmony_chroma=harmony_chroma, device=device,
+    )
+    tokens = fusion_model.assemble_tokens(bundle)
+    mask = bundle.fusion_mask()
+    _, fout = fusion_model(tokens, mask, apply_dropout=False)
+    occ = occlude_each_concept(fusion_model, tokens, mask, dropout_was_trained=True)
+    report = gate_vs_occlusion_correlation(fout.gates, occ)
+    report["abs_mean_delta"] = {name: occ[name].abs_mean_delta for name in occ}
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -587,9 +615,15 @@ def train(cfg: "TrainConfig") -> None:
     print(f"Device: {device}")
 
     print("Loading data...")
-    data_dir = cfg.data_dir or ROOT / "data"
+    data_dir = Path(cfg.data_dir or ROOT / "data")
+    dataset_csv = cfg.dataset_csv
+    if dataset_csv is None:
+        combined = data_dir / "full_dataset.csv"
+        if combined.is_file():
+            dataset_csv = combined
+            print(f"  using combined table {dataset_csv}")
     train_ds, val_ds, test_ds, timbre_std, rhythm_std = build_datasets(
-        data_dir, dataset_csv=cfg.dataset_csv, split_csv=cfg.split_csv,
+        data_dir, dataset_csv=dataset_csv, split_csv=cfg.split_csv,
         quick=cfg.quick, logmel_root=cfg.logmel_root,
         window_frames=cfg.window_frames, max_windows=cfg.max_windows
     )
@@ -614,7 +648,7 @@ def train(cfg: "TrainConfig") -> None:
 
     # Models
     encoder        = SharedAudioEncoder().to(device)
-    instrument_head = InstrumentHead().to(device)
+    instrument_head = InstrumentBranch().to(device)
     timbre_head    = TimbreBranch().to(device)
     rhythm_head    = RhythmBranch().to(device)
     harmony_head = TemporalHarmonyBranch(128, chord_classes=None).to(device)
@@ -647,7 +681,9 @@ def train(cfg: "TrainConfig") -> None:
         )
     ).to(device)
 
-    out_dir = ROOT / cfg.out_dir
+    out_dir = Path(cfg.out_dir)
+    if not out_dir.is_absolute():
+        out_dir = ROOT / out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     best_val_ap = -1.0
@@ -700,10 +736,11 @@ def train(cfg: "TrainConfig") -> None:
         elapsed    = time.perf_counter() - t0
 
         print("Evaluating validation split...", flush=True)
-        val_metrics = evaluate(
+        val_metrics, val_prob, val_y = evaluate(
             encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
             fusion_model, val_loader, device,
         )
+        val_thresholds = fit_thresholds(val_y, val_prob)
         val_ap = val_metrics["macro_ap"]
 
         print(
@@ -748,15 +785,20 @@ def train(cfg: "TrainConfig") -> None:
                 "max_windows": cfg.max_windows,
                 "harmony_target_columns": CHROMA_COLS,
                 "harmony_strategy":  "predicted_chroma_song_mean_supervision",
+                "genre_scope": GENRE_SCOPE,
+                "official_n_genre_tags": OFFICIAL_N_GENRE_TAGS,
+                "val_thresholds": val_thresholds,
+                "beats_count_masked": True,
+                "rhythm_input_scope": "sampled_windows",
             }
             torch.save(ckpt, out_dir / "best.pt")
             print(f"  -> saved best checkpoint  (val_macro_ap={val_ap:.4f})")
 
-    test_metrics = {"macro_ap": None, "loss": None}
-    best = {"epoch": best_epoch, "val_macro_ap": best_val_ap}
-    if cfg.evaluate_test:
-        # Test evaluation using best checkpoint
-        print("\nLoading best checkpoint for test evaluation...")
+    test_metrics: dict[str, Any] = {"macro_ap": None, "loss": None}
+    best = {"epoch": best_epoch, "val_macro_ap": best_val_ap, "val_thresholds": None}
+    faithfulness: dict[str, Any] = {}
+    if (out_dir / "best.pt").is_file():
+        print("\nLoading best checkpoint for test evaluation and occlusion...")
         best = torch.load(out_dir / "best.pt", map_location=device, weights_only=False)
         encoder.load_state_dict(best["encoder"])
         instrument_head.load_state_dict(best["instrument_head"])
@@ -764,23 +806,37 @@ def train(cfg: "TrainConfig") -> None:
         rhythm_head.load_state_dict(best["rhythm_head"])
         harmony_head.load_state_dict(best["harmony_head"])
         fusion_model.load_state_dict(best["fusion_model"])
-
-        test_metrics = evaluate(
+        faithfulness = faithfulness_on_loader(
             encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
-            fusion_model, test_loader, device,
+            fusion_model, val_loader, device,
         )
-        print(
-            f"\nTest: macro_ap={test_metrics['macro_ap']:.4f}  "
-            f"loss={test_metrics['loss']:.4f}"
-        )
+        (out_dir / "faithfulness.json").write_text(json.dumps(faithfulness, indent=2), encoding="utf-8")
+        if cfg.evaluate_test:
+            test_metrics, test_prob, test_y = evaluate(
+                encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
+                fusion_model, test_loader, device,
+            )
+            if best.get("val_thresholds"):
+                pred = apply_thresholds(test_prob, best["val_thresholds"])
+                test_metrics.update(f1_precision_recall(test_y, pred))
+            print(
+                f"\nTest: macro_ap={test_metrics['macro_ap']:.4f}  "
+                f"loss={test_metrics['loss']:.4f}"
+            )
 
     summary: dict[str, Any] = {
         "mel_config": train_ds.mel_config,
+        "genre_scope": GENRE_SCOPE,
+        "official_n_genre_tags": OFFICIAL_N_GENRE_TAGS,
+        "n_instrument_tags": N_INSTRUMENT_TAGS,
         "test_evaluated": cfg.evaluate_test,
         "best_epoch":    int(best["epoch"]),
         "val_macro_ap":  float(best["val_macro_ap"]),
         "test_macro_ap": test_metrics["macro_ap"],
         "test_loss":     test_metrics["loss"],
+        "test_macro_f1": test_metrics.get("macro_f1"),
+        "val_thresholds": best.get("val_thresholds"),
+        "faithfulness":  faithfulness,
         "genre_tags":    list(GENRE_TAGS),
         "n_train":       len(train_ds),
         "n_val":         len(val_ds),
@@ -873,8 +929,8 @@ def main() -> None:
 
     print("=" * 60)
     print("Joint concept-bottleneck training")
-    print(f"  Genres     : {N_GENRE_TAGS} tags -> {list(GENRE_TAGS)}")
-    print(f"  Instrument : {N_INSTRUMENT_TAGS} tags")
+    print(f"  Genres     : {N_GENRE_TAGS} scoped tags -> {list(GENRE_TAGS)} (official={OFFICIAL_N_GENRE_TAGS})")
+    print(f"  Instrument : {N_INSTRUMENT_TAGS} official tags")
     print(f"  Timbre     : {N_TIMBRE_CONCEPTS} descriptors")
     print(f"  Rhythm     : {N_RHYTHM_CONCEPTS} AcousticBrainz fields")
     print(f"  Harmony    : {N_HARMONY_CHROMA} predicted chroma bins (CSV song-mean supervision)")

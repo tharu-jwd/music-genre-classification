@@ -20,11 +20,11 @@ This record freezes the 11 decisions in the ownership brief §8. Branch owners s
 | 2 | Primary fusion | **Masked gated fusion** over LayerNorm tokens. Score is a scalar linear `w⊤ h_k`. Softmax only over enabled branches. Disabled gates are **exactly 0**. | Heterogeneous branches need an explicit availability mask; gating is the proposed contribution. |
 | 3 | Self-attention | Keep as named ablation **F-Attn**, not primary. | Attention weights are not explanations ([Jain & Wallace 2019](https://aclanthology.org/N19-1357/)). |
 | 4 | Gate type | **Global per-track gates** in the primary model. Genre-conditioned 87×4 gates are a named ablation only. | 87×4 gates on a few thousand tracks will overfit; interpretation gets worse. |
-| 5 | Bottleneck units | **Instrument v2:** 40 probabilities + logits; fusion owns `Linear(40,64)`. **Rhythm v1:** mel-derived temporal encoder supplies a learned `(B,64)` token plus ten standardized AcousticBrainz predictions used only for auxiliary loss. **Timbre v2:** 35 standardized descriptors; fusion owns `Linear(35,64)`. **Harmony v1:** temporal chroma `(B,T,12)`, optional chords `(B,T,25)`, and configurable song embedding; fusion owns `Linear(D_harmony,64)`. | Published branch contracts plus the CPU-tested temporal adapters. |
+| 5 | Bottleneck units | **Instrument v2:** official 40 probabilities + logits; fusion owns `Linear(40,64)`. **Rhythm v2:** 10 standardized predictions are primary (`Linear(10,64)`); the 64D embedding is F-Embedding only. **Timbre v2:** 35 standardized descriptors; fusion owns `Linear(35,64)`. **Harmony v2:** pooled 12-bin chroma is primary (`Linear(12,64)`); song-mean CSV chroma is auxiliary loss only. | Published branch contracts. `ukulele` is not in official split-0. |
 | 6 | Token normalization | **LayerNorm each token before fusion. Non-negotiable.** | Instrument embedding vs rhythm scalars are different geometries. |
 | 7 | Concept dropout | **p = 0.15** per branch during **training only**. Never drop all four. All-masked fallback: **learned null token**. | **Hard dependency:** no dropout ⇒ no occlusion faithfulness. Masking at test would be OOD. |
 | 8 | Loss weights | Each concept loss is a **mean over observed elements** (unit scale). Start **λ = 1**. Adjust only for a recorded instability or ineffective gradient; Kendall weighting is a named comparison, not a broad sweep. | Stops large target sets from dominating by count while respecting the compute plan. |
-| 9 | Thresholds | **Per-tag** threshold maximizing **validation F1**. Tags with support `< 10` use **global 0.5**. Never fit on test. | 87 imbalanced labels; one global threshold is too crude. |
+| 9 | Thresholds | **Per-tag** threshold maximizing **validation F1**. Tags with support `< 10` use **global 0.5**. Never fit on test. | Official task is 87 tags; the current trainer is a scoped 6-genre table. |
 | 10 | Explanations | Report gates **and** occlusion deltas. Rank correlation is required. Attention/gates alone are insufficient. | Same fusion-mask mechanism as dropout. |
 | 11 | Runs | JSON `RunRecord` with config hash, seed, git SHA. Tables generated from files. Seeds: **3** for B1 / F-Concat / F-Gated; **1** for everything else. | Colab cannot host 33+ full trainings. |
 
@@ -80,12 +80,11 @@ Its ten standardized predictions are `concept_values` and primary fusion owns
 `Linear(10,64)`. Its learned 64D embedding is retained for `embedding_fusion` only.
 AcousticBrainz values are targets and never branch inputs.
 
-Harmony (integration candidate): `embedding (B,D_harmony)`, temporal chroma logits
-`(B,T,12)`, optional chord logits `(B,T,25)`, prediction/target masks, and branch
-availability. **No `fusion_token`.** Primary fusion owns `Linear(12,64)` over the
-valid-token mean of per-token predicted chroma probabilities. `Linear(D_harmony,64)`
-over the embedding remains an ablation. Auxiliary loss uses temporal logits through
-`HarmonyTargets`.
+Harmony (integration candidate): temporal chroma logits `(B,T,12)` are pooled to
+`(B,12)` for primary fusion (`Linear(12,64)`). Joint training supervises that
+prediction with song-level `chroma_*_mean` columns (`SongHarmonyTargets`), not
+frame labels and not the extra 45-D descriptor table. The 32D embedding is
+F-Embedding only. Chords stay optional and off until a teacher is accepted.
 
 ---
 

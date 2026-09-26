@@ -12,13 +12,13 @@ from concept_fusion.validation import ContractError
 def from_instrument_branch(output: dict, *, name: str = "instrument") -> BranchOutput:
     """Map the v2 instrument notebook dict onto BranchOutput.
 
-    Required keys: concept_values (B,41), logits (B,41),
-    supervision_mask (B,41), fusion_mask (B,1).
+    Required keys: concept_values (B,40), logits (B,40),
+    supervision_mask (B,40), fusion_mask (B,1).
     Optional: diagnostics.hidden (B,128), detached.
     """
     if "fusion_token" in output and output["fusion_token"] is not None:
         raise ContractError(
-            "instrument v2 must not return fusion_token; fusion owns Linear(41,64)"
+            "instrument v2 must not return fusion_token; fusion owns Linear(40,64)"
         )
     for key in ("concept_values", "logits", "supervision_mask", "fusion_mask"):
         if key not in output:

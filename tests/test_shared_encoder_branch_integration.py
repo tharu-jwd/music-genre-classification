@@ -6,11 +6,11 @@ import sys
 from pathlib import Path
 
 import torch
-from torch import nn
 from torch.nn import functional as F
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "instrument_branch" / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "rhythm_branch" / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "timbre_branch" / "src"))
 
@@ -22,35 +22,16 @@ from concept_fusion.rhythm_adapter import from_rhythm_branch
 from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.types import BranchBundle
 from harmony_branch.model import TemporalHarmonyBranch
+from instrument_branch.model import InstrumentBranch
 from rhythm_branch.model import RhythmBranch, RhythmBranchConfig
 from shared_encoder import SharedAudioEncoder
 from timbre_branch.model import TimbreBranch
 
 
-class _InstrumentHead(nn.Module):
-    """Importable equivalent of the notebook-owned instrument v2 head."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.1))
-        self.classifier = nn.Linear(128, 41)
-
-    def forward(self, pooled_song: torch.Tensor) -> dict:
-        hidden = self.hidden(pooled_song)
-        logits = self.classifier(hidden)
-        return {
-            "concept_values": logits.sigmoid(),
-            "logits": logits,
-            "supervision_mask": torch.ones_like(logits),
-            "fusion_mask": torch.ones(len(logits), 1, device=logits.device),
-            "diagnostics": {"hidden": hidden.detach()},
-        }
-
-
 def _live_stack():
     torch.manual_seed(23)
     encoder = SharedAudioEncoder()
-    instrument_head = _InstrumentHead()
+    instrument_head = InstrumentBranch()
     timbre_head = TimbreBranch()
     rhythm_head = RhythmBranch(RhythmBranchConfig(dropout=0))
     harmony_head = TemporalHarmonyBranch(
@@ -113,7 +94,7 @@ def test_one_encoder_output_satisfies_all_four_branch_interfaces():
     assert encoded.pooled_song.shape == (2, 128)
     assert encoded.window_repr.shape == (2, 2, 128)
     assert encoded.encoded_sequence.shape == (2, 10, 128)
-    assert instrument["concept_values"].shape == (2, 41)
+    assert instrument["concept_values"].shape == (2, 40)
     assert timbre.shape == (2, 35)
     assert rhythm.embedding.shape == (2, 64)
     assert rhythm.predictions.shape == (2, 10)

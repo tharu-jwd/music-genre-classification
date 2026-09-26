@@ -11,13 +11,13 @@ from scripts import train_joint as j
 def test_harmony_supervision_reaches_branch_and_encoder_without_target_leakage():
     torch.manual_seed(7)
     encoder = j.SharedAudioEncoder().eval()
-    heads = [j.InstrumentHead(), j.TimbreBranch(), j.RhythmBranch(),
+    heads = [j.InstrumentBranch(), j.TimbreBranch(), j.RhythmBranch(),
              j.TemporalHarmonyBranch(128)]
     for head in heads:
         head.eval()
     encoded = encoder(torch.randn(2, 2, 1, 16, 12), torch.ones(2, 2, dtype=torch.bool),
                       torch.full((2, 2), 12), torch.tensor([[0., 10.], [0., 10.]]))
-    kwargs = dict(instr_tgt=torch.zeros(2, 41), timbre_tgt=torch.zeros(2, 35),
+    kwargs = dict(instr_tgt=torch.zeros(2, 40), timbre_tgt=torch.zeros(2, 35),
                   timbre_msk=torch.ones(2, 35, dtype=torch.bool),
                   rhythm_tgt=torch.zeros(2, 10), rhythm_msk=torch.ones(2, 10, dtype=torch.bool),
                   harmony_chroma=torch.softmax(torch.randn(2, 12), -1), device=torch.device('cpu'))
@@ -64,7 +64,9 @@ def test_training_saves_and_reloads_learned_harmony(tmp_path, monkeypatch):
     checkpoint = torch.load(tmp_path / 'results/joint/best.pt', weights_only=False)
     assert checkpoint['harmony_head']
     assert checkpoint['harmony_strategy'] == 'predicted_chroma_song_mean_supervision'
-    assert checkpoint['n_instrument_tags'] == 41
+    assert checkpoint['n_instrument_tags'] == 40
+    assert checkpoint['beats_count_masked'] is True
+    assert checkpoint['val_thresholds']['per_tag']
     assert json.loads((tmp_path / 'results/joint/results.json').read_text())['n_test'] == 2
 
 
@@ -99,7 +101,7 @@ def test_combined_dataset_masks_missing_chroma_targets(tmp_path):
 def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):
     path = tmp_path / 'stack.npy'
     np.save(path, np.ones((3, 128, 469), dtype=np.float32))
-    ds = j.MultiTargetDataset(['1'], [str(path)], np.zeros((1, 6)), np.zeros((1, 41)),
+    ds = j.MultiTargetDataset(['1'], [str(path)], np.zeros((1, 6)), np.zeros((1, 40)),
         np.zeros((1, 35)), np.ones((1, 35), bool), np.zeros((1, 10)),
         np.ones((1, 10), bool), np.ones((1, 12)) / 12, max_windows=2,
         mel_config={'sample_rate': 16000, 'hop_length': 512, 'window_seconds': 15,

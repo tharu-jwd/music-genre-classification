@@ -1,4 +1,4 @@
-"""Concept-bottleneck fusion model: tokens + masks → 87 logits. No audio shortcut."""
+"""Concept-bottleneck fusion model: tokens + masks → genre logits. No audio shortcut."""
 
 from __future__ import annotations
 
