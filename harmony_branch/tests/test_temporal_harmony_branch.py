@@ -25,6 +25,14 @@ def fixture():
 
 
 class TemporalHarmonyBranchTest(unittest.TestCase):
+    def test_optional_song_descriptor_head_uses_masked_embedding(self):
+        model = TemporalHarmonyBranch(6, descriptor_dim=12, dropout=0).eval()
+        sequence, mask, window_index = fixture()
+        output = model(sequence, mask, window_index, windows=2, tokens_per_window=4)
+        self.assertEqual(output.descriptor_values.shape, (2, 12))
+        self.assertGreater(output.descriptor_values[0].abs().sum().item(), 0)
+        self.assertEqual(output.descriptor_values[1].abs().sum().item(), 0)
+
     def test_configurable_outputs_and_entirely_unavailable_song(self):
         model = TemporalHarmonyBranch(
             6, embedding_dim=13, hidden_dim=9, temporal_layers=2, chord_classes=25, dropout=0

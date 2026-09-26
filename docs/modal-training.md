@@ -43,10 +43,9 @@ python scripts/build_vector_dataset.py --overwrite
 ```
 
 The generated harmony vector contains the 12 tonal summary descriptors present in
-`full_dataset.csv`; it is not a chroma distribution. The current temporal harmony
-head expects 12 pitch-class probabilities, so its auxiliary loss remains masked
-until that head is changed to descriptor regression. The vector is preserved in
-the CSV without misinterpreting or normalizing it.
+`full_dataset.csv`; it is not a chroma distribution. The joint trainer fits a
+training-split-only standardizer and supervises a song-level descriptor head with
+masked Smooth L1 loss. Its predicted descriptor vector enters fusion.
 
 The log-mel arrays are not stored in Git. The runner mounts two input Volumes:
 
@@ -155,7 +154,7 @@ Use a new `--run-name` for every experiment. Runs with the same name share an
 output directory and can overwrite artifacts.
 
 `results.json` includes per-epoch validation metrics for the genre, instrument,
-rhythm, timbre, and (when chroma targets are available) harmony outputs. Aggregate
+rhythm, timbre, and harmony outputs. Aggregate
 branch metrics are printed after each validation pass; per-tag and per-feature
 details are retained in the JSON for architecture comparisons.
 

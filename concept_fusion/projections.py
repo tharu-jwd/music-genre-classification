@@ -25,8 +25,10 @@ from concept_fusion.validation import ContractError, require_finite, require_ten
 class TokenAssembler(nn.Module):
     """Build tokens (B, 4, 64) in CONCEPT_ORDER.
 
-    Primary ``predicted_concepts`` mode owns 40→64, 10→64, 35→64, and
-    12→64 projections. ``embedding_fusion`` preserves the previous rhythm 64D
+    Primary ``predicted_concepts`` mode owns 41→64, 10→64, 35→64, and
+    12→64 projections. The harmony input is the configured 12-value predicted
+    concept vector (song descriptors in joint vector-dataset training).
+    ``embedding_fusion`` preserves the previous rhythm 64D
     embedding and harmony D→64 embedding route. Masks are applied after projection.
     """
 
@@ -88,11 +90,12 @@ class TokenAssembler(nn.Module):
             require_finite("timbre.concept_values", z)
             return self.timbre_projection(z) * br.fusion_mask
         if br.name == "harmony":
-            chroma = require_tensor(
+            harmony_values = require_tensor(
                 "harmony.concept_values", br.concept_values, ndim=2, last=N_HARMONY_CHROMA
             )
-            require_finite("harmony.concept_values", chroma)
-            return self.harmony_chroma_projection(chroma) * br.fusion_mask
+            require_finite("harmony.concept_values", harmony_values)
+            # Keep the historical parameter name for checkpoint compatibility.
+            return self.harmony_chroma_projection(harmony_values) * br.fusion_mask
         raise ContractError(f"no predicted-concept projection for {br.name}")
 
     def _embedding_fusion_token(self, br) -> torch.Tensor:

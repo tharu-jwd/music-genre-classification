@@ -15,15 +15,12 @@ for path in (ROOT, ROOT / "rhythm_branch" / "src", ROOT / "timbre_branch" / "src
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from concept_fusion.contract import GENRE_TAGS, INSTRUMENT_TAGS, RHYTHM_FEATURES, TIMBRE_FEATURES
-
-
-HARMONY_FEATURES: tuple[str, ...] = (
-    "tonal_concentration_mean", "tonal_concentration_std",
-    "chroma_entropy_mean", "chroma_entropy_std",
-    "chroma_flux_mean", "chroma_flux_std",
-    "tonnetz_movement_mean", "tonnetz_movement_std",
-    "valid_tonal_ratio", "tonnetz_01_mean", "tonnetz_02_mean", "tonnetz_03_mean",
+from concept_fusion.contract import (
+    GENRE_TAGS,
+    HARMONY_FEATURES,
+    INSTRUMENT_TAGS,
+    RHYTHM_FEATURES,
+    TIMBRE_FEATURES,
 )
 VECTOR_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("instrument_vector", tuple(INSTRUMENT_TAGS)),

@@ -10,9 +10,10 @@ Rhythm v2: 10 standardized predictions are primary; the 64D embedding is retaine
 for the embedding-fusion ablation. Fusion owns Linear(10, 64) in the primary mode.
 Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
 Fusion owns Linear(35, 64).
-Harmony v2: masked-pooled probabilities from temporal 12-bin chroma logits are
-primary. Its 32D song embedding is retained for the embedding-fusion ablation.
-Chords remain an optional temporal auxiliary target and never enter primary fusion.
+Harmony v3: 12 standardized song-level descriptor predictions are primary during
+joint vector-dataset training. Temporal 12-bin chroma logits remain available for
+aligned chroma supervision, and the 32D song embedding remains available for the
+embedding-fusion ablation. Chords never enter primary fusion.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ N_INSTRUMENT_TAGS = 41
 N_RHYTHM_CONCEPTS = 10
 N_TIMBRE_CONCEPTS = 35
 N_HARMONY_CHROMA = 12
+N_HARMONY_DESCRIPTORS = 12
 N_HARMONY_CHORDS = 25
 DEFAULT_HARMONY_EMBEDDING_DIM = 32
 INSTRUMENT_HIDDEN_DIM = 128
@@ -68,6 +70,15 @@ def _load_instrument_tags() -> tuple[str, ...]:
 
 
 INSTRUMENT_TAGS: tuple[str, ...] = _load_instrument_tags()
+
+HARMONY_FEATURES: tuple[str, ...] = (
+    "tonal_concentration_mean", "tonal_concentration_std",
+    "chroma_entropy_mean", "chroma_entropy_std",
+    "chroma_flux_mean", "chroma_flux_std",
+    "tonnetz_movement_mean", "tonnetz_movement_std",
+    "valid_tonal_ratio", "tonnetz_01_mean", "tonnetz_02_mean", "tonnetz_03_mean",
+)
+assert len(HARMONY_FEATURES) == N_HARMONY_DESCRIPTORS
 
 
 def _load_timbre_features() -> tuple[str, ...]:
@@ -137,7 +148,7 @@ class ConceptCounts:
     instrument: int = N_INSTRUMENT_TAGS  # 41
     rhythm: int = N_RHYTHM_CONCEPTS       # 10
     timbre: int = N_TIMBRE_CONCEPTS        # 35
-    harmony: int = N_HARMONY_CHROMA        # 12
+    harmony: int = N_HARMONY_DESCRIPTORS   # 12 song-level harmony descriptors
 
     def for_name(self, name: str) -> int:
         if name not in CONCEPT_ORDER:

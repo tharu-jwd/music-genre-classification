@@ -11,7 +11,7 @@ The legacy seven-table layout is also supported:
   instrument_df.csv            TRACK_ID + 41 instrument columns
   timbre_df.csv                TRACK_ID + 35 timbre descriptor columns
   rhythm_df.csv                TRACK_ID + 10 rhythm columns
-  harmony_df.csv               TRACK_ID + chroma_*_mean cols (12 used)
+  harmony_df.csv               TRACK_ID + 12 song-level harmony descriptors
 
 Usage:
     python scripts/train_joint.py
@@ -32,7 +32,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
@@ -52,9 +51,10 @@ for p in (
 
 from concept_fusion.contract import (
     GENRE_TAGS,
+    HARMONY_FEATURES,
     INSTRUMENT_TAGS,
     N_GENRE_TAGS,
-    N_HARMONY_CHROMA,
+    N_HARMONY_DESCRIPTORS,
     N_INSTRUMENT_TAGS,
     N_RHYTHM_CONCEPTS,
     N_TIMBRE_CONCEPTS,
@@ -62,7 +62,7 @@ from concept_fusion.contract import (
 )
 from concept_fusion.harmony_adapter import from_temporal_harmony_branch
 from concept_fusion.instrument_adapter import from_instrument_branch
-from concept_fusion.joint_loss import SongHarmonyTargets, JointLossOrchestrator, LossWeights
+from concept_fusion.joint_loss import JointLossOrchestrator, LossWeights
 from concept_fusion.model import ConceptBottleneckModel
 from concept_fusion.rhythm_adapter import from_rhythm_branch
 from concept_fusion.timbre_adapter import from_timbre_branch
@@ -74,17 +74,57 @@ from rhythm_branch.preprocessing import RhythmStandardizer
 from shared_encoder import SharedAudioEncoder
 from timbre_branch.model import TimbreBranch
 from timbre_branch.preprocessing import TimbreStandardizer
-from scripts.build_vector_dataset import HARMONY_FEATURES, VECTOR_GROUPS
+from scripts.build_vector_dataset import VECTOR_GROUPS
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-CHROMA_COLS: list[str] = [
-    "chroma_c_mean", "chroma_csharp_mean", "chroma_d_mean", "chroma_dsharp_mean",
-    "chroma_e_mean", "chroma_f_mean", "chroma_fsharp_mean", "chroma_g_mean",
-    "chroma_gsharp_mean", "chroma_a_mean", "chroma_asharp_mean", "chroma_b_mean",
-]
-assert len(CHROMA_COLS) == N_HARMONY_CHROMA, "CHROMA_COLS must have 12 entries"
+@dataclass
+class HarmonyStandardizer:
+    """Leakage-safe z-score transform for the 12 harmony descriptors."""
+
+    mean: np.ndarray | None = None
+    scale: np.ndarray | None = None
+    count: np.ndarray | None = None
+    epsilon: float = 1e-8
+
+    def fit(self, values: np.ndarray, valid_mask: np.ndarray) -> "HarmonyStandardizer":
+        values = np.asarray(values, dtype=np.float64)
+        valid_mask = np.asarray(valid_mask, dtype=bool)
+        expected_width = len(HARMONY_FEATURES)
+        if values.ndim != 2 or values.shape[1] != expected_width:
+            raise ValueError(f"Expected harmony targets [samples, {expected_width}], got {values.shape}")
+        if valid_mask.shape != values.shape:
+            raise ValueError("harmony valid_mask must match values")
+        valid_mask = valid_mask & np.isfinite(values)
+        count = valid_mask.sum(axis=0)
+        if np.any(count == 0):
+            missing = [HARMONY_FEATURES[i] for i in np.flatnonzero(count == 0)]
+            raise ValueError(f"No valid training harmony targets for: {missing}")
+        safe = np.where(valid_mask, values, 0.0)
+        mean = safe.sum(axis=0) / count
+        variance = np.where(valid_mask, (values - mean) ** 2, 0.0).sum(axis=0) / count
+        scale = np.sqrt(variance)
+        self.mean = mean.astype(np.float64)
+        self.scale = np.where(scale < self.epsilon, 1.0, scale).astype(np.float64)
+        self.count = count.astype(np.int64)
+        return self
+
+    def transform(self, values: np.ndarray) -> np.ndarray:
+        if self.mean is None or self.scale is None:
+            raise RuntimeError("HarmonyStandardizer has not been fitted")
+        values = np.asarray(values, dtype=np.float64)
+        if values.ndim != 2 or values.shape[1] != len(HARMONY_FEATURES):
+            raise ValueError("Harmony target width does not match HARMONY_FEATURES")
+        return ((values - self.mean) / self.scale).astype(np.float32)
+
+    def state_dict(self) -> dict[str, Any]:
+        if self.mean is None or self.scale is None or self.count is None:
+            raise RuntimeError("HarmonyStandardizer has not been fitted")
+        return {
+            "feature_names": list(HARMONY_FEATURES),
+            "mean": self.mean.tolist(),
+            "scale": self.scale.tolist(),
+            "count": self.count.tolist(),
+            "epsilon": self.epsilon,
+        }
 
 
 def dataset_schema() -> dict[str, Any]:
@@ -136,7 +176,8 @@ class MultiTargetDataset(Dataset):
         timbre_mask: np.ndarray,         # (N, 35) bool
         rhythm_targets: np.ndarray,      # (N, 10) float32 standardized
         rhythm_mask: np.ndarray,         # (N, 10) bool
-        harmony_chroma: np.ndarray,      # (N, 12) float32 normalised chroma
+        harmony_targets: np.ndarray,     # (N, 12) float32 standardized descriptors
+        harmony_mask: np.ndarray | None = None,  # (N, 12) bool
         window_frames: int = 1366,
         max_windows: int = 12,
         mel_config: dict | None = None,
@@ -156,7 +197,10 @@ class MultiTargetDataset(Dataset):
         self.timbre_mask = torch.as_tensor(timbre_mask, dtype=torch.bool)
         self.rhythm = torch.as_tensor(rhythm_targets, dtype=torch.float32)
         self.rhythm_mask = torch.as_tensor(rhythm_mask, dtype=torch.bool)
-        self.harmony = torch.as_tensor(harmony_chroma, dtype=torch.float32)
+        self.harmony = torch.as_tensor(harmony_targets, dtype=torch.float32)
+        if harmony_mask is None:
+            harmony_mask = np.isfinite(harmony_targets)
+        self.harmony_mask = torch.as_tensor(harmony_mask, dtype=torch.bool)
 
     def __len__(self) -> int:
         return len(self.track_ids)
@@ -212,6 +256,7 @@ class MultiTargetDataset(Dataset):
             self.rhythm[idx],
             self.rhythm_mask[idx],
             self.harmony[idx],
+            self.harmony_mask[idx],
             self.track_ids[idx],
         )
 
@@ -222,7 +267,7 @@ class MultiTargetDataset(Dataset):
 
 def collate_fn(batch):
     (mel_list, genre, instr, timbre, timbre_mask,
-     rhythm, rhythm_mask, harmony, ids) = zip(*batch)
+     rhythm, rhythm_mask, harmony, harmony_mask, ids) = zip(*batch)
 
     B = len(batch)
     W_max = max(m[0].shape[0] for m in mel_list)
@@ -249,6 +294,7 @@ def collate_fn(batch):
         torch.stack(rhythm),                   # (B, 10)
         torch.stack(rhythm_mask),              # (B, 10)
         torch.stack(harmony),                  # (B, 12)
+        torch.stack(harmony_mask),             # (B, 12)
         list(ids),
     )
 
@@ -360,13 +406,14 @@ def build_datasets(
     require_harmony_targets: bool = False,
     timbre_std: TimbreStandardizer | None = None,
     rhythm_std: RhythmStandardizer | None = None,
+    harmony_std: HarmonyStandardizer | None = None,
     quick: bool = False,
     logmel_root: Path | None = None,
     window_frames: int = 1366,
     max_windows: int = 12,
 ) -> tuple[
     MultiTargetDataset, MultiTargetDataset, MultiTargetDataset,
-    TimbreStandardizer, RhythmStandardizer,
+    TimbreStandardizer, RhythmStandardizer, HarmonyStandardizer,
 ]:
     """Load, align, standardize, and split all data sources.
 
@@ -390,6 +437,7 @@ def build_datasets(
 
     timbre_feat = list(TIMBRE_FEATURES)
     rhythm_feat = list(RHYTHM_FEATURES)
+    harmony_feat = list(HARMONY_FEATURES)
     if dataset_csv is not None:
         if not dataset_csv.is_file():
             raise FileNotFoundError(dataset_csv)
@@ -403,10 +451,8 @@ def build_datasets(
         splits = _norm_col(splits.rename(columns={"track_id": "TRACK_ID"}), "TRACK_ID")
         required = {
             "TRACK_ID", "logmel_path", *GENRE_TAGS, *INSTRUMENT_TAGS,
-            *timbre_feat, *rhythm_feat,
+            *timbre_feat, *rhythm_feat, *harmony_feat,
         }
-        if require_harmony_targets:
-            required.update(CHROMA_COLS)
         missing_columns = sorted(required - set(master.columns))
         if missing_columns:
             raise ValueError(f"Combined dataset is missing columns: {missing_columns}")
@@ -440,12 +486,17 @@ def build_datasets(
             .merge(instr[["TRACK_ID"] + list(INSTRUMENT_TAGS)], on="TRACK_ID", how="left")
             .merge(timbre[["TRACK_ID"] + timbre_feat], on="TRACK_ID", how="left")
             .merge(rhythm[["TRACK_ID"] + rhythm_feat], on="TRACK_ID", how="left")
-            .merge(harmony[["TRACK_ID"] + CHROMA_COLS], on="TRACK_ID", how="left")
+            .merge(harmony[["TRACK_ID"] + harmony_feat], on="TRACK_ID", how="left")
         )
 
     invalid_splits = sorted(set(master["split"].dropna()) - {"train", "validation", "test"})
     if invalid_splits:
         raise ValueError(f"Unsupported split values: {invalid_splits}")
+    if require_harmony_targets:
+        harmony_values = master[harmony_feat].to_numpy(dtype=np.float64)
+        if not np.isfinite(harmony_values).all():
+            missing_count = int((~np.isfinite(harmony_values)).sum())
+            raise ValueError(f"Harmony descriptors contain {missing_count} missing values")
 
     # Fit standardizers on training rows only (leakage-safe)
     train_mask = master["split"] == "train"
@@ -455,6 +506,9 @@ def build_datasets(
     if rhythm_std is None:
         r_vals = master.loc[train_mask, rhythm_feat].to_numpy(dtype=np.float64)
         rhythm_std = RhythmStandardizer().fit(r_vals, np.isfinite(r_vals))
+    if harmony_std is None:
+        h_vals = master.loc[train_mask, harmony_feat].to_numpy(dtype=np.float64)
+        harmony_std = HarmonyStandardizer().fit(h_vals, np.isfinite(h_vals))
 
     def _make_ds(subset: pd.DataFrame) -> MultiTargetDataset:
         if quick:
@@ -476,27 +530,22 @@ def build_datasets(
         r_std = rhythm_std.transform(np.where(r_msk, r_raw, 0.0))
         r_std[~r_msk] = 0.0
 
-        # Normalise chroma to sum-1 distribution
-        # The combined initial-run table has harmony descriptors, but not the
-        # 12-bin chroma distribution required by the harmony auxiliary loss.
-        # Keep the predicted harmony branch in fusion and mask only its loss.
-        if set(CHROMA_COLS).issubset(subset.columns):
-            h_raw = subset[CHROMA_COLS].to_numpy(dtype=np.float32)
-        else:
-            h_raw = np.full((len(subset), N_HARMONY_CHROMA), np.nan, dtype=np.float32)
-        sums = h_raw.sum(axis=1, keepdims=True)
-        valid_h = np.isfinite(h_raw).all(axis=1) & (h_raw >= 0).all(axis=1) & (sums[:, 0] > 1e-8)
-        h_norm = np.full_like(h_raw, np.nan)
-        h_norm[valid_h] = h_raw[valid_h] / sums[valid_h]
+        h_raw = subset[harmony_feat].to_numpy(dtype=np.float64)
+        h_msk = np.isfinite(h_raw)
+        h_std = harmony_std.transform(np.where(h_msk, h_raw, 0.0))
+        h_std[~h_msk] = 0.0
 
-        return MultiTargetDataset(ids, paths, g, i, t_std, t_msk, r_std, r_msk, h_norm, window_frames, max_windows, mel_config, durations)
+        return MultiTargetDataset(
+            ids, paths, g, i, t_std, t_msk, r_std, r_msk, h_std, h_msk,
+            window_frames, max_windows, mel_config, durations,
+        )
 
     train_ds = _make_ds(master[master["split"] == "train"])
     val_ds   = _make_ds(master[master["split"] == "validation"])
     test_ds  = _make_ds(master[master["split"] == "test"])
 
     print(f"  train={len(train_ds)}  val={len(val_ds)}  test={len(test_ds)}")
-    return train_ds, val_ds, test_ds, timbre_std, rhythm_std
+    return train_ds, val_ds, test_ds, timbre_std, rhythm_std, harmony_std
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +564,8 @@ def _build_bundle(
     timbre_msk: Tensor,
     rhythm_tgt: Tensor,
     rhythm_msk: Tensor,
-    harmony_chroma: Tensor,
+    harmony_tgt: Tensor,
+    harmony_msk: Tensor,
     device: torch.device,
 ) -> tuple[BranchBundle, dict]:
     # Instrument
@@ -540,13 +590,16 @@ def _build_bundle(
     )
     rhythm_br = from_rhythm_branch(rhythm_out, supervision_mask=rhythm_msk.float())
 
-    # Predict from audio; CSV song means are used only by the loss.
+    # Predict song-level harmony descriptors from the temporal harmony embedding.
     windows = encoded.window_repr.shape[1]
     harmony_out = harmony_head(
         encoded.encoded_sequence, encoded.sequence_mask, encoded.sequence_window_index,
         windows=windows, tokens_per_window=encoded.encoded_sequence.shape[1] // windows,
     )
-    harmony_br  = from_temporal_harmony_branch(harmony_out)
+    harmony_br = from_temporal_harmony_branch(
+        harmony_out,
+        descriptor_supervision_mask=harmony_msk.float(),
+    )
 
     bundle = BranchBundle(
         branches={
@@ -563,10 +616,7 @@ def _build_bundle(
         "instrument": instr_tgt.float(),
         "rhythm":     rhythm_tgt.float(),
         "timbre":     timbre_tgt.float(),
-        "harmony": SongHarmonyTargets(
-            chroma=harmony_chroma,
-            chroma_mask=torch.isfinite(harmony_chroma).all(dim=1),
-        ),
+        "harmony":    harmony_tgt.float(),
     }
     return bundle, concept_targets
 
@@ -684,30 +734,6 @@ def _masked_regression_metrics(
     }
 
 
-def _harmony_metrics(predictions: Tensor, targets: Tensor, valid_rows: Tensor) -> dict[str, Any]:
-    """Evaluate song-level chroma distributions when valid targets exist."""
-    valid = valid_rows.bool()
-    count = int(valid.sum())
-    if count == 0:
-        return {
-            "available": False,
-            "n_observed": 0,
-            "reason": "dataset has no valid 12-bin chroma supervision",
-        }
-    prediction = predictions[valid].float().clamp_min(1e-8)
-    target = targets[valid].float()
-    cross_entropy = float(-(target * prediction.log()).sum(-1).mean())
-    cosine_similarity = float(F.cosine_similarity(prediction, target, dim=1).mean())
-    dominant_bin_accuracy = float((prediction.argmax(1) == target.argmax(1)).float().mean())
-    return {
-        "available": True,
-        "n_observed": count,
-        "cross_entropy": cross_entropy,
-        "cosine_similarity": cosine_similarity,
-        "dominant_pitch_class_accuracy": dominant_bin_accuracy,
-    }
-
-
 def _metric_text(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.4f}"
 
@@ -740,7 +766,7 @@ def evaluate(
 
     for batch in loader:
         (mel, wm, vf, ws, genre_tgt, instr_tgt, timbre_tgt, timbre_msk,
-         rhythm_tgt, rhythm_msk, harmony_chroma, _ids) = [
+         rhythm_tgt, rhythm_msk, harmony_tgt, harmony_msk, _ids) = [
             b.to(device) if isinstance(b, Tensor) else b for b in batch
         ]
         encoded = encoder(mel, wm, vf, ws, sample_rate=loader.dataset.sample_rate, hop_length=loader.dataset.hop_length)
@@ -748,7 +774,7 @@ def evaluate(
             encoded, instrument_head, timbre_head, rhythm_head, harmony_head,
             instr_tgt=instr_tgt, timbre_tgt=timbre_tgt, timbre_msk=timbre_msk,
             rhythm_tgt=rhythm_tgt, rhythm_msk=rhythm_msk,
-            harmony_chroma=harmony_chroma, device=device,
+            harmony_tgt=harmony_tgt, harmony_msk=harmony_msk, device=device,
         )
         logits, _ = fusion_model.from_bundle(bundle, apply_dropout=False)
         br = genre_loss_fn(logits, genre_tgt, bundle, concept_targets)
@@ -762,15 +788,12 @@ def evaluate(
             "instrument": instr_tgt,
             "rhythm": rhythm_tgt,
             "timbre": timbre_tgt,
-            "harmony": harmony_chroma,
+            "harmony": harmony_tgt,
         }
         for name in concept_predictions:
             concept_predictions[name].append(bundle.concept_values(name).detach().cpu())
             concept_targets_all[name].append(batch_targets[name].detach().cpu())
-            if name == "harmony":
-                concept_masks[name].append(torch.isfinite(harmony_chroma).all(dim=1).detach().cpu())
-            else:
-                concept_masks[name].append(bundle.supervision_mask(name).detach().cpu())
+            concept_masks[name].append(bundle.supervision_mask(name).detach().cpu())
 
     probs   = torch.cat(all_probs)     # (N, 6)
     targets = torch.cat(all_targets)   # (N, 6)
@@ -793,10 +816,11 @@ def evaluate(
         torch.cat(concept_masks["timbre"]),
         TIMBRE_FEATURES,
     )
-    harmony_metrics = _harmony_metrics(
+    harmony_metrics = _masked_regression_metrics(
         torch.cat(concept_predictions["harmony"]),
         torch.cat(concept_targets_all["harmony"]),
         torch.cat(concept_masks["harmony"]),
+        HARMONY_FEATURES,
     )
     macro_ap = genre_metrics["macro_average_precision"]
     return {
@@ -823,7 +847,7 @@ def train(cfg: "TrainConfig") -> None:
 
     print("Loading data...")
     data_dir = cfg.data_dir or ROOT / "data"
-    train_ds, val_ds, test_ds, timbre_std, rhythm_std = build_datasets(
+    train_ds, val_ds, test_ds, timbre_std, rhythm_std, harmony_std = build_datasets(
         data_dir, dataset_csv=cfg.dataset_csv, split_csv=cfg.split_csv,
         require_harmony_targets=cfg.require_harmony_targets,
         quick=cfg.quick, logmel_root=cfg.logmel_root,
@@ -853,7 +877,9 @@ def train(cfg: "TrainConfig") -> None:
     instrument_head = InstrumentHead().to(device)
     timbre_head    = TimbreBranch().to(device)
     rhythm_head    = RhythmBranch().to(device)
-    harmony_head = TemporalHarmonyBranch(128, chord_classes=None).to(device)
+    harmony_head = TemporalHarmonyBranch(
+        128, chord_classes=None, descriptor_dim=N_HARMONY_DESCRIPTORS
+    ).to(device)
     fusion_model   = ConceptBottleneckModel(
         fusion="gated",
         dropout_p=0.15,
@@ -901,7 +927,7 @@ def train(cfg: "TrainConfig") -> None:
 
         for batch in train_loader:
             (mel, wm, vf, ws, genre_tgt, instr_tgt, timbre_tgt, timbre_msk,
-             rhythm_tgt, rhythm_msk, harmony_chroma, _ids) = [
+             rhythm_tgt, rhythm_msk, harmony_tgt, harmony_msk, _ids) = [
                 b.to(device) if isinstance(b, Tensor) else b for b in batch
             ]
 
@@ -910,7 +936,7 @@ def train(cfg: "TrainConfig") -> None:
                 encoded, instrument_head, timbre_head, rhythm_head, harmony_head,
                 instr_tgt=instr_tgt, timbre_tgt=timbre_tgt, timbre_msk=timbre_msk,
                 rhythm_tgt=rhythm_tgt, rhythm_msk=rhythm_msk,
-                harmony_chroma=harmony_chroma, device=device,
+                harmony_tgt=harmony_tgt, harmony_msk=harmony_msk, device=device,
             )
 
             optimizer.zero_grad(set_to_none=True)
@@ -957,7 +983,7 @@ def train(cfg: "TrainConfig") -> None:
             f"instrument_F1={_metric_text(val_branches['instrument']['macro_f1'])}  "
             f"rhythm_RMSE={_metric_text(val_branches['rhythm']['rmse_standardized'])}  "
             f"timbre_RMSE={_metric_text(val_branches['timbre']['rmse_standardized'])}  "
-            f"harmony_cosine={_metric_text(val_branches['harmony'].get('cosine_similarity'))}",
+            f"harmony_RMSE={_metric_text(val_branches['harmony']['rmse_standardized'])}",
             flush=True,
         )
         log.append({
@@ -985,19 +1011,20 @@ def train(cfg: "TrainConfig") -> None:
                 "optimizer":        optimizer.state_dict(),
                 "timbre_standardizer":  timbre_std.state_dict(),
                 "rhythm_standardizer":  rhythm_std.state_dict(),
+                "harmony_standardizer": harmony_std.state_dict(),
                 "genre_tags":       list(GENRE_TAGS),
                 "instrument_tags":  list(INSTRUMENT_TAGS),
                 "n_genre_tags":     N_GENRE_TAGS,
                 "n_instrument_tags": N_INSTRUMENT_TAGS,
                 "n_timbre_concepts": N_TIMBRE_CONCEPTS,
                 "n_rhythm_concepts": N_RHYTHM_CONCEPTS,
-                "n_harmony_chroma":  N_HARMONY_CHROMA,
+                "n_harmony_descriptors": N_HARMONY_DESCRIPTORS,
                 "mel_config": train_ds.mel_config,
                 "window_frames": cfg.window_frames,
                 "max_windows": cfg.max_windows,
-                "harmony_target_columns": CHROMA_COLS,
-                "harmony_strategy":  "predicted_chroma_song_mean_supervision",
-                "harmony_supervised": bool(torch.isfinite(train_ds.harmony).all(dim=1).any()),
+                "harmony_target_columns": list(HARMONY_FEATURES),
+                "harmony_strategy":  "standardized_song_descriptor_regression",
+                "harmony_supervised": bool(train_ds.harmony_mask.any()),
             }
             torch.save(ckpt, out_dir / "best.pt")
             print(f"  -> saved best checkpoint  (val_macro_ap={val_ap:.4f})")
@@ -1040,7 +1067,7 @@ def train(cfg: "TrainConfig") -> None:
         "n_train":       len(train_ds),
         "n_val":         len(val_ds),
         "n_test":        len(test_ds),
-        "harmony_supervised": bool(torch.isfinite(train_ds.harmony).all(dim=1).any()),
+        "harmony_supervised": bool(train_ds.harmony_mask.any()),
         "log":           log,
     }
     out_path = out_dir / "results.json"
@@ -1103,7 +1130,7 @@ def main() -> None:
     p.add_argument("--split-csv", type=Path,
                    help="TRACK_ID/track_id + split CSV; defaults to DATA_DIR/track_split_assignments.csv")
     p.add_argument("--require-harmony-targets", action="store_true",
-                   help="Require all 12 chroma columns in the combined dataset")
+                   help="Require observed values for all 12 harmony descriptors")
     p.add_argument("--print-dataset-schema", action="store_true",
                    help="Print the canonical dataset.csv vector groups and exit")
     args = p.parse_args()
@@ -1142,7 +1169,7 @@ def main() -> None:
     print(f"  Instrument : {N_INSTRUMENT_TAGS} tags")
     print(f"  Timbre     : {N_TIMBRE_CONCEPTS} descriptors")
     print(f"  Rhythm     : {N_RHYTHM_CONCEPTS} AcousticBrainz fields")
-    print(f"  Harmony    : {N_HARMONY_CHROMA} predicted chroma bins (CSV song-mean supervision)")
+    print(f"  Harmony    : {N_HARMONY_DESCRIPTORS} standardized song descriptors")
     print(f"  Epochs     : {cfg.epochs}   Batch: {cfg.batch_size}   LR: {cfg.lr}")
     print(f"  Device     : {cfg.device}")
     print("=" * 60)

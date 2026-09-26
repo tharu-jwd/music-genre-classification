@@ -3,12 +3,12 @@
 `scripts/train_joint.py` trains the shared encoder, all four concept branches,
 and fusion for the current six genres and 41 instrument labels.
 
-Harmony is predicted from the shared audio sequence. The loss compares pooled
-predicted chroma against the 12 `chroma_*_mean` columns of `harmony_df.csv`,
-normalized to sum to one. These are song-level targets, not frame-level labels.
-The other harmony descriptors and chord labels are not supervised by this run.
-Missing or invalid chroma rows are masked. Targets never enter fusion, including
-at validation and test time. Checkpoints include the learned harmony weights.
+Harmony is predicted from the shared audio sequence. A song-level descriptor head
+maps the masked temporal embedding to the 12 values in `harmony_vector`. The
+targets are standardized using training-split statistics and optimized with masked
+Smooth L1 loss. Predicted descriptors—not targets—enter fusion, so validation and
+test inference remain leakage-free. The temporal chroma and optional chord heads
+remain available for future aligned targets but are not supervised by this run.
 
 ## Local audio setup
 
@@ -48,11 +48,7 @@ the complete metrics under each epoch's `val_branch_metrics` field:
 
 - genre and instrument: macro/micro average precision, macro/micro F1 at a 0.5
   threshold, binary accuracy, and per-tag AP/F1/support;
-- rhythm and timbre: masked MAE and RMSE in standardized target units, macro R2,
+- rhythm, timbre, and harmony: masked MAE and RMSE in standardized target units, macro R2,
   and per-feature MAE/RMSE/R2/counts;
-- harmony: chroma cross-entropy, cosine similarity, and dominant-pitch-class
-  accuracy when valid 12-bin chroma targets exist.
 
-If the dataset contains harmony descriptors rather than chroma distributions,
-harmony metrics are marked unavailable instead of treating those descriptors as
-chroma labels. Final test metrics use the same schema in `test_branch_metrics`.
+Final test metrics use the same schema in `test_branch_metrics`.

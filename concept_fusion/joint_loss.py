@@ -71,7 +71,8 @@ class JointLossOrchestrator(torch.nn.Module):
 
     Instrument: BCE-with-logits when the branch supplies logits (v2); else BCE on probabilities.
     Rhythm/timbre: Smooth L1 on standardized values.
-    Harmony: masked temporal chroma soft-target loss plus optional chord CE.
+    Harmony: masked Smooth L1 for song descriptors, or temporal chroma soft-target
+    loss plus optional chord CE when aligned chroma/chord targets are supplied.
     NaN targets are allowed only where supervision_mask is 0.
     """
 
@@ -110,6 +111,19 @@ class JointLossOrchestrator(torch.nn.Module):
                 raise ContractError(f"missing concept_targets[{name}]")
             if name == "harmony":
                 harmony_targets = concept_targets[name]
+                if isinstance(harmony_targets, torch.Tensor):
+                    tgt = require_tensor("concept_targets[harmony]", harmony_targets, ndim=2)
+                    if tgt.shape != pred.shape:
+                        raise ContractError(
+                            f"harmony target {tuple(tgt.shape)} != pred {tuple(pred.shape)}"
+                        )
+                    obs = mask > 0.5
+                    require_finite("concept_targets[harmony][observed]", tgt, where=mask)
+                    pred_f = torch.where(obs, pred, torch.zeros_like(pred))
+                    tgt_f = torch.where(obs, tgt, torch.zeros_like(tgt))
+                    raw = F.smooth_l1_loss(pred_f, tgt_f, reduction="none")
+                    terms[name], n_obs[name] = _masked_mean(raw, mask)
+                    continue
                 if isinstance(harmony_targets, SongHarmonyTargets):
                     target = harmony_targets.chroma
                     if target.shape != pred.shape or harmony_targets.chroma_mask.shape != pred.shape[:1]:

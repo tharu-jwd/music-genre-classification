@@ -54,7 +54,7 @@ layout metadata.
 | Instrument | song `(B,128)` | 40 probabilities | 21,672 |
 | Rhythm | sequence `(B,T,128)` | 10 standardized predictions | 87,883 |
 | Timbre | song `(B,128)` | 35 standardized predictions | 27,299 |
-| Harmony, chroma only | sequence `(B,T,128)` | 12 masked-pooled predicted chroma probabilities | 35,436 |
+| Harmony | sequence `(B,T,128)` | 12 standardized song-level descriptor predictions | implementation-dependent |
 | Optional harmony chord head | 32D token embeddings | 25 logits/token | +825 |
 | Fusion | four projected 64D tokens | 128D fused representation | variant-dependent |
 | Genre head | 128D fused representation | 87 logits | 11,223 |
@@ -324,7 +324,8 @@ encoded_sequence (B,T,128)
   → Linear(64,32) per token
   ├→ Linear(32,12) chroma logits/token → softmax over pitch class
   ├→ optional Linear(32,25) chord logits/token
-  └→ uniform masked mean → 32D song embedding for the embedding-fusion ablation
+  └→ uniform masked mean → 32D song embedding
+       └→ descriptor MLP → 12 standardized song-level harmony descriptors
 ```
 
 There is no activation immediately after input projection. A temporal update is
@@ -332,11 +333,12 @@ There is no activation immediately after input projection. A temporal update is
 prevents gap crossing. Two kernel-3 layers see five branch tokens, approximately
 213 ms of token positions, in addition to encoder context.
 
-For primary fusion, softmax is applied independently to each valid token's 12
-logits, and those probabilities are averaged over valid audio tokens only. Padded
-tokens never enter the mean. The resulting `(B,12)` predicted chroma vector is sent
-through fusion-owned `Linear(12,64)`. An all-masked song produces a zero vector and
-an unavailable fusion mask. Temporal chroma loss still consumes the unpooled logits.
+For joint training on `vector-dataset-normalized.csv`, the descriptor MLP output is
+the primary `(B,12)` harmony concept vector and is sent through fusion-owned
+`Linear(12,64)`. Its target order is `HARMONY_FEATURES`, and its scaler is fitted
+only on training rows. An all-masked song produces a zero vector and an unavailable
+fusion mask. Temporal chroma logits remain preserved for future aligned chroma
+supervision and standalone harmony experiments.
 
 The separate 32D song embedding is a uniform masked mean of token embeddings. It
 is retained only for the configured `embedding_fusion` ablation, where fusion owns
@@ -456,6 +458,7 @@ metrics use validation-selected thresholds only.
 | Instrument | 40/song | official instrument tags | weak human/uploader annotation | masked BCE with logits |
 | Rhythm | 10/song | AcousticBrainz/Essentia | extracted target | masked Smooth L1 |
 | Timbre | 35/song | deterministic audio extractor | extracted target | masked Smooth L1 |
+| Harmony descriptors | 12/song | deterministic tonal summaries | extracted target | masked Smooth L1 |
 | Chroma | 12/token | CQT/HPCP extractor | algorithmic reference | masked soft-target CE |
 | Chord, optional | 25/token | validated automatic teacher | pseudo-label | masked hard-label CE |
 
@@ -469,18 +472,19 @@ L_total = λgenre      Lgenre
         + λinstrument Linstrument
         + λrhythm     Lrhythm
         + λtimbre     Ltimbre
-        + λharmony    (Lchroma + Lchord_if_enabled)
+        + λharmony    Lharmony_descriptors
 ```
 
-Defaults are 1.0, but lambdas are experiment configuration rather than scientific
-constants. Optional Kendall weighting learns one log-variance for each of the five
+Defaults are 1.0 for genre/instrument/rhythm/timbre and 0.5 for harmony, but lambdas
+are experiment configuration rather than scientific constants. Optional Kendall
+weighting learns one log-variance for each of the five
 top-level terms. Each term averages over its own observed elements, so target
 density does not silently scale it. No observations yields zero for that term and
 does not drop the track.
 
 In primary end-to-end mode, genre gradients flow through the genre head, gated
 fusion, all four fusion-owned projections, the instrument sigmoid, rhythm
-regression head, harmony per-token chroma head and softmax/pooling operation, the
+regression head, harmony descriptor head, the
 branch encoders, and the shared CNN. Concept predictions are not detached. Each
 auxiliary gradient separately flows through its prediction head and branch into the
 same CNN. The encoder is optimized by all unmasked active objectives unless frozen.
@@ -519,7 +523,7 @@ For each batch:
 3. route the sequence, mask, and window indices to rhythm and harmony;
 4. adapt outputs to the common branch contract;
 5. use instrument probabilities, rhythm predictions, timbre predictions, and
-   masked-pooled harmony probabilities, then project four ordered 64D tokens;
+   predicted song-level harmony descriptors, then project four ordered 64D tokens;
 6. apply training-only concept dropout;
 7. fuse tokens and produce 87 genre logits;
 8. compute genre and independently masked auxiliary losses;

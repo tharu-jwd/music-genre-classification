@@ -14,11 +14,13 @@ from concept_fusion.contract import (
     INSTRUMENT_HIDDEN_DIM,
     N_CONCEPTS,
     N_HARMONY_CHROMA,
+    N_HARMONY_DESCRIPTORS,
     N_HARMONY_CHORDS,
     N_INSTRUMENT_TAGS,
     N_RHYTHM_CONCEPTS,
     N_TIMBRE_CONCEPTS,
     RHYTHM_FEATURES,
+    HARMONY_FEATURES,
     TOKEN_DIM,
     ConceptCounts,
 )
@@ -107,8 +109,10 @@ class BranchOutput:
             require_finite(f"{self.name}.hidden_token", hid)
 
     def _validate_harmony(self, batch: int, values: torch.Tensor) -> None:
-        if values.shape[1] != N_HARMONY_CHROMA:
-            raise ContractError(f"harmony C={values.shape[1]} != {N_HARMONY_CHROMA}")
+        if values.shape[1] != N_HARMONY_DESCRIPTORS:
+            raise ContractError(f"harmony C={values.shape[1]} != {N_HARMONY_DESCRIPTORS}")
+        if self.tag_order is not None and self.tag_order != HARMONY_FEATURES:
+            raise ContractError("harmony tag_order must match HARMONY_FEATURES")
         if self.embedding is None:
             raise ContractError("harmony must supply its configurable song embedding")
         embedding = require_tensor("harmony.embedding", self.embedding, ndim=2)

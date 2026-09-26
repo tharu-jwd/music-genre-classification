@@ -76,6 +76,25 @@ def test_harmony_pools_probabilities_over_valid_tokens_only():
     assert branch.fusion_mask.item() == 1
 
 
+def test_harmony_descriptor_predictions_replace_chroma_for_primary_fusion():
+    mask = torch.tensor([[True, True]])
+    descriptors = torch.randn(1, 12)
+    supervision = torch.ones(1, 12)
+    raw = SimpleNamespace(
+        embedding=torch.randn(1, 32),
+        chroma_logits=torch.randn(1, 2, 12),
+        descriptor_values=descriptors,
+        chord_logits=None,
+        availability=torch.tensor([True]),
+        prediction_mask=mask,
+    )
+    branch = from_temporal_harmony_branch(
+        raw, descriptor_supervision_mask=supervision
+    )
+    torch.testing.assert_close(branch.concept_values, descriptors)
+    torch.testing.assert_close(branch.supervision_mask, supervision)
+
+
 def test_all_masked_harmony_is_zero_and_unavailable():
     logits = torch.randn(2, 4, 12)
     mask = torch.zeros(2, 4, dtype=torch.bool)

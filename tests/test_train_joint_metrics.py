@@ -2,7 +2,6 @@ import pytest
 import torch
 
 from scripts.train_joint import (
-    _harmony_metrics,
     _masked_regression_metrics,
     _multilabel_metrics,
 )
@@ -33,26 +32,3 @@ def test_regression_metrics_ignore_masked_values():
     assert metrics["mae_standardized"] == pytest.approx(1.0 / 3.0)
     assert metrics["rmse_standardized"] == pytest.approx((1.0 / 3.0) ** 0.5)
     assert metrics["per_feature"]["b"]["mae"] == pytest.approx(0.0)
-
-
-def test_harmony_metrics_mark_missing_supervision_unavailable():
-    predictions = torch.full((2, 12), 1.0 / 12)
-    targets = torch.full((2, 12), float("nan"))
-
-    metrics = _harmony_metrics(predictions, targets, torch.tensor([False, False]))
-
-    assert metrics["available"] is False
-    assert metrics["n_observed"] == 0
-
-
-def test_harmony_metrics_score_valid_chroma_distributions():
-    predictions = torch.zeros(1, 12)
-    targets = torch.zeros(1, 12)
-    predictions[0, 3] = 1.0
-    targets[0, 3] = 1.0
-
-    metrics = _harmony_metrics(predictions, targets, torch.tensor([True]))
-
-    assert metrics["available"] is True
-    assert metrics["cosine_similarity"] == pytest.approx(1.0)
-    assert metrics["dominant_pitch_class_accuracy"] == pytest.approx(1.0)
