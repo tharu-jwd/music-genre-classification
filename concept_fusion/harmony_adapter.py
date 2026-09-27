@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import torch
 
-from concept_fusion.contract import N_HARMONY_CHROMA, N_HARMONY_CHORDS, TOKEN_DIM
+from concept_fusion.contract import (
+    HARMONY_FEATURES,
+    N_HARMONY_CHROMA,
+    N_HARMONY_CHORDS,
+    N_HARMONY_DESCRIPTORS,
+    TOKEN_DIM,
+)
 from concept_fusion.types import BranchOutput
 from concept_fusion.validation import ContractError
 
@@ -13,15 +19,15 @@ def from_temporal_harmony_branch(
     output,
     *,
     chroma_target_mask: torch.Tensor | None = None,
+    descriptor_supervision_mask: torch.Tensor | None = None,
     fusion_mask: torch.Tensor | None = None,
     hidden_token: torch.Tensor | None = None,
 ) -> BranchOutput:
     """Pool predicted chroma probabilities and preserve the embedding for ablation.
 
-    ``concept_values`` is the masked mean of per-token softmax probabilities and is
-    the primary fusion input. Joint chroma supervision continues to use temporal
-    logits and its own target mask. The song embedding is retained only for the
-    explicitly configured embedding-fusion ablation.
+    When the branch has a descriptor head, its song-level descriptor predictions
+    are the primary fusion input. Otherwise, ``concept_values`` remains the masked
+    mean of temporal chroma probabilities for backwards compatibility.
     """
     if getattr(output, "fusion_token", None) is not None:
         raise ContractError("harmony must not supply fusion_token; fusion owns its projection")
@@ -71,15 +77,30 @@ def from_temporal_harmony_branch(
     pooled = pooled / weights.sum(dim=1, keepdim=True).clamp_min(1.0)
     pooled = pooled * availability.to(pooled.dtype).unsqueeze(-1)
 
-    if chroma_target_mask is None:
-        supervised_song = torch.zeros(batch, dtype=torch.bool, device=embedding.device)
+    descriptor_values = getattr(output, "descriptor_values", None)
+    if descriptor_values is not None:
+        if descriptor_values.shape != (batch, N_HARMONY_DESCRIPTORS):
+            raise ContractError(
+                f"harmony descriptor values must have shape (B,{N_HARMONY_DESCRIPTORS})"
+            )
+        if not torch.isfinite(descriptor_values).all():
+            raise ContractError("harmony descriptor values must be finite")
+        pooled = descriptor_values
+        if descriptor_supervision_mask is None:
+            supervision_mask = torch.zeros_like(pooled)
+        else:
+            if descriptor_supervision_mask.shape != pooled.shape:
+                raise ContractError("descriptor supervision mask must match descriptor values")
+            supervision_mask = descriptor_supervision_mask.to(pooled.dtype)
+    elif chroma_target_mask is None:
+        supervision_mask = torch.zeros_like(pooled)
     else:
         if chroma_target_mask.shape != prediction_mask.shape:
             raise ContractError("chroma target mask must align with harmony temporal logits")
         supervised_song = (chroma_target_mask.to(torch.bool) & valid).any(dim=1)
-    supervision_mask = supervised_song.to(pooled.dtype).unsqueeze(1).expand(
-        batch, N_HARMONY_CHROMA
-    )
+        supervision_mask = supervised_song.to(pooled.dtype).unsqueeze(1).expand(
+            batch, N_HARMONY_CHROMA
+        )
 
     if fusion_mask is None:
         fusion_mask = availability.to(pooled.dtype).unsqueeze(1)
@@ -99,6 +120,7 @@ def from_temporal_harmony_branch(
         temporal_chroma_logits=chroma_logits,
         temporal_chord_logits=chord_logits,
         temporal_prediction_mask=prediction_mask,
+        tag_order=HARMONY_FEATURES if descriptor_values is not None else None,
     )
-    branch.validate(batch=batch, n_concepts=N_HARMONY_CHROMA)
+    branch.validate(batch=batch, n_concepts=pooled.shape[1])
     return branch

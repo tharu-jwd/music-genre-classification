@@ -13,6 +13,7 @@ from torch.nn import functional as F
 class HarmonyBranchOutput:
     embedding: Tensor
     chroma_logits: Tensor
+    descriptor_values: Tensor | None
     chord_logits: Tensor | None
     availability: Tensor
     prediction_mask: Tensor
@@ -35,6 +36,7 @@ class TemporalHarmonyBranch(nn.Module):
         hidden_dim: int = 64,
         temporal_layers: int = 2,
         chord_classes: int | None = None,
+        descriptor_dim: int | None = None,
         dropout: float = 0.1,
     ):
         super().__init__()
@@ -52,6 +54,12 @@ class TemporalHarmonyBranch(nn.Module):
             or chord_classes < 2
         ):
             raise ValueError("chord_classes must be None or an integer of at least two")
+        if descriptor_dim is not None and (
+            not isinstance(descriptor_dim, int)
+            or isinstance(descriptor_dim, bool)
+            or descriptor_dim < 1
+        ):
+            raise ValueError("descriptor_dim must be None or a positive integer")
         if not 0 <= dropout < 1:
             raise ValueError("dropout must be in [0, 1)")
         self.input_dim = input_dim
@@ -65,6 +73,16 @@ class TemporalHarmonyBranch(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.embedding_projection = nn.Linear(hidden_dim, embedding_dim)
         self.chroma_head = nn.Linear(embedding_dim, 12)
+        self.descriptor_head = (
+            nn.Sequential(
+                nn.Linear(embedding_dim, embedding_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(embedding_dim, descriptor_dim),
+            )
+            if descriptor_dim is not None
+            else None
+        )
         self.chord_head = (
             nn.Linear(embedding_dim, chord_classes) if chord_classes is not None else None
         )
@@ -143,9 +161,15 @@ class TemporalHarmonyBranch(nn.Module):
         weights = weights / weights.sum(dim=1, keepdim=True).clamp_min(1.0)
         embedding = torch.sum(token_embeddings * weights.unsqueeze(-1), dim=1)
         embedding = embedding * availability.unsqueeze(-1).to(embedding.dtype)
+        descriptor_values = (
+            self.descriptor_head(embedding) * availability.unsqueeze(-1).to(embedding.dtype)
+            if self.descriptor_head is not None
+            else None
+        )
         return HarmonyBranchOutput(
             embedding=embedding,
             chroma_logits=chroma_logits,
+            descriptor_values=descriptor_values,
             chord_logits=chord_logits,
             availability=availability,
             prediction_mask=mask,

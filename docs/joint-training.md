@@ -3,12 +3,12 @@
 `scripts/train_joint.py` trains the shared encoder, all four concept branches,
 and fusion for the current six genres and 41 instrument labels.
 
-Harmony is predicted from the shared audio sequence. The loss compares pooled
-predicted chroma against the 12 `chroma_*_mean` columns of `harmony_df.csv`,
-normalized to sum to one. These are song-level targets, not frame-level labels.
-The other harmony descriptors and chord labels are not supervised by this run.
-Missing or invalid chroma rows are masked. Targets never enter fusion, including
-at validation and test time. Checkpoints include the learned harmony weights.
+Harmony is predicted from the shared audio sequence. A song-level descriptor head
+maps the masked temporal embedding to the 12 values in `harmony_vector`. The
+targets are standardized using training-split statistics and optimized with masked
+Smooth L1 loss. Predicted descriptors—not targets—enter fusion, so validation and
+test inference remain leakage-free. The temporal chroma and optional chord heads
+remain available for future aligned targets but are not supervised by this run.
 
 ## Local audio setup
 
@@ -39,3 +39,16 @@ python scripts/train_joint.py --quick --batch-size 1
 The quick run uses 32 tracks per split and three epochs. It is a smoke test, not
 a final evaluation. A single-window GPU gradient check is not a memory guarantee
 for a full batch. Increase batch size only after checking actual peak memory.
+
+## Validation metrics
+
+Validation runs evaluate the fusion output and every supervised branch after each
+epoch. The console prints the main branch aggregates, while `results.json` stores
+the complete metrics under each epoch's `val_branch_metrics` field:
+
+- genre and instrument: macro/micro average precision, macro/micro F1 at a 0.5
+  threshold, binary accuracy, and per-tag AP/F1/support;
+- rhythm, timbre, and harmony: masked MAE and RMSE in standardized target units, macro R2,
+  and per-feature MAE/RMSE/R2/counts;
+
+Final test metrics use the same schema in `test_branch_metrics`.
