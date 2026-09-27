@@ -10,7 +10,7 @@ import json
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import modal
 
@@ -20,10 +20,11 @@ DATA_VOLUME_NAME = "music-genre-data"
 AUDIO_VOLUME_NAME = "mtg-jamendo"
 RUNS_VOLUME_NAME = "music-genre-runs"
 DATASET_FILENAME = "vector-dataset-normalized.csv"
-PROJECT_DIR = Path("/root/project")
-DATA_MOUNT = Path("/data")
-AUDIO_MOUNT = Path("/mtg")
-RUNS_MOUNT = Path("/runs")
+# Container paths must retain Linux separators when submitted from Windows.
+PROJECT_DIR = PurePosixPath("/root/project")
+DATA_MOUNT = PurePosixPath("/data")
+AUDIO_MOUNT = PurePosixPath("/mtg")
+RUNS_MOUNT = PurePosixPath("/runs")
 
 app = modal.App(APP_NAME)
 data_volume = modal.Volume.from_name(DATA_VOLUME_NAME, create_if_missing=True)
@@ -85,10 +86,10 @@ def train_remote(
     if not torch.cuda.is_available():
         raise RuntimeError("Modal allocated no CUDA device")
 
-    dataset_dir = DATA_MOUNT / "dataset"
+    dataset_dir = Path(DATA_MOUNT) / "dataset"
     dataset_csv = dataset_dir / DATASET_FILENAME
     split_csv = dataset_dir / "track_split_assignments.csv"
-    logmel_root = AUDIO_MOUNT / "logmel_songs"
+    logmel_root = Path(AUDIO_MOUNT) / "logmel_songs"
     required = (dataset_csv, split_csv, logmel_root)
     missing = [str(path) for path in required if not path.exists()]
     if missing:
@@ -96,7 +97,7 @@ def train_remote(
             "The music-genre-data Volume is incomplete. Missing: " + ", ".join(missing)
         )
 
-    out_dir = RUNS_MOUNT / run_name
+    out_dir = Path(RUNS_MOUNT) / run_name
     out_dir.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
