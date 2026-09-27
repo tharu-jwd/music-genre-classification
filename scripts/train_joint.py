@@ -638,6 +638,15 @@ def _average_precision(scores: Tensor, targets: Tensor) -> float | None:
     return float((precision * ranked_targets).sum() / positives)
 
 
+def macro_average_precision(probs: Tensor, targets: Tensor) -> float:
+    """CNN-compatible macro AP using the joint evaluator's per-label calculation."""
+    aps = [
+        ap for index in range(targets.shape[1])
+        if (ap := _average_precision(probs[:, index], targets[:, index])) is not None
+    ]
+    return sum(aps) / len(aps) if aps else 0.0
+
+
 def _multilabel_metrics(
     probabilities: Tensor,
     targets: Tensor,

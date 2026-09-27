@@ -20,7 +20,7 @@ def test_cnn_training_and_saved_predictions(tmp_path, monkeypatch):
     pd.DataFrame({'TRACK_ID': ids, 'split': ['train'] * 2 + ['validation'] * 2 + ['test'] * 2}).to_csv(data / 'track_split_assignments.csv', index=False)
     for name, columns in [('genres', j.GENRE_TAGS), ('instrument', j.INSTRUMENT_TAGS),
                           ('timbre', j.TIMBRE_FEATURES), ('rhythm', j.RHYTHM_FEATURES),
-                          ('harmony', j.CHROMA_COLS)]:
+                          ('harmony', j.HARMONY_FEATURES)]:
         values = np.ones((6, len(columns))) if name == 'harmony' else np.tile(np.arange(6)[:, None] % 2, (1, len(columns)))
         frame = pd.DataFrame(values, columns=columns)
         frame.insert(0, 'TRACK_ID', ids)
@@ -46,3 +46,11 @@ def test_ap_excludes_absent_genres():
     truth = torch.tensor([[1., 0.], [0., 0.], [1., 0.]])
     probs = torch.tensor([[0.9, 0.1], [0.8, 0.5], [0.7, 0.9]])
     assert abs(j.macro_average_precision(probs, truth) - (1 + 2/3)/2) < 1e-6
+
+
+def test_cnn_ap_matches_joint_metrics():
+    truth = torch.tensor([[1., 0., 0.], [0., 1., 0.], [1., 0., 0.]])
+    probs = torch.tensor([[0.9, 0.8, 0.1], [0.8, 0.7, 0.5], [0.7, 0.6, 0.9]])
+    joint = j._multilabel_metrics(probs, truth, ("a", "b", "absent"))
+    assert j.macro_average_precision(probs, truth) == joint["macro_average_precision"]
+    assert j.macro_average_precision(probs, torch.zeros_like(truth)) == 0.0
