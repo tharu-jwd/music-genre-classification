@@ -620,6 +620,11 @@ def evaluate(
     probs   = torch.cat(all_probs)     # (N, 6)
     targets = torch.cat(all_targets)   # (N, 6)
 
+    return {"loss": total_loss / max(n_batches, 1), "macro_ap": macro_average_precision(probs, targets)}
+
+
+def macro_average_precision(probs: Tensor, targets: Tensor) -> float:
+    """Shared genre AP protocol; exclude labels with no positive examples."""
     # Tag-wise average precision → macro AP
     ap_list = []
     for t in range(targets.shape[1]):
@@ -633,7 +638,7 @@ def evaluate(
         ap_list.append((pr * gt[idx].float()).sum() / gt.sum().clamp(min=1))
 
     macro_ap = float(torch.stack(ap_list).mean()) if ap_list else 0.0
-    return {"loss": total_loss / max(n_batches, 1), "macro_ap": macro_ap}
+    return macro_ap
 
 
 # ---------------------------------------------------------------------------
@@ -884,6 +889,7 @@ class TrainConfig:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Joint concept-bottleneck training")
+    p.add_argument("--model", choices=("joint", "cnn"), default="joint")
     p.add_argument("--epochs",            type=int,   default=30)
     p.add_argument("--batch-size",        type=int,   default=1)
     p.add_argument("--lr",                type=float, default=3e-4)
@@ -940,6 +946,13 @@ def main() -> None:
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,
     )
+
+    if args.model == "cnn":
+        from scripts.train_cnn import train as train_cnn
+        if cfg.out_dir == "results/joint":
+            cfg.out_dir = "results/cnn"
+        train_cnn(cfg)
+        return
 
     print("=" * 60)
     print("Joint concept-bottleneck training")

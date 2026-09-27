@@ -46,6 +46,7 @@ image = (
     .add_local_dir("timbre_branch/src/timbre_branch", str(PROJECT_DIR / "timbre_branch/src/timbre_branch"))
     .add_local_dir("harmony_branch/src/harmony_branch", str(PROJECT_DIR / "harmony_branch/src/harmony_branch"))
     .add_local_dir("instrument_branch/docs", str(PROJECT_DIR / "instrument_branch/docs"))
+    .add_local_file("scripts/train_cnn.py", str(PROJECT_DIR / "scripts/train_cnn.py"))
     .add_local_file("scripts/train_joint.py", str(PROJECT_DIR / "scripts/train_joint.py"))
     .add_local_file("scripts/mtg_data_contract.py", str(PROJECT_DIR / "scripts/mtg_data_contract.py"))
     .add_local_file(
@@ -76,6 +77,7 @@ def train_remote(
     max_windows: int,
     quick: bool,
     skip_test: bool,
+    model: str = "joint",
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -99,6 +101,7 @@ def train_remote(
     command = [
         sys.executable,
         str(PROJECT_DIR / "scripts/train_joint.py"),
+        "--model", model,
         "--data-dir", str(dataset_dir),
         "--dataset-csv", str(dataset_csv),
         "--split-csv", str(split_csv),
@@ -146,8 +149,13 @@ def main(
     quick: bool = False,
     skip_test: bool = False,
     background: bool = False,
+    model: str = "joint",
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
+    if model not in ("joint", "cnn"):
+        raise ValueError("model must be joint or cnn")
+    if model == "cnn" and run_name == "joint-full-v1":
+        run_name = "cnn-full-v1"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_name):
         raise ValueError("run_name must be 1-64 safe filename characters")
     if epochs < 1 or batch_size < 1 or num_workers < 0 or max_windows < 1:
@@ -162,6 +170,7 @@ def main(
         max_windows,
         quick,
         skip_test,
+        model,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

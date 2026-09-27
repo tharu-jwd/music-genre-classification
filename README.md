@@ -79,6 +79,10 @@ on a persistent Modal GPU runner. See the [Modal training guide](docs/modal-trai
 for per-account Volume setup, data upload, smoke-test, full-run, and result-download
 commands.
 
+For an encoder-matched six-genre CNN comparison, see the
+[direct CNN baseline](docs/cnn-baseline.md). Select it with `--model cnn`
+in the local trainer or Modal runner.
+
 ## Repository structure
 
 ```text
