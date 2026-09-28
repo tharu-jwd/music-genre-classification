@@ -12,13 +12,31 @@ from torch.utils.data import DataLoader
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from timbre_branch.constants import FEATURE_COLUMNS
+from timbre_branch.constants import (
+    ARCHITECTURE_VERSION,
+    FEATURE_COLUMNS,
+    FLATNESS_INDEX,
+    PREPROCESSING_VERSION,
+)
 from timbre_branch.data import TimbreEmbeddingDataset
-from timbre_branch.losses import masked_smooth_l1_loss
+from timbre_branch.losses import (
+    group_balanced_masked_smooth_l1_loss,
+    masked_smooth_l1_loss,
+)
 from timbre_branch.inference import predict_timbre_concepts
 from timbre_branch.model import TimbreBranch
-from timbre_branch.preprocessing import TimbreStandardizer, load_timbre_targets
-from timbre_branch.training import load_checkpoint, save_checkpoint, train_one_epoch
+from timbre_branch.preprocessing import (
+    TimbreStandardizer,
+    load_timbre_targets,
+    normalize_track_id,
+)
+from timbre_branch.training import (
+    build_v2_optimizer,
+    build_v2_scheduler,
+    load_checkpoint,
+    save_checkpoint,
+    train_one_epoch,
+)
 
 
 class TimbreBranchSmokeTest(unittest.TestCase):
@@ -29,6 +47,9 @@ class TimbreBranchSmokeTest(unittest.TestCase):
     @staticmethod
     def _synthetic_targets(rows=60):
         values = np.random.normal(size=(rows, len(FEATURE_COLUMNS)))
+        values[:, FLATNESS_INDEX] = np.exp(
+            np.random.normal(loc=-7.0, scale=2.5, size=rows)
+        )
         frame = pd.DataFrame(values, columns=FEATURE_COLUMNS)
         frame.insert(0, "TRACK_ID", [f"track_{index:04d}" for index in range(rows)])
         frame["extraction_status"] = "ok"
@@ -48,6 +69,9 @@ class TimbreBranchSmokeTest(unittest.TestCase):
         embeddings = np.random.normal(size=(rows, 128)).astype(np.float32)
         raw_targets = np.random.normal(size=(rows, 35)).astype(np.float64)
         raw_targets[:, 0] = raw_targets[:, 0] * 600.0 + 1800.0
+        raw_targets[:, FLATNESS_INDEX] = np.exp(
+            np.random.normal(loc=-7.0, scale=2.5, size=rows)
+        )
         mask = np.ones((rows, 35), dtype=bool)
         mask[0, 7] = False
         raw_targets[0, 7] = np.nan
@@ -70,7 +94,7 @@ class TimbreBranchSmokeTest(unittest.TestCase):
         self.assertEqual(tuple(output.shape), (5, 35))
         self.assertTrue(torch.isfinite(output).all())
 
-        loss = masked_smooth_l1_loss(
+        loss = group_balanced_masked_smooth_l1_loss(
             output,
             torch.from_numpy(standardized[:5]),
             torch.from_numpy(mask[:5]),
@@ -109,7 +133,73 @@ class TimbreBranchSmokeTest(unittest.TestCase):
                 actual = restored(torch.from_numpy(embeddings[:5]))
             torch.testing.assert_close(actual, reference)
             self.assertEqual(payload["feature_names"], list(FEATURE_COLUMNS))
+            self.assertEqual(payload["architecture"], ARCHITECTURE_VERSION)
+            self.assertEqual(
+                payload["standardizer"]["preprocessing_version"],
+                PREPROCESSING_VERSION,
+            )
             np.testing.assert_allclose(restored_scaler.mean, scaler.mean)
+
+    def test_v2_flatness_transform_is_training_only_and_invertible(self):
+        values = np.ones((6, 35), dtype=np.float64)
+        values[:, FLATNESS_INDEX] = [1e-10, 1e-8, 1e-6, 1e-4, 1e-2, 0.2]
+        scaler = TimbreStandardizer().fit(values[:4])
+        expected_log_mean = np.log(values[:4, FLATNESS_INDEX]).mean()
+        self.assertAlmostEqual(scaler.mean[FLATNESS_INDEX], expected_log_mean)
+        standardized = scaler.transform(values)
+        recovered = scaler.inverse_transform(standardized)
+        np.testing.assert_allclose(recovered, values, rtol=1e-6, atol=1e-12)
+        state = scaler.state_dict()
+        self.assertEqual(state["preprocessing_version"], PREPROCESSING_VERSION)
+        self.assertEqual(state["target_transforms"]["spectral_flatness_mean"], "log_clamp")
+
+    def test_group_balancing_is_equal_across_three_families(self):
+        prediction = torch.zeros(1, 35, requires_grad=True)
+        target = torch.zeros(1, 35)
+        mask = torch.ones(1, 35, dtype=torch.bool)
+        target[:, 0:7] = 1.0
+        target[:, 7:9] = 2.0
+        target[:, 9:35] = 3.0
+        loss = group_balanced_masked_smooth_l1_loss(prediction, target, mask)
+        expected = torch.tensor((0.5 + 1.5 + 2.5) / 3)
+        torch.testing.assert_close(loss.detach(), expected)
+        loss.backward()
+        self.assertTrue(torch.isfinite(prediction.grad).all())
+
+    def test_v2_optimizer_scheduler_and_gradient_contract(self):
+        shared_encoder = torch.nn.Linear(16, 128)
+        timbre_branch = TimbreBranch()
+        fusion_head = torch.nn.Linear(35, 64)
+        genre_head = torch.nn.Linear(64, 6)
+        optimizer = build_v2_optimizer(
+            shared_encoder=shared_encoder,
+            timbre_branch=timbre_branch,
+            fusion_head=fusion_head,
+        )
+        self.assertEqual(
+            [group["group_name"] for group in optimizer.param_groups],
+            ["shared_encoder", "timbre_branch", "fusion_head"],
+        )
+        self.assertEqual(
+            [group["lr"] for group in optimizer.param_groups],
+            [1e-4, 5e-4, 5e-4],
+        )
+        scheduler = build_v2_scheduler(optimizer)
+        self.assertEqual(scheduler.mode, "max")
+
+        audio = torch.randn(4, 16)
+        target = torch.randn(4, 35)
+        mask = torch.ones_like(target, dtype=torch.bool)
+        concepts = timbre_branch(shared_encoder(audio))
+        loss = group_balanced_masked_smooth_l1_loss(concepts, target, mask)
+        genre_logits = genre_head(fusion_head(concepts))
+        genre_targets = torch.randint(0, 2, genre_logits.shape).float()
+        loss = loss + torch.nn.functional.binary_cross_entropy_with_logits(
+            genre_logits, genre_targets
+        )
+        loss.backward()
+        for module in (shared_encoder, timbre_branch, fusion_head):
+            self.assertTrue(all(p.grad is not None for p in module.parameters()))
 
     def test_shape_contract_rejects_invalid_input(self):
         model = TimbreBranch()
@@ -117,6 +207,10 @@ class TimbreBranchSmokeTest(unittest.TestCase):
             model(torch.randn(2, 64))
         with self.assertRaises(ValueError):
             model(torch.randn(128))
+
+    def test_track_id_normalization(self):
+        self.assertEqual(normalize_track_id("track_00142798"), "142798")
+        self.assertEqual(normalize_track_id("142798.0"), "142798")
 
     def test_training_cli_end_to_end(self):
         targets = self._synthetic_targets()
@@ -134,7 +228,12 @@ class TimbreBranchSmokeTest(unittest.TestCase):
             checkpoint_path = directory / "best.pt"
             np.savez(embedding_path, track_ids=track_ids, embeddings=embeddings)
             targets.to_csv(target_path, index=False)
-            pd.DataFrame({"TRACK_ID": track_ids, "split": split_names}).to_csv(
+            pd.DataFrame(
+                {
+                    "track_id": [str(index) for index in range(len(track_ids))],
+                    "split": split_names,
+                }
+            ).to_csv(
                 split_path, index=False
             )
             completed = subprocess.run(
