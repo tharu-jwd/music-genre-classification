@@ -69,7 +69,7 @@ from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.types import BranchBundle
 from harmony_branch.model import TemporalHarmonyBranch
 from scripts.mtg_data_contract import NOTEBOOK_DATA_CONTRACT
-from rhythm_branch.model import RhythmBranch
+from rhythm_branch.model import RhythmBranch, RhythmBranchConfig
 from rhythm_branch.preprocessing import RhythmStandardizer
 from shared_encoder import SharedAudioEncoder
 from timbre_branch.model import TimbreBranch
@@ -851,6 +851,10 @@ def evaluate(
 # ---------------------------------------------------------------------------
 
 def train(cfg: "TrainConfig") -> None:
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(cfg.seed)
     device = torch.device(cfg.device)
     print(f"Device: {device}")
 
@@ -885,7 +889,9 @@ def train(cfg: "TrainConfig") -> None:
     encoder        = SharedAudioEncoder().to(device)
     instrument_head = InstrumentHead().to(device)
     timbre_head    = TimbreBranch().to(device)
-    rhythm_head    = RhythmBranch().to(device)
+    rhythm_head = RhythmBranch(
+        RhythmBranchConfig(pooling_mode=cfg.rhythm_pooling_mode)
+    ).to(device)
     harmony_head = TemporalHarmonyBranch(
         128, chord_classes=None, descriptor_dim=N_HARMONY_DESCRIPTORS
     ).to(device)
@@ -1015,6 +1021,7 @@ def train(cfg: "TrainConfig") -> None:
                 "instrument_head":  instrument_head.state_dict(),
                 "timbre_head":      timbre_head.state_dict(),
                 "rhythm_head":      rhythm_head.state_dict(),
+                "rhythm_model_config": rhythm_head.config.to_dict(),
                 "harmony_head":     harmony_head.state_dict(),
                 "fusion_model":     fusion_model.state_dict(),
                 "optimizer":        optimizer.state_dict(),
@@ -1031,6 +1038,7 @@ def train(cfg: "TrainConfig") -> None:
                 "mel_config": train_ds.mel_config,
                 "window_frames": cfg.window_frames,
                 "max_windows": cfg.max_windows,
+                "seed": cfg.seed,
                 "harmony_target_columns": list(HARMONY_FEATURES),
                 "harmony_strategy":  "standardized_song_descriptor_regression",
                 "harmony_supervised": bool(train_ds.harmony_mask.any()),
@@ -1077,6 +1085,8 @@ def train(cfg: "TrainConfig") -> None:
         "n_val":         len(val_ds),
         "n_test":        len(test_ds),
         "harmony_supervised": bool(train_ds.harmony_mask.any()),
+        "rhythm_model_config": rhythm_head.config.to_dict(),
+        "seed": cfg.seed,
         "log":           log,
     }
     out_path = out_dir / "results.json"
@@ -1111,6 +1121,8 @@ class TrainConfig:
     logmel_root:        Path | None = None
     window_frames:     int = 1366
     max_windows:       int = 12
+    rhythm_pooling_mode: str = "attention"
+    seed: int = 42
 
 
 def main() -> None:
@@ -1132,6 +1144,12 @@ def main() -> None:
     p.add_argument("--logmel-root", type=Path, help="Local logmel_songs directory; replaces the Colab prefix")
     p.add_argument("--window-frames", type=int, default=1366)
     p.add_argument("--max-windows", type=int, default=12)
+    p.add_argument(
+        "--rhythm-pooling-mode",
+        choices=("attention", "attention_mean_std"),
+        default="attention",
+    )
+    p.add_argument("--seed", type=int, default=42)
     p.add_argument("--skip-test", action="store_true", help="Reserve the test split for final evaluation")
     p.add_argument("--data-dir", type=Path, default=ROOT / "data",
                    help="Directory containing metadata/config files")
@@ -1171,6 +1189,8 @@ def main() -> None:
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,
+        rhythm_pooling_mode = args.rhythm_pooling_mode,
+        seed              = args.seed,
     )
 
     if args.model == "cnn":

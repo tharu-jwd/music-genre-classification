@@ -12,11 +12,16 @@ encoded_sequence       (B,T,128)
 sequence_mask          (B,T)
 sequence_window_index  (B,T)
         -> gap-aware temporal Conv1d blocks
-        -> masked temporal attention pooling
+        -> attention pooling (default), or attention + masked mean/std pooling
 embedding              (B,64)   -> concept fusion
 predictions            (B,10)   -> masked Huber auxiliary loss
 availability           (B,)
 ```
+
+Select the optional statistics-augmented mode with
+`RhythmBranchConfig(pooling_mode="attention_mean_std")`, or during joint training
+with `--rhythm-pooling-mode attention_mean_std`. Both modes preserve the same
+output and fusion contracts.
 
 The exact target order is frozen in `src/rhythm_branch/constants.py` and matches the
 Colab/Kaggle AcousticBrainz extraction notebooks. Target rows join to mel examples
