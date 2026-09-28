@@ -42,7 +42,7 @@ class BranchOutput:
     fusion_token: torch.Tensor | None = None  # rhythm 64D embedding-fusion ablation input
     embedding: torch.Tensor | None = None  # harmony embedding-fusion ablation input
     hidden_token: torch.Tensor | None = None  # instrument: (B,128) detached; others (B,64)
-    logits: torch.Tensor | None = None  # instrument BCE-with-logits (B,40)
+    logits: torch.Tensor | None = None  # instrument BCE-with-logits (B,41)
     tag_order: tuple[str, ...] | None = None
     temporal_chroma_logits: torch.Tensor | None = None  # harmony (B,T,12)
     temporal_chord_logits: torch.Tensor | None = None  # optional harmony (B,T,25)

@@ -4,8 +4,8 @@
 
 The instrument branch is the instrument-concept bottleneck in the proposed music
 genre classifier. It receives a song-level representation from the shared audio
-encoder and predicts the 40 instruments in the frozen MTG-Jamendo split-0
-instrument vocabulary.
+encoder and predicts the 41 instruments in the representative six-genre cohort,
+including `ukulele`.
 
 The predicted instrument probabilities are both:
 
@@ -29,23 +29,23 @@ shared CNN encoder
 | InstrumentBranch                                       |
 |                                                        |
 | Linear(128, 128) -> ReLU -> Dropout(0.1)              |
-|                  -> Linear(128, 40) -> logits          |
+|                  -> Linear(128, 41) -> logits          |
 |                  -> Sigmoid -> instrument probabilities|
 +--------------------------------------------------------+
       |
-      | concept_values (B, 40)
+      | concept_values (B, 41)
       v
-fusion-owned Linear(40, 64)
+fusion-owned Linear(41, 64)
       |
       v
 masked concept fusion with rhythm, timbre, and harmony
       |
       v
-87 genre logits
+6 genre logits
 ```
 
 There is deliberately no direct path from the unrestricted 128-dimensional audio
-representation to fusion through this branch. Fusion receives the 40 named
+representation to fusion through this branch. Fusion receives the 41 named
 instrument concepts, preserving the concept bottleneck.
 
 ## Network definition
@@ -53,7 +53,7 @@ instrument concepts, preserving the concept bottleneck.
 The current version is:
 
 ```text
-song-128-hidden-128-dropout-0.1-concepts-40-v2
+song-128-hidden-128-dropout-0.1-concepts-41-v2
 ```
 
 | Layer | Input shape | Output shape | Operation |
@@ -62,18 +62,18 @@ song-128-hidden-128-dropout-0.1-concepts-40-v2
 | Hidden layer | `(B, 128)` | `(B, 128)` | `Linear(128,128)` |
 | Activation | `(B, 128)` | `(B, 128)` | `ReLU` |
 | Regularization | `(B, 128)` | `(B, 128)` | `Dropout(p=0.1)` |
-| Classifier | `(B, 128)` | `(B, 40)` | `Linear(128,40)` |
-| Concept activation | `(B, 40)` | `(B, 40)` | Independent sigmoid |
+| Classifier | `(B, 128)` | `(B, 41)` | `Linear(128,41)` |
+| Concept activation | `(B, 41)` | `(B, 41)` | Independent sigmoid |
 
-The branch has **21,672 trainable parameters**:
+The branch has **21,801 trainable parameters**:
 
 ```text
 Linear(128,128): 128 * 128 + 128 = 16,512
-Linear(128,40):  128 * 40  + 40  =  5,160
-Total:                                21,672
+Linear(128,41):  128 * 41  + 41  =  5,289
+Total:                                21,801
 ```
 
-The 40 outputs are independent because a song can contain multiple instruments.
+The 41 outputs are independent because a song can contain multiple instruments.
 Consequently, the branch uses sigmoids rather than a softmax.
 
 ## Input contract
@@ -102,7 +102,7 @@ architecture version.
 ### Masks
 
 ```python
-supervision_mask: Tensor | None  # shape (B, 40)
+supervision_mask: Tensor | None  # shape (B, 41)
 fusion_mask:      Tensor | None  # shape (B, 1)
 ```
 
@@ -120,9 +120,9 @@ The branch returns a dictionary with the following fields:
 
 | Field | Shape | Meaning |
 |---|---:|---|
-| `concept_values` | `(B, 40)` | Sigmoid instrument probabilities sent to fusion |
-| `logits` | `(B, 40)` | Raw values used for numerically stable BCE |
-| `supervision_mask` | `(B, 40)` | Observed-target mask |
+| `concept_values` | `(B, 41)` | Sigmoid instrument probabilities sent to fusion |
+| `logits` | `(B, 41)` | Raw values used for numerically stable BCE |
+| `supervision_mask` | `(B, 41)` | Observed-target mask |
 | `fusion_mask` | `(B, 1)` | Branch availability/dropout mask for fusion |
 | `diagnostics.hidden` | `(B, 128)` | Detached hidden state for diagnostics only |
 
@@ -133,7 +133,7 @@ concept_values == sigmoid(logits)
 ```
 
 The branch must **not** return a `fusion_token`. In the current integration
-contract, concept fusion owns `Linear(40,64)`. The detached hidden representation
+contract, concept fusion owns `Linear(41,64)`. The detached hidden representation
 is not a valid fusion input.
 
 ## Supervision and loss
@@ -158,7 +158,7 @@ Concept fusion transforms the instrument probabilities to the common 64-dimensio
 token width:
 
 ```python
-instrument_token = instrument_projection(concept_values)  # Linear(40, 64)
+instrument_token = instrument_projection(concept_values)  # Linear(41, 64)
 instrument_token = instrument_token * fusion_mask
 ```
 
@@ -192,7 +192,7 @@ concept drift.
 - Thresholds are selected using validation data only and are used for reporting
   discrete instrument metrics.
 - Threshold selection does not modify the continuous probabilities sent to fusion.
-- The fixed 40-label order is stored in
+- The fixed 41-label order is stored in
   [`docs/instrument-vocabulary.json`](docs/instrument-vocabulary.json) and must be
   preserved by target loading, outputs, metrics, and checkpoints.
 
@@ -225,7 +225,7 @@ matching ablation:
 - treating unobserved annotations as negative labels;
 - thresholding probabilities before fusion;
 - adding window attention or another temporal aggregation mechanism; or
-- changing the frozen 40-instrument vocabulary or its order.
+- changing the fixed 41-instrument vocabulary or its order.
 
 ## Implementation source
 
