@@ -1,4 +1,10 @@
-# Concept fusion stack — how to run everything
+# Historical fixture-only concept fusion runbook
+
+> **Status, 2026-09-28:** These commands run the mock/fixture experiment matrix,
+> not the audited real-data joint run. The predicted-chroma fusion contract
+> below is superseded by 12 standardized Harmony v3 descriptor predictions.
+> For current training use [joint-training.md](joint-training.md); for exact
+> Harmony behavior use the [v3 snapshot](../harmony_branch/docs/architecture-versions/v3/README.md).
 
 **Branch:** `harmony` integration candidate
 

@@ -1,0 +1,26 @@
+%%{init: {"theme":"base", "look":"classic", "fontFamily":"Avenir Next, Helvetica Neue, Arial, sans-serif", "themeVariables": {
+  "primaryColor":"transparent", "primaryTextColor":"#ffffff", "primaryBorderColor":"#b0b0b0",
+  "lineColor":"#b0b0b0", "textColor":"#ffffff",
+  "fontFamily":"Avenir Next, Helvetica Neue, Arial, sans-serif",
+  "edgeLabelBackground":"transparent", "tertiaryColor":"transparent", "clusterBkg":"transparent"
+}}}%%
+flowchart LR
+  CACHE["<span style='color:#7CC4FF'>Log-Mel cache</span><br/><br/>16 kHz, hop 512, 128 mel<br/>15 s cache metadata, center true"]
+  THREE["<span style='color:#7CC4FF'>3D stacked-cache path</span><br/><br/>windows x 128 x actual F<br/>select up to 12 ordered windows"]
+  TWO["<span style='color:#7CC4FF'>2D fallback path</span><br/><br/>128 x total frames<br/>chunk by saved window_frames=1366"]
+  META["<span style='color:#7CC4FF'>Window metadata</span><br/><br/>valid frame counts, start times<br/>invalid tail zeroed"]
+  BATCH["<span style='color:#7CC4FF'>Collated model input</span><br/><br/>mel (B,W,1,128,F)<br/>window mask (B,W)"]
+  CNN1["<span style='color:#7CC4FF'>Shared CNN stage 1</span><br/><br/>Conv2d 1 to 32, GN, GELU<br/>pool frequency 2, time 2"]
+  CNN2["<span style='color:#7CC4FF'>Shared CNN stage 2</span><br/><br/>Conv2d 32 to 64, GN, GELU<br/>pool frequency 2, time 1"]
+  CNN3["<span style='color:#7CC4FF'>Shared CNN stage 3</span><br/><br/>Conv2d 64 to 96, GN, GELU"]
+  FREQ["<span style='color:#7CC4FF'>Frequency attention</span><br/><br/>softmax over frequency<br/>weighted 96-channel sum"]
+  PROJ["<span style='color:#7CC4FF'>Shared projection</span><br/><br/>Linear 96 to 128<br/>ordered tokens per window"]
+  LAYOUT["<span style='color:#7CC4FF'>Temporal layout</span><br/><br/>stride 2 frames; valid mask<br/>song times + window identity"]
+  SEQ["<span style='color:#7CC4FF'>Harmony input</span><br/><br/>sequence (B,T,128)<br/>mask (B,T), index (B,T)"]
+  OTHER["<span style='color:#7CC4FF'>Other branch outputs</span><br/><br/>pooled song (B,128)<br/>window representation (B,W,128)"]
+  CACHE --> THREE --> META
+  CACHE --> TWO --> META
+  META --> BATCH --> CNN1 --> CNN2 --> CNN3 --> FREQ --> PROJ
+  BATCH --> LAYOUT
+  PROJ --> LAYOUT --> SEQ
+  PROJ --> OTHER

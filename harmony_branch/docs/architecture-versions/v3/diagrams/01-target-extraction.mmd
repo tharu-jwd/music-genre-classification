@@ -1,0 +1,35 @@
+%%{init: {"theme":"base", "look":"classic", "fontFamily":"Avenir Next, Helvetica Neue, Arial, sans-serif", "themeVariables": {
+  "primaryColor":"transparent", "primaryTextColor":"#ffffff", "primaryBorderColor":"#b0b0b0",
+  "lineColor":"#b0b0b0", "textColor":"#ffffff",
+  "fontFamily":"Avenir Next, Helvetica Neue, Arial, sans-serif",
+  "edgeLabelBackground":"transparent", "tertiaryColor":"transparent", "clusterBkg":"transparent"
+}}}%%
+flowchart LR
+  MAN["<span style='color:#7CC4FF'>Selected tracks</span><br/><br/>7,324 TRACK_IDs<br/>full-quality MP3 paths"]
+  AUDIO["<span style='color:#7CC4FF'>Decode audio</span><br/><br/>mono, 16 kHz<br/>first min(duration, 240 s)"]
+  TUNE["<span style='color:#7CC4FF'>Estimate tuning</span><br/><br/>36 bins per octave"]
+  CQT["<span style='color:#7CC4FF'>CQT chroma</span><br/><br/>12 pitch classes, 7 octaves<br/>512-sample hop, no HPSS"]
+  RMS["<span style='color:#7CC4FF'>Frame availability</span><br/><br/>RMS threshold: max(1e-6,<br/>1% of track peak RMS)"]
+  VALID["<span style='color:#7CC4FF'>Valid frame mask</span><br/><br/>RMS passes; chroma finite<br/>and positive sum; at least 2 frames"]
+  NORM["<span style='color:#7CC4FF'>Normalize chroma</span><br/><br/>L1 per valid frame<br/>12 values sum to 1"]
+  TON["<span style='color:#7CC4FF'>Tonnetz</span><br/><br/>6 tonal-centroid axes<br/>from normalized chroma"]
+  PAIR["<span style='color:#7CC4FF'>Valid adjacent pairs</span><br/><br/>both frames valid<br/>needed for movement and flux"]
+  CHROMASTATS["<span style='color:#7CC4FF'>Chroma summaries</span><br/><br/>12 means + 12 standard deviations"]
+  TONSTATS["<span style='color:#7CC4FF'>Tonnetz summaries</span><br/><br/>6 means + 6 standard deviations"]
+  OTHER["<span style='color:#7CC4FF'>Other summaries</span><br/><br/>concentration 2; entropy 2<br/>flux 2; movement 2; valid ratio 1"]
+  RAW["<span style='color:#7CC4FF'>Raw evidence table</span><br/><br/>45 descriptors + diagnostics<br/>7,324 OK rows"]
+  CLEAN["<span style='color:#7CC4FF'>Clean target table</span><br/><br/>TRACK_ID + 45 descriptors<br/>exact column projection"]
+  SELECT["<span style='color:#7CC4FF'>Current v3 target selection</span><br/><br/>12 named song descriptors<br/>not 12 chroma probabilities"]
+  NOTE["<span style='color:#7CC4FF'>Interpretation boundary</span><br/><br/>automatic pseudo-labels;<br/>no human chord or note labels"]
+  MAN --> AUDIO --> TUNE --> CQT --> VALID
+  AUDIO --> RMS --> VALID
+  CQT --> NORM --> TON
+  VALID --> NORM
+  VALID --> PAIR
+  NORM --> CHROMASTATS
+  NORM --> OTHER
+  TON --> TONSTATS
+  TON --> PAIR --> OTHER
+  CHROMASTATS --> RAW
+  TONSTATS --> RAW
+  OTHER --> RAW --> CLEAN --> SELECT --> NOTE

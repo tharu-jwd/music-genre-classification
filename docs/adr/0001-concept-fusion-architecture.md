@@ -1,6 +1,8 @@
 # Architecture Decision Record — Concept Fusion, Genre Head, Evaluation, Explainability
 
-**Status:** Harmony integration candidate; team ratification still required
+**Status:** Superseded historical proposal; not the current Harmony v3 contract.
+See the [v3 snapshot](../../harmony_branch/docs/architecture-versions/v3/README.md)
+and [audited handoff](../../harmony_branch/docs/integration-handoff.md).
 
 **Owners:** Thevindu (fusion) and harmony branch owner
 
@@ -8,7 +10,9 @@
 
 **Contract:** predicted-concept fusion v0.3 (`predicted_concept_fusion_v1` checkpoint contract)
 
-This record freezes the 11 decisions in the ownership brief §8. Branch owners should object in the meeting, not by silently reshaping tensors later.
+This record preserves the 11 decisions proposed at that stage. It is retained
+for decision history; current implementation and saved-run evidence supersede
+its 40-instrument, 87-genre, and Harmony v1 embedding assumptions.
 
 ---
 

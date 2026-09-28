@@ -1,0 +1,26 @@
+%%{init: {"theme":"base", "look":"classic", "fontFamily":"Avenir Next, Helvetica Neue, Arial, sans-serif", "themeVariables": {
+  "primaryColor":"transparent", "primaryTextColor":"#ffffff", "primaryBorderColor":"#b0b0b0",
+  "lineColor":"#b0b0b0", "textColor":"#ffffff",
+  "fontFamily":"Avenir Next, Helvetica Neue, Arial, sans-serif",
+  "edgeLabelBackground":"transparent", "tertiaryColor":"transparent", "clusterBkg":"transparent"
+}}}%%
+flowchart LR
+  IN["<span style='color:#7CC4FF'>Branch input</span><br/><br/>ordered (B,T,128) tokens<br/>valid mask + window identity"]
+  CHECK["<span style='color:#7CC4FF'>Layout validation</span><br/><br/>T = W x tokens per window<br/>masked indices must be -1"]
+  LIN["<span style='color:#7CC4FF'>Input projection</span><br/><br/>Linear 128 to 64<br/>zero masked positions"]
+  RESHAPE["<span style='color:#7CC4FF'>Gap-safe grouping</span><br/><br/>reshape as B x W windows<br/>convolution cannot cross gaps"]
+  CONV["<span style='color:#7CC4FF'>Two residual temporal blocks</span><br/><br/>Conv1d 64 to 64, kernel 3<br/>GELU, dropout 0.1, mask"]
+  TOKEN["<span style='color:#7CC4FF'>Token embedding</span><br/><br/>Linear 64 to 32<br/>zero invalid tokens"]
+  POOL["<span style='color:#7CC4FF'>Masked song mean</span><br/><br/>valid-token weights sum to 1<br/>embedding (B,32)"]
+  DESC["<span style='color:#7CC4FF'>Descriptor MLP</span><br/><br/>Linear 32 to 32, GELU<br/>dropout 0.1, Linear 32 to 12"]
+  PRIMARY["<span style='color:#7CC4FF'>Current primary output</span><br/><br/>12 standardized song descriptors<br/>no softmax; sent to fusion"]
+  CHROMA["<span style='color:#7CC4FF'>Temporal chroma head</span><br/><br/>Linear 32 to 12 per token<br/>logits (B,T,12); no target now"]
+  CHORD["<span style='color:#7CC4FF'>Chord head</span><br/><br/>optional Linear 32 to 25<br/>disabled in current run"]
+  AVAIL["<span style='color:#7CC4FF'>Availability</span><br/><br/>true if any valid token<br/>zeros outputs when unavailable"]
+  IN --> CHECK --> LIN --> RESHAPE --> CONV --> TOKEN
+  TOKEN --> POOL --> DESC --> PRIMARY
+  TOKEN --> CHROMA
+  TOKEN -. optional .-> CHORD
+  CHECK --> AVAIL
+  AVAIL --> POOL
+  AVAIL --> DESC

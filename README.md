@@ -7,7 +7,8 @@ shared audio representation:
 - instruments — what is playing;
 - rhythm — the beat and tempo;
 - timbre — the character of the sound;
-- harmony — pitch classes, tonal movement, and chord changes over time.
+- harmony — currently song-level tonal descriptors; temporal pitch/chord changes
+  are a separate proposed experiment.
 
 It learns how much each concept contributes, combines the four representations, and
 predicts every genre that applies to a song.
@@ -18,33 +19,19 @@ predicts every genre that applies to a song.
 
 ## Current state
 
-The diagram is the target architecture, not a completed implementation. The
-repository contains generated workflows for data preparation, two comparison
-baselines, instrument pretraining, concept-target preparation, standalone instrument,
-timbre, and rhythm branches, and harmony preflight.
-A full clean hosted run has not been proven. The split parser, fixed vocabularies,
-song windowing, cohort consistency, instrument-label availability, bounded harmony
-extractor/branch screening, and GPU runtime gates have CPU-tested implementations.
-The resource-capped harmony CPU ladder now lives under `harmony_branch/scripts/`;
-the retired notebook 06 is not part of the hosted workflow.
-A bounded CPU Essentia chord-baseline generator and evaluator are ready, but their
-external benchmark has not run. The timbre implementation and its synthetic smoke
-test are present, but its real target table and shared-encoder inputs are not tracked.
-The rhythm branch and fusion adapter pass synthetic CPU contract tests, but the real
-AcousticBrainz coverage/interval audit and shared-encoder cache are not tracked.
-Real-audio harmony selection, chord-teacher acceptance, real-branch data loading,
-and a clean end-to-end hosted run remain unresolved before joint-training outputs are
-trustworthy. The temporal harmony/fusion adapter and its CPU integration tests are
-implemented.
+The diagram above is an early proposed design, not the current run contract.
+The repository now has a joint trainer for six genres and 41 instrument labels.
+Harmony v3 predicts 12 standardized **song-level descriptors** selected from a
+completed 45-feature extraction of 7,324 tracks; fusion projects those 12
+predictions to 64D. A supplied joint-run report and checkpoint were audited, but
+their code commit and exact harmony loss weight are not recorded. The whole-model
+genre score does not yet establish harmony's added value without a matched
+no-harmony comparison. Temporal chroma/chord supervision is unrun research.
+See the [Harmony v3 snapshot](harmony_branch/docs/architecture-versions/v3/README.md)
+and [audited handoff](harmony_branch/docs/integration-handoff.md).
 
-The current `main` branch also includes the instrument and timbre workstreams. The
-fixture-tested fusion prototype from `origin/thevindu-concept-fusion` is integrated
-here with a revised harmony contract: temporal predictions remain auxiliary outputs,
-and fusion projects the configurable song embedding to 64D. See the project plan
-before starting real training.
-
-See the [project status and remaining work](docs/project-plan.md) for the exact
-blockers and implementation sequence.
+See the [historical project plan](docs/project-plan.md) for prior cross-team
+decisions, and the [Harmony evaluation plan](plan.md) for the completed audit.
 
 ## Documentation
 
@@ -52,11 +39,12 @@ Each document has one purpose:
 
 | Document | Purpose |
 |---|---|
-| [Architecture](docs/architecture.md) | Existing baselines and the proposed model design |
+| [Architecture](docs/architecture.md) | Historical system-level proposal; current contracts are linked at its top |
 | [Shared CNN encoder](docs/shared-cnn-encoder-architecture.md) | Implemented CNN, tensor contract, temporal geometry, masks, and checkpoint compatibility |
-| [Project plan](docs/project-plan.md) | Current status, blockers, ownership boundaries, and remaining work |
+| [Historical project plan](docs/project-plan.md) | Earlier status and proposed sequence; not a live tracker |
 | [Harmony branch](harmony_branch/README.md) | Owned code, tests, documentation, and integration boundary |
-| [Harmony plan](harmony_branch/docs/plan.md) | Step-by-step work owned by the harmony branch |
+| [Harmony v3 architecture](harmony_branch/docs/architecture-versions/v3/README.md) | Current diagrammed model and evidence |
+| [Temporal harmony research plan](harmony_branch/docs/temporal-chroma-research-plan.md) | Optional, unrun chroma/chord experiment only |
 | [Harmony integration hand-off](harmony_branch/docs/integration-handoff.md) | Current interface, required artifacts, and executable next commands |
 | [Team standards](docs/team-standards.md) | Shared data, model, artifact, evaluation, and development contracts |
 
@@ -101,10 +89,10 @@ in the local trainer or Modal runner.
 │   ├── colab/
 │   ├── kaggle/
 │   └── dataset_split/
-├── instrument_branch/             # 40 instrument concepts from a 128D song input
+├── instrument_branch/             # instrument concepts from a 128D song input
 ├── timbre_branch/                  # 35 standardized timbre concepts from a 128D input
 ├── rhythm_branch/                  # 10 learned temporal rhythm concepts
-├── harmony_branch/                 # temporal harmony package, scripts, tests, and docs
+├── harmony_branch/                 # current descriptor branch plus temporal research
 ├── shared_encoder/                 # modular shared CNN, geometry, validation, and types
 ├── concept_fusion/                # shared contracts, projections, losses, and fusion
 ├── scripts/
@@ -118,5 +106,6 @@ in the local trainer or Modal runner.
     └── test_*.py
 ```
 
-Large datasets, extracted targets, checkpoints, predictions, and results remain
-outside Git. Their agreed layout and metadata are defined in the team standards.
+Large audio caches and checkpoints remain outside Git. The harmony descriptor
+tables and supplied run report are committed; see the [feature contract](harmony_branch/docs/feature-contract.md)
+and [evidence index](harmony_branch/docs/evidence/README.md).

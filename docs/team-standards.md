@@ -4,9 +4,17 @@ These are the shared contracts every project component must follow. They prevent
 independently developed branches from using incompatible data, tensor shapes,
 targets, artifacts, or evaluation rules.
 
-Architecture choices are documented in [architecture.md](architecture.md). Work
-remaining is documented in [project-plan.md](project-plan.md). This file owns the
-cross-team rules and development workflow.
+> **Applicability, 2026-09-28:** This records the earlier 96-mel/40-instrument/
+> 87-genre shared-data design and GPU research gates. It is not the current
+> six-genre, 41-instrument joint-run data contract. For that run use
+> [joint-training.md](joint-training.md), [modal-training.md](modal-training.md),
+> and the [Harmony v3 snapshot](../harmony_branch/docs/architecture-versions/v3/README.md).
+> General principles below (official splits, stable IDs, no target leakage)
+> still apply, but do not substitute old dimensions or cache assumptions.
+
+Historical architecture choices are in [architecture.md](architecture.md) and
+the earlier work sequence in [project-plan.md](project-plan.md). This file
+preserves cross-team rules and development workflow from that stage.
 
 ## 1. Canonical data contract
 
@@ -48,7 +56,7 @@ the same.
 
 ## 2. Audio and log-Mel contract
 
-The current precomputed-input schema is `mtg_full_audio_logmel_windows_v1`. It
+The earlier precomputed-input schema was `mtg_full_audio_logmel_windows_v1`. It
 matches the official MTG-Jamendo [Mel extraction
 script](https://github.com/MTG/mtg-jamendo-dataset/blob/master/scripts/melspectrograms.py):
 

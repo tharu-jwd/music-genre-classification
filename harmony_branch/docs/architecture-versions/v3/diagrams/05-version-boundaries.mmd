@@ -1,0 +1,19 @@
+%%{init: {"theme":"base", "look":"classic", "fontFamily":"Avenir Next, Helvetica Neue, Arial, sans-serif", "themeVariables": {
+  "primaryColor":"transparent", "primaryTextColor":"#ffffff", "primaryBorderColor":"#b0b0b0",
+  "lineColor":"#b0b0b0", "textColor":"#ffffff",
+  "fontFamily":"Avenir Next, Helvetica Neue, Arial, sans-serif",
+  "edgeLabelBackground":"transparent", "tertiaryColor":"transparent", "clusterBkg":"transparent"
+}}}%%
+flowchart LR
+  LEGACY["<span style='color:#7CC4FF'>Historical 18-value prototype</span><br/><br/>old mel-band proxy or STFT summary<br/>not source of current 45-column table"]
+  V1["<span style='color:#7CC4FF'>Historical Harmony v1 contract</span><br/><br/>temporal chroma and optional chords<br/>embedding-to-fusion route in old ADR"]
+  V2["<span style='color:#7CC4FF'>Temporal research path</span><br/><br/>aligned chroma teacher and masks<br/>benchmark gates; no current-run claim"]
+  V3["<span style='color:#7CC4FF'>Implemented Harmony v3</span><br/><br/>45 extracted song descriptors<br/>12 selected targets; descriptor head"]
+  FUSION["<span style='color:#7CC4FF'>Current fusion boundary</span><br/><br/>12 predicted standardized values<br/>fusion-owned 12-to-64 projection"]
+  EXP["<span style='color:#7CC4FF'>Future experiment only</span><br/><br/>matched no-harmony ablation first<br/>temporal chroma or chords separately"]
+  RULE["<span style='color:#7CC4FF'>Version rule</span><br/><br/>new target, output semantics,<br/>fusion route or architecture = new snapshot"]
+  LEGACY -. not equivalent .-> V3
+  V1 -. historical .-> V2
+  V2 -. not substituted .-> V3
+  V3 --> FUSION
+  V3 --> EXP --> RULE

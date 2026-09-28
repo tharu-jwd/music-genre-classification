@@ -25,10 +25,11 @@ table described here.
 | Tonnetz representation | `librosa.feature.tonnetz` from normalized chroma |
 | Extractor identifier | `librosa_chroma_cqt_first4min_v1` |
 
-Chroma frames are L1-normalized. Low-energy or unusable tonal frames are excluded
-through the extractor's validity mask rather than being treated as observed zero
-targets. All statistics are calculated only from valid tonal frames. Flux and
-Tonnetz movement use consecutive pairs for which both frames are valid.
+Chroma frames are L1-normalized. The extractor excludes frames with low RMS or
+non-finite/zero chroma rather than treating them as observed zero targets. Its
+“valid tonal” mask checks energy and chroma availability; it does **not** verify
+that a frame is musically tonal. All statistics use accepted frames. Flux and
+Tonnetz movement use consecutive pairs for which both frames are accepted.
 
 These values are automatically extracted reference descriptors, not human harmony
 annotations and not causal explanations.
@@ -47,7 +48,7 @@ Every clean row contains `TRACK_ID` followed by exactly 45 finite numeric featur
 | Chroma entropy | `chroma_entropy_mean`, `chroma_entropy_std` | 2 | Mean and variation of normalized pitch-class uncertainty |
 | Chroma flux | `chroma_flux_mean`, `chroma_flux_std` | 2 | Mean and variation of frame-to-frame chroma change |
 | Tonnetz movement | `tonnetz_movement_mean`, `tonnetz_movement_std` | 2 | Mean and variation of frame-to-frame tonal-centroid movement |
-| Valid tonal coverage | `valid_tonal_ratio` | 1 | Fraction of analyzed frames accepted by the tonal validity mask |
+| Accepted-frame coverage | `valid_tonal_ratio` | 1 | Fraction of frames passing the energy/chroma-availability mask; not a calibrated tonality score |
 | **Total** |  | **45** |  |
 
 The pitch placeholder is expanded in this fixed order:
@@ -87,4 +88,3 @@ The committed extraction was checked against `data/split_csv.csv`:
 Three short files differ from rounded manifest duration by approximately 0.10 s.
 This is consistent with codec/frame boundaries and does not change the first-four-
 minute policy.
-
