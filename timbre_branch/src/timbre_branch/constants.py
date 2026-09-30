@@ -14,10 +14,12 @@ FEATURE_COLUMNS = (
     *(f"mfcc_{index:02d}_std" for index in range(1, 14)),
 )
 
-FEATURE_GROUPS = {
-    "spectral_shape": tuple(range(0, 7)),
-    "harmonic_noise": tuple(range(7, 9)),
-    "mfcc_envelope": tuple(range(9, 35)),
-}
+ARCHITECTURE_VERSION = "timbre_branch_v2"
+PREPROCESSING_VERSION = "timbre_v2_log_flatness_zscore_v1"
+FLATNESS_FEATURE = "spectral_flatness_mean"
+FLATNESS_INDEX = FEATURE_COLUMNS.index(FLATNESS_FEATURE)
+DEFAULT_FLATNESS_EPSILON = 1e-12
+
+V2_MAX_EPOCHS = 30
 
 assert len(FEATURE_COLUMNS) == 35

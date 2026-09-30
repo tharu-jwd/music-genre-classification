@@ -1,6 +1,8 @@
 # Timbre branch
 
-This directory contains the complete timbre-branch workstream: audio acquisition, 35-descriptor extraction, the strict 128-to-35 learned concept bottleneck, training utilities, validation tests, and the research proposal.
+This directory contains Timbre Branch Architecture V2: audio acquisition,
+35-descriptor extraction, the strict 128-to-35 learned concept bottleneck,
+training utilities, validation tests, and versioned architecture reports.
 
 All mergeable timbre-branch files live here:
 
@@ -50,7 +52,18 @@ h_audio (B, 128)
   -> z_timbre = d_hat_standardized (B, 35)
 ```
 
-The fusion layer receives only the 35 named predicted concepts. There is no direct path from the unrestricted 128-dimensional encoder representation to the timbre fusion input.
+The fusion layer receives only the 35 named predicted concepts. There is no direct path from the unrestricted 128-dimensional encoder representation to the timbre fusion input. V2 keeps this neural head unchanged and adds training-only log preprocessing for spectral flatness. Loss weighting, optimization, scheduling, checkpoint selection, and fusion-level evaluation remain owned by the existing full-architecture trainer.
+
+## V2 training contract
+
+- Fit `timbre_v2_log_flatness_zscore_v1` on training rows only.
+- Apply `log(max(spectral_flatness_mean, 1e-12))` before its z-score.
+- Z-score the other 34 concepts directly using training statistics.
+- Use the full trainer's masked, cell-averaged Smooth L1 timbre loss.
+- Use the optimizer, learning rate, cosine schedule, and checkpoint-selection policy supplied by the full architecture.
+- Train for at most 30 epochs. Any later increase must be recorded as a V2 training revision.
+
+The standalone `train_timbre_branch.py` utility mirrors the current full trainer with AdamW, a default learning rate of `3e-4`, cosine annealing, and no branch-owned early stopping. It selects the best standalone checkpoint by validation standardized timbre MAE because genre labels are not available to that utility.
 
 ## Current data status
 
@@ -65,9 +78,9 @@ python -m pip install -r requirements.txt
 python -m unittest -v tests.test_timbre_branch_smoke
 ```
 
-The self-contained tests cover 128-to-35 forward shape, masked Smooth L1 loss,
-backward optimization, inverse scaling, checkpoint equivalence, invalid-input
-rejection, and end-to-end command-line training on disposable synthetic inputs. If
+The self-contained tests cover the 128-to-35 shape contract, V2 log-flatness
+round-trip, masked Smooth L1 loss, downstream gradient flow, checkpoint equivalence, invalid-input
+rejection, and command-line training on disposable synthetic inputs. If
 the ignored real target table is present, they also check its 7,324-row contract.
 
 ## Real training
@@ -87,7 +100,7 @@ Run from `timbre_branch/`:
 python scripts/train_timbre_branch.py `
   --embeddings path/to/shared_encoder_embeddings.npz `
   --splits path/to/official_split_manifest.csv `
-  --targets data/timbre_features_raw.csv `
+  --targets ../data/timbre_df.csv `
   --output checkpoints/timbre_branch/best.pt
 ```
 
