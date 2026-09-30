@@ -28,7 +28,7 @@ shared CNN encoder
 +--------------------------------------------------------+
 | InstrumentBranch                                       |
 |                                                        |
-| Linear(128, 128) -> ReLU -> Dropout(0.1)              |
+| LayerNorm -> residual 128D MLP -> LayerNorm            |
 |                  -> Linear(128, 41) -> logits          |
 |                  -> Sigmoid -> instrument probabilities|
 +--------------------------------------------------------+
@@ -53,24 +53,25 @@ instrument concepts, preserving the concept bottleneck.
 The current version is:
 
 ```text
-song-128-hidden-128-dropout-0.1-concepts-41-v2
+song-128-residual-mlp-concepts-41-v3
 ```
 
 | Layer | Input shape | Output shape | Operation |
 |---|---:|---:|---|
 | Shared representation | `(B, 128)` | `(B, 128)` | Input from shared encoder |
-| Hidden layer | `(B, 128)` | `(B, 128)` | `Linear(128,128)` |
-| Activation | `(B, 128)` | `(B, 128)` | `ReLU` |
-| Regularization | `(B, 128)` | `(B, 128)` | `Dropout(p=0.1)` |
+| Input normalization | `(B, 128)` | `(B, 128)` | `LayerNorm(128)` |
+| Residual MLP | `(B, 128)` | `(B, 128)` | `Linear(128,128) → GELU → Dropout(0.1) → Linear(128,128) → Dropout(0.1)`, added to normalized input |
+| Output normalization | `(B, 128)` | `(B, 128)` | `LayerNorm(128)` |
 | Classifier | `(B, 128)` | `(B, 41)` | `Linear(128,41)` |
 | Concept activation | `(B, 41)` | `(B, 41)` | Independent sigmoid |
 
-The branch has **21,801 trainable parameters**:
+The branch has **38,825 trainable parameters**:
 
 ```text
-Linear(128,128): 128 * 128 + 128 = 16,512
-Linear(128,41):  128 * 41  + 41  =  5,289
-Total:                                21,801
+Two Linear(128,128): 2 * (128 * 128 + 128) = 33,024
+Two LayerNorm(128): 2 * (128 + 128)         =    512
+Linear(128,41):       128 * 41 + 41         =  5,289
+Total:                                      = 38,825
 ```
 
 The 41 outputs are independent because a song can contain multiple instruments.
@@ -94,7 +95,7 @@ must be identical during training and inference.
 window_repr: FloatTensor | None  # shape (B, W, 128), W >= 1
 ```
 
-The current v2 branch validates `window_repr` when it is supplied but does not use
+The current v3 branch validates `window_repr` when it is supplied but does not use
 it to make predictions. It is retained for compatibility and diagnostics. Adding
 temporal attention over window representations would be a new, separately tested
 architecture version.
@@ -200,7 +201,8 @@ concept drift.
 
 ```python
 def forward(song_repr, supervision_mask=None, fusion_mask=None):
-    hidden = dropout(relu(hidden_linear(song_repr)))
+    x = input_norm(song_repr)
+    hidden = output_norm(x + residual_mlp(x))
     logits = classifier(hidden)
     probabilities = sigmoid(logits)
 
@@ -215,7 +217,7 @@ def forward(song_repr, supervision_mask=None, fusion_mask=None):
 
 ## Architectural boundaries
 
-The following changes are outside the v2 architecture and require a new version and
+The following changes are outside the v3 architecture and require a new version and
 matching ablation:
 
 - sending the 128-dimensional audio representation or hidden state directly to

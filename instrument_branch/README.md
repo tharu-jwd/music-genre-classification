@@ -23,9 +23,9 @@ The notebook is self-contained. The scripts are development tools, and the JSON
 files record the fixed vocabulary and representative-cohort annotation audit.
 Downloaded data and training artifacts remain outside the mergeable files.
 
-The primary path is `song_repr (B,128) -> Linear(128,128) -> ReLU ->
-Dropout(0.1) -> Linear(128,41) -> sigmoid probabilities (B,41)`.
-The branch has 21,801 trainable parameters and no fusion projection.
+The primary path is `song_repr (B,128) -> LayerNorm -> residual 128D MLP ->
+LayerNorm -> Linear(128,41) -> sigmoid probabilities (B,41)`.
+The branch has 38,825 trainable parameters and no fusion projection.
 `window_repr (B,W,128)` is accepted for contract checking but not used by the
 song-level head. A learned temporal-attention extension remains pending approval.
 
@@ -88,7 +88,7 @@ is trained with the genre objective. Thresholds affect reported binary predictio
 the fusion bottleneck. Undefined per-tag AP/AUC are excluded with explicit
 denominators; macro metrics never silently substitute zero.
 
-Checkpoints record the v2 architecture; old 64-D-token branch checkpoints cannot
+Checkpoints record the v3 architecture; older branch checkpoints cannot
 be loaded into this head. Evaluation disables dropout and preserves exact logits
 on save/load.
 

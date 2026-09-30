@@ -22,7 +22,7 @@ One notebook for representative-cohort auditing, a shared-input PyTorch branch,
 masked loss, validation, checkpoints and integration. No Essentia dependency.
 
 ```
-song_repr (B,128) -> Linear(128,128) -> ReLU -> Dropout(0.1)
+song_repr (B,128) -> LayerNorm -> residual 128D MLP
                  -> Linear(128,41) -> logits (B,41) -> sigmoid
                  -> concept_values (B,41) -> external fusion
 ```
@@ -218,12 +218,17 @@ def checked_mask(mask, shape, reference):
         raise ValueError(f"Expected binary mask with shape {shape}")
     return mask
 
-BRANCH_VERSION = "song-128-hidden-128-dropout-0.1-concepts-41-v2"
+BRANCH_VERSION = "song-128-residual-mlp-concepts-41-v3"
 
 class InstrumentBranch(nn.Module):
     def __init__(self):
         super().__init__()
-        self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.1))
+        self.input_norm = nn.LayerNorm(128)
+        self.hidden = nn.Sequential(
+            nn.Linear(128, 128), nn.GELU(), nn.Dropout(0.1),
+            nn.Linear(128, 128), nn.Dropout(0.1),
+        )
+        self.output_norm = nn.LayerNorm(128)
         self.classifier = nn.Linear(128, 41)
 
     def forward(self, song_repr, window_repr=None, supervision_mask=None, fusion_mask=None):
@@ -237,7 +242,8 @@ class InstrumentBranch(nn.Module):
             or not torch.isfinite(window_repr).all()
         ):
             raise ValueError("Expected finite window_repr (B,W,128) with W >= 1")
-        hidden = self.hidden(song_repr)
+        normalized = self.input_norm(song_repr)
+        hidden = self.output_norm(normalized + self.hidden(normalized))
         logits = self.classifier(hidden)
         probabilities = logits.sigmoid()
         b = len(song_repr)
@@ -493,7 +499,7 @@ def run_contract_tests():
     for key, shape in [("concept_values", (4,41)), ("logits", (4,41)), ("supervision_mask", (4,41)), ("fusion_mask", (4,1))]:
         assert result[key].shape == shape and torch.isfinite(result[key]).all()
     assert "fusion_token" not in result
-    assert sum(p.numel() for p in model.parameters()) == 21801
+    assert sum(p.numel() for p in model.parameters()) == 38825
     assert torch.equal(result["concept_values"], result["logits"].sigmoid())
     removed = model(x, fusion_mask=torch.zeros(4,1))
     assert torch.equal(removed["concept_values"], result["concept_values"])
@@ -651,7 +657,7 @@ repository supplies the checked dataset details below.
 | [Automatic tagging with CNNs](https://arxiv.org/pdf/1606.00298) | Multi-label MTAT/MSD tags; 29.1-second clips, 96-by-1366 log-mels; convolution/pooling stacks ending in independent sigmoids. | Binary cross-entropy with Adam. Binary tag vectors are used; an element-wise missing-annotation mask is not described in its training section. | ROC-AUC; mel/architecture comparisons. Supports mel-CNN representations and sigmoid/BCE; keep the encoder outside this branch. |
 | [Concept Bottleneck Models](https://proceedings.mlr.press/v119/koh20a/koh20a.pdf) | Image concepts and downstream labels in knee radiographs and bird images; explicit concept layer followed by task predictor. | Independent, sequential and joint training; joint objective weights concept and task losses. Requires concept annotations; does not supply a Jamendo missing-label policy. | Task/concept accuracy and interventions. Fusion sees instrument probabilities; compare downstream accuracy and concept fidelity, and retain supervision during joint training. |
 
-Starting configuration: 128-D hidden layer with ReLU and dropout 0.1, unweighted
+Starting configuration: normalized 128-D residual MLP with GELU and dropout 0.1, unweighted
 masked BCE and 41 sigmoid probabilities. Fusion owns any projection. Final loss/aggregation selection
 remains validation-dependent. Retain the observed-label caveat in reports.
 ''', "literature")

@@ -79,6 +79,7 @@ def train_remote(
     quick: bool,
     skip_test: bool,
     model: str = "joint",
+    instrument_architecture: str = "baseline",
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -98,7 +99,11 @@ def train_remote(
         )
 
     out_dir = Path(RUNS_MOUNT) / run_name
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if out_dir.exists():
+        raise FileExistsError(
+            f"Run output already exists: {out_dir}. Choose a new --run-name to preserve it."
+        )
+    out_dir.mkdir(parents=True, exist_ok=False)
     command = [
         sys.executable,
         str(PROJECT_DIR / "scripts/train_joint.py"),
@@ -114,6 +119,7 @@ def train_remote(
         "--lr", str(learning_rate),
         "--num-workers", str(num_workers),
         "--max-windows", str(max_windows),
+        "--instrument-architecture", instrument_architecture,
     ]
     if quick:
         command.append("--quick")
@@ -151,10 +157,13 @@ def main(
     skip_test: bool = False,
     background: bool = False,
     model: str = "joint",
+    instrument_architecture: str = "baseline",
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
         raise ValueError("model must be joint or cnn")
+    if instrument_architecture not in ("baseline", "residual"):
+        raise ValueError("instrument_architecture must be baseline or residual")
     if model == "cnn" and run_name == "joint-full-v1":
         run_name = "cnn-full-v1"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_name):
@@ -172,6 +181,7 @@ def main(
         quick,
         skip_test,
         model,
+        instrument_architecture,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

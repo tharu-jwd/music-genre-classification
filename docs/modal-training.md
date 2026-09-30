@@ -116,7 +116,7 @@ Run the bounded smoke test first. `--quick` uses at most 32 tracks per split and
 three epochs:
 
 ```bash
-modal run modal_app.py --quick --run-name smoke-v1
+modal run modal_app.py --quick --run-name instrument-residual-smoke --instrument-architecture residual
 ```
 
 Then submit the full run. `--detach` lets the job continue if the local terminal
@@ -125,10 +125,11 @@ disconnects:
 ```bash
 modal run --detach modal_app.py \
   --background \
-  --run-name joint-full-v1 \
+  --run-name instrument-residual-full \
   --epochs 30 \
   --batch-size 1 \
-  --gpu A10
+  --gpu A10 \
+  --instrument-architecture residual
 ```
 
 The GPU can be changed at submission time, for example `--gpu L40S` or
@@ -146,12 +147,12 @@ streamed synchronously.
 Every run writes `best.pt` and `results.json` under its run name:
 
 ```bash
-modal volume ls music-genre-runs joint-full-v1
-modal volume get music-genre-runs joint-full-v1 ./modal-results/joint-full-v1
+modal volume ls music-genre-runs instrument-residual-full
+modal volume get music-genre-runs instrument-residual-full ./modal-results/instrument-residual-full
 ```
 
-Use a new `--run-name` for every experiment. Runs with the same name share an
-output directory and can overwrite artifacts.
+Use a new `--run-name` for every experiment. The Modal runner now refuses to start
+when that run directory already exists, preserving its checkpoints and metrics.
 
 `results.json` includes per-epoch validation metrics for the genre, instrument,
 rhythm, timbre, and harmony outputs. Aggregate
