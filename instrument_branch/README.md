@@ -20,22 +20,25 @@ instrument_branch/
 ```
 
 The notebook is self-contained. The scripts are development tools, and the JSON
-files record the fixed vocabulary and completed official annotation audit.
+files record the fixed vocabulary and representative-cohort annotation audit.
 Downloaded data and training artifacts remain outside the mergeable files.
 
-The primary path is `song_repr (B,128) -> Linear(128,128) -> ReLU ->
-Dropout(0.1) -> Linear(128,40) -> sigmoid probabilities (B,40)`.
-The branch has 21,672 trainable parameters and no fusion projection.
+The primary path is `song_repr (B,128) -> LayerNorm -> residual 128D MLP ->
+LayerNorm -> Linear(128,41) -> sigmoid probabilities (B,41)`.
+The branch has 38,825 trainable parameters and no fusion projection.
 `window_repr (B,W,128)` is accepted for contract checking but not used by the
 song-level head. A learned temporal-attention extension remains pending approval.
 
 ## Run
 
 1. Run the notebook with its default switches to execute the synthetic contract checks.
-2. Set `CFG['manifest']` to the canonical CSV containing unique normalized
-   `song_id` and official `split` columns. Set `CFG['output']` to a writable artifact
-   directory, then rerun the configuration cell so `OUT` agrees. Enable `run_audit`.
-3. Obtain Dehan's `shared_representations.npz`, containing string `song_ids` and
+2. Set `CFG['manifest']` to the representative cohort's `track_id`/`song_id`
+   and `split` CSV. Set `CFG['genre_labels_csv']` to its six-genre label CSV,
+   and `CFG['instrument_labels_csv']` to its 41-instrument label CSV. Set
+   `CFG['output']` to a writable artifact directory and enable `run_audit`.
+3. The instrument CSV needs all 41 named binary columns, including `ukulele`.
+   Obtain Dehan's
+   `shared_representations.npz`, containing string `song_ids` and
    `song_repr (N,128)`. Optional `window_repr` must be `(N,W,128)`. Supply the
    encoder provenance JSON described in the notebook, then enable `run_training`.
 4. Compare validation runs in separate output directories. Freeze the experiment
@@ -47,17 +50,17 @@ nor the shared encoder. Old Stage 1 64-D MIL embeddings are not compatible input
 
 ## Annotation Audit
 
-The complete official split-0 files were downloaded and checked. All instrument
-partitions contain the same 40 tags. Sparse TSVs do not define a column order:
-[the saved vocabulary](docs/instrument-vocabulary.json) freezes alphabetical order.
-[The audit](docs/instrument-annotation-audit.json) includes per-tag counts and source
-hashes. This covers the complete official genre manifest, not local audio coverage.
+The task is the representative six-genre cohort, with 41 instrument tags.
+The notebook aligns the split table, six-genre labels, and instrument labels
+by normalized track ID. [The saved vocabulary](docs/instrument-vocabulary.json)
+fixes output order. [The audit](docs/instrument-annotation-audit.json) records
+per-split label coverage and tag support for the local cohort.
 
-| Split | Genre Tracks | Instrument-Annotated Genre Tracks | Unknown Rows |
+| Split | Cohort tracks | Instrument-annotated | Unknown rows |
 |---|---:|---:|---:|
-| Train | 32,572 | 14,218 | 18,354 |
-| Validation | 11,043 | 5,428 | 5,615 |
-| Test | 11,479 | 5,063 | 6,416 |
+| Train | 5,127 | 5,127 | 0 |
+| Validation | 1,099 | 1,099 | 0 |
+| Test | 1,098 | 1,098 | 0 |
 
 The notebook re-audits the actual supplied manifest and exports observed IDs.
 Missing annotation rows have all-zero supervision masks. On annotated rows,
@@ -66,15 +69,14 @@ policy; they are not verified instrument absence. A `positive_only` audit policy
 is provided, but it cannot by itself support this BCE/validation protocol.
 Element-wise masks support verified positives and negatives if supplied later.
 
-The [official dataset documentation](https://github.com/MTG/mtg-jamendo-dataset)
-describes uploader tags and category filtering; it does not establish that every
-omitted tag is a verified negative.
+Omitted tags in a populated row remain weak negatives under the selected policy;
+they are not human-verified instrument absence.
 
 ## Integration Status
 
-`concept_values` contains 40 probabilities; `logits` is provided for BCE.
+`concept_values` contains 41 probabilities; `logits` is provided for BCE.
 Diagnostic hidden states are detached. The branch no longer returns `fusion_token`.
-Fusion may concatenate the 40 values directly, or own `Linear(40,64)` to preserve
+Fusion may concatenate the 41 values directly, or own `Linear(41,64)` to preserve
 the instrument, rhythm, timbre, harmony token stack. Fusion applies `fusion_mask`
 after any projection and masks absent attention keys. The branch returns unmasked
 probabilities so concept supervision is independent of instrument removal.
@@ -86,7 +88,7 @@ is trained with the genre objective. Thresholds affect reported binary predictio
 the fusion bottleneck. Undefined per-tag AP/AUC are excluded with explicit
 denominators; macro metrics never silently substitute zero.
 
-Checkpoints record the v2 architecture; old 64-D-token branch checkpoints cannot
+Checkpoints record the v3 architecture; older branch checkpoints cannot
 be loaded into this head. Evaluation disables dropout and preserves exact logits
 on save/load.
 
@@ -104,11 +106,11 @@ The generator is the source of truth. Run these commands from the repository roo
 ```powershell
 python instrument_branch/scripts/generate_instrument_branch_notebook.py
 python instrument_branch/scripts/validate_instrument_branch_notebook.py
-python instrument_branch/scripts/validate_instrument_branch_notebook.py --official-audit
+python instrument_branch/scripts/validate_instrument_branch_notebook.py --cohort-audit
 ```
 
 The validator additionally needs `nbformat`. Offline checks cover the whole
 synthetic training/serialization/evaluation path, three seeds, malformed split
-rejection, masks, the concept bottleneck and test-input independence. The official
-audit command downloads annotations only, caches them under the repository's ignored `data/instrument_audit/`, and
-refreshes the two tracked JSON audit artifacts.
+rejection, masks, the concept bottleneck and test-input independence. The cohort
+audit command reads the local split and label CSVs, writes diagnostics under
+the ignored `data/instrument_audit/`, and refreshes the tracked audit JSON.

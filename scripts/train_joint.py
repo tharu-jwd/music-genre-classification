@@ -220,7 +220,7 @@ class MultiTargetDataset(Dataset):
     Loads log-mel .npy files on demand and returns all branch targets.
 
     Each .npy is (mel_bins, T_total) or (windows, mel_bins, frames).
-    Segmented into bounded ordered windows, preserving valid frames and starts.
+    Uses all ordered windows by default, preserving valid frames and starts.
     """
 
     def __init__(
@@ -236,7 +236,7 @@ class MultiTargetDataset(Dataset):
         harmony_targets: np.ndarray,     # (N, 12) float32 standardized descriptors
         harmony_mask: np.ndarray | None = None,  # (N, 12) bool
         window_frames: int = 1366,
-        max_windows: int = 12,
+        max_windows: int = 0,
         mel_config: dict | None = None,
         durations: dict[str, float] | None = None,
     ) -> None:
@@ -278,7 +278,7 @@ class MultiTargetDataset(Dataset):
             window_seconds = float(self.mel_config["window_seconds"])
             duration = self.durations[self.track_ids[idx]]
             indices = np.arange(len(mel))
-            if len(indices) > self.max_windows:
+            if self.max_windows and len(indices) > self.max_windows:
                 indices = np.linspace(0, len(mel) - 1, self.max_windows, dtype=int)
             starts = (indices * window_seconds).astype(np.float32)
             seconds = np.clip(duration - starts, 0, window_seconds)
@@ -357,19 +357,34 @@ def collate_fn(batch):
 
 
 # ---------------------------------------------------------------------------
-# Instrument head (equivalent of the notebook v2 head)
+# Instrument head: pooled-song baseline or notebook v3 residual architecture
 # ---------------------------------------------------------------------------
 
 class InstrumentHead(nn.Module):
     """pooled_song (B, 128) -> 41 probabilities + logits."""
 
-    def __init__(self) -> None:
+    def __init__(self, architecture: str = "baseline") -> None:
         super().__init__()
-        self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.15))
+        if architecture not in ("baseline", "residual"):
+            raise ValueError("instrument architecture must be baseline or residual")
+        self.architecture = architecture
+        if architecture == "residual":
+            self.input_norm = nn.LayerNorm(128)
+            self.hidden = nn.Sequential(
+                nn.Linear(128, 128), nn.GELU(), nn.Dropout(0.1),
+                nn.Linear(128, 128), nn.Dropout(0.1),
+            )
+            self.output_norm = nn.LayerNorm(128)
+        else:
+            self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.15))
         self.classifier = nn.Linear(128, N_INSTRUMENT_TAGS)
 
     def forward(self, pooled_song: Tensor) -> dict:
-        h = self.hidden(pooled_song)
+        if self.architecture == "residual":
+            normalized = self.input_norm(pooled_song)
+            h = self.output_norm(normalized + self.hidden(normalized))
+        else:
+            h = self.hidden(pooled_song)
         logits = self.classifier(h)
         return {
             "concept_values": logits.sigmoid(),
@@ -984,7 +999,7 @@ def train(cfg: "TrainConfig") -> None:
 
     # Models
     encoder        = SharedAudioEncoder().to(device)
-    instrument_head = InstrumentHead().to(device)
+    instrument_head = InstrumentHead(cfg.instrument_architecture).to(device)
     timbre_head    = TimbreBranch().to(device)
     rhythm_head    = RhythmBranch().to(device)
     harmony_head = TemporalHarmonyBranch(
@@ -1123,6 +1138,7 @@ def train(cfg: "TrainConfig") -> None:
                 "val_macro_ap": val_ap,
                 "encoder":          encoder.state_dict(),
                 "instrument_head":  instrument_head.state_dict(),
+                "instrument_architecture": cfg.instrument_architecture,
                 "timbre_head":      timbre_head.state_dict(),
                 "rhythm_head":      rhythm_head.state_dict(),
                 "harmony_head":     harmony_head.state_dict(),
@@ -1262,7 +1278,9 @@ def main() -> None:
                    help="32-track subsets, 3 epochs — smoke test only")
     p.add_argument("--logmel-root", type=Path, help="Local logmel_songs directory; replaces the Colab prefix")
     p.add_argument("--window-frames", type=int, default=1366)
-    p.add_argument("--max-windows", type=int, default=12)
+    p.add_argument("--max-windows", type=int, default=0,
+                   help="Maximum windows per track; 0 (default) uses every available window")
+    p.add_argument("--instrument-architecture", choices=("baseline", "residual"), default="baseline")
     p.add_argument("--skip-test", action="store_true", help="Reserve the test split for final evaluation")
     p.add_argument("--data-dir", type=Path, default=ROOT / "data",
                    help="Directory containing metadata/config files")
@@ -1293,8 +1311,8 @@ def main() -> None:
     if args.print_dataset_schema:
         print(json.dumps(dataset_schema(), indent=2))
         return
-    if args.window_frames < 1 or args.max_windows < 1:
-        p.error("window-frames and max-windows must be positive")
+    if args.window_frames < 1 or args.max_windows < 0:
+        p.error("window-frames must be positive; max-windows must be nonnegative")
 
     cfg = TrainConfig(
         epochs            = 3 if args.quick else args.epochs,
