@@ -81,6 +81,7 @@ def train_remote(
     skip_test: bool,
     model: str = "joint",
     experiment: str = "current",
+    instrument_architecture: str = "residual",
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -165,10 +166,13 @@ def main(
     background: bool = False,
     model: str = "joint",
     experiment: str = "current",
+    instrument_architecture: str = "residual",
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
         raise ValueError("model must be joint or cnn")
+    if instrument_architecture not in ("baseline", "residual"):
+        raise ValueError("instrument_architecture must be baseline or residual")
     if experiment not in ("current", "i1", "i1-control"):
         raise ValueError("experiment must be current, i1, or i1-control")
     if experiment != "current" and model != "joint":
@@ -195,6 +199,7 @@ def main(
         skip_test,
         model,
         experiment,
+        instrument_architecture,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

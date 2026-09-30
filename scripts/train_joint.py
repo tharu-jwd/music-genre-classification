@@ -376,7 +376,7 @@ def collate_fn(batch):
 class InstrumentHead(nn.Module):
     """pooled_song (B, 128) -> 41 probabilities + logits."""
 
-    def __init__(self, architecture: str = "baseline") -> None:
+    def __init__(self, architecture: str = "residual") -> None:
         super().__init__()
         if architecture not in ("baseline", "residual"):
             raise ValueError("instrument architecture must be baseline or residual")
@@ -495,7 +495,7 @@ def build_datasets(
     quick: bool = False,
     logmel_root: Path | None = None,
     window_frames: int = 1366,
-    max_windows: int = 12,
+    max_windows: int = 0,
     timbre_v1_preprocessing: bool = False,
 ) -> tuple[
     MultiTargetDataset, MultiTargetDataset, MultiTargetDataset,
@@ -989,6 +989,8 @@ def train(cfg: "TrainConfig") -> None:
         if not resume_path.is_file():
             raise FileNotFoundError(f"Resume checkpoint not found: {resume_path}")
         resume = torch.load(resume_path, map_location=device, weights_only=False)
+        if resume.get("instrument_architecture", "baseline") != cfg.instrument_architecture:
+            raise ValueError("Resume checkpoint instrument architecture differs from configuration")
         resume_epoch = int(resume["epoch"])
         if cfg.epochs <= resume_epoch:
             raise ValueError(
@@ -1077,6 +1079,17 @@ def train(cfg: "TrainConfig") -> None:
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=scheduler_t_max, eta_min=cfg.lr * 0.05
     )
+    if resume is not None:
+        for key, module in (
+            ("encoder", encoder), ("instrument_head", instrument_head),
+            ("timbre_head", timbre_head), ("rhythm_head", rhythm_head),
+            ("harmony_head", harmony_head), ("fusion_model", fusion_model),
+        ):
+            module.load_state_dict(resume[key])
+        if integration_adapters is not None:
+            integration_adapters.load_state_dict(resume["integration_adapters"])
+        optimizer.load_state_dict(resume["optimizer"])
+        scheduler = None  # Preserve the saved learning rate for resumed epochs.
     loss_fn = JointLossOrchestrator(
         weights=LossWeights(
             genre=1.0,
@@ -1093,8 +1106,13 @@ def train(cfg: "TrainConfig") -> None:
     best_val_ap = float(resume["val_macro_ap"]) if resume is not None else -1.0
     best_epoch = resume_epoch
     log: list[dict[str, Any]] = []
+    if resume is not None:
+        prior_results = resume_path.parent / "results.json"
+        if prior_results.is_file():
+            log = json.loads(prior_results.read_text(encoding="utf-8")).get("log", [])
+        torch.save(resume, out_dir / "best.pt")
 
-    for epoch in range(1, cfg.epochs + 1):
+    for epoch in range(resume_epoch + 1, cfg.epochs + 1):
         modules = [encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model]
         if integration_adapters is not None:
             modules.append(integration_adapters)
@@ -1271,6 +1289,8 @@ def train(cfg: "TrainConfig") -> None:
         "harmony_supervised": bool(train_ds.harmony_mask.any()),
         "experiment":     experiment_name,
         "scheduler_t_max": scheduler_t_max,
+        "resumed_from_epoch": resume_epoch if resume is not None else None,
+        "scheduler_resume_policy": "saved_optimizer_lr_constant" if resume is not None else None,
         "timbre_preprocessing_version": timbre_std.state_dict()["preprocessing_version"],
         "integration_adapters": (
             None if integration_adapters is None else integration_adapters.config.to_dict()
@@ -1289,6 +1309,7 @@ def train(cfg: "TrainConfig") -> None:
 
 @dataclass
 class TrainConfig:
+    instrument_architecture: str = "residual"
     epochs:             int   = 30
     batch_size:         int   = 1
     lr:                 float = 3e-4
@@ -1308,7 +1329,9 @@ class TrainConfig:
     require_harmony_targets: bool = False
     logmel_root:        Path | None = None
     window_frames:     int = 1366
-    max_windows:       int = 12
+    max_windows:       int = 0
+    resume_checkpoint: Path | None = None
+    seed:              int = 42
     experiment_i1:     bool = False
     experiment_i1_control: bool = False
 
@@ -1333,7 +1356,9 @@ def main() -> None:
     p.add_argument("--window-frames", type=int, default=1366)
     p.add_argument("--max-windows", type=int, default=0,
                    help="Maximum windows per track; 0 (default) uses every available window")
-    p.add_argument("--instrument-architecture", choices=("baseline", "residual"), default="baseline")
+    p.add_argument("--instrument-architecture", choices=("baseline", "residual"), default="residual")
+    p.add_argument("--resume-checkpoint", type=Path, help="Resume training from a saved joint checkpoint")
+    p.add_argument("--seed", type=int, default=42)
     p.add_argument("--skip-test", action="store_true", help="Reserve the test split for final evaluation")
     p.add_argument("--data-dir", type=Path, default=ROOT / "data",
                    help="Directory containing metadata/config files")
@@ -1368,6 +1393,9 @@ def main() -> None:
         p.error("window-frames must be positive; max-windows must be nonnegative")
 
     cfg = TrainConfig(
+        instrument_architecture = args.instrument_architecture,
+        resume_checkpoint = args.resume_checkpoint,
+        seed              = args.seed,
         epochs            = 3 if args.quick else args.epochs,
         batch_size        = args.batch_size,
         lr                = args.lr,

@@ -31,6 +31,11 @@ def test_residual_instrument_head_keeps_concept_contract_and_gradients():
     assert j.TrainConfig(instrument_architecture="residual").instrument_architecture == "residual"
 
 
+def test_residual_instrument_architecture_is_default():
+    assert j.TrainConfig().instrument_architecture == "residual"
+    assert j.InstrumentHead().architecture == "residual"
+
+
 def test_harmony_supervision_reaches_branch_and_encoder_without_target_leakage():
     torch.manual_seed(7)
     encoder = j.SharedAudioEncoder().eval()
