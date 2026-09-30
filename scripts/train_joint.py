@@ -1126,7 +1126,8 @@ class TrainConfig:
     require_harmony_targets: bool = False
     logmel_root:        Path | None = None
     window_frames:     int = 1366
-    max_windows:       int = 12
+    max_windows:       int = 0
+    instrument_architecture: str = "baseline"
 
 
 def main() -> None:
@@ -1147,7 +1148,9 @@ def main() -> None:
                    help="32-track subsets, 3 epochs — smoke test only")
     p.add_argument("--logmel-root", type=Path, help="Local logmel_songs directory; replaces the Colab prefix")
     p.add_argument("--window-frames", type=int, default=1366)
-    p.add_argument("--max-windows", type=int, default=12)
+    p.add_argument("--max-windows", type=int, default=0,
+                   help="Maximum windows per track; 0 (default) uses every available window")
+    p.add_argument("--instrument-architecture", choices=("baseline", "residual"), default="baseline")
     p.add_argument("--skip-test", action="store_true", help="Reserve the test split for final evaluation")
     p.add_argument("--data-dir", type=Path, default=ROOT / "data",
                    help="Directory containing metadata/config files")

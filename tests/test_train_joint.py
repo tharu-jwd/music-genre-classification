@@ -19,6 +19,18 @@ def test_combined_dataset_schema_has_one_vector_per_branch():
     assert len(schema["fusion_target"]["genre"]) == 6
 
 
+def test_residual_instrument_head_keeps_concept_contract_and_gradients():
+    head = j.InstrumentHead("residual")
+    song = torch.randn(2, 128, requires_grad=True)
+    output = head(song)
+    assert output["concept_values"].shape == (2, 41)
+    torch.testing.assert_close(output["concept_values"], output["logits"].sigmoid())
+    output["concept_values"].sum().backward()
+    assert song.grad is not None and song.grad.abs().sum() > 0
+    assert j.TrainConfig().max_windows == 0
+    assert j.TrainConfig(instrument_architecture="residual").instrument_architecture == "residual"
+
+
 def test_harmony_supervision_reaches_branch_and_encoder_without_target_leakage():
     torch.manual_seed(7)
     encoder = j.SharedAudioEncoder().eval()
