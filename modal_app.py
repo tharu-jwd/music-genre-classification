@@ -79,6 +79,7 @@ def train_remote(
     quick: bool,
     skip_test: bool,
     model: str = "joint",
+    resume_run_name: str = "",
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -119,6 +120,11 @@ def train_remote(
         command.append("--quick")
     if skip_test:
         command.append("--skip-test")
+    if resume_run_name:
+        resume_checkpoint = Path(RUNS_MOUNT) / resume_run_name / "best.pt"
+        if not resume_checkpoint.is_file():
+            raise FileNotFoundError(f"Resume checkpoint not found: {resume_checkpoint}")
+        command.extend(("--resume-checkpoint", str(resume_checkpoint)))
 
     print("Starting:", " ".join(command), flush=True)
     subprocess.run(command, cwd=PROJECT_DIR, check=True)
@@ -151,10 +157,15 @@ def main(
     skip_test: bool = False,
     background: bool = False,
     model: str = "joint",
+    resume_run_name: str = "",
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
         raise ValueError("model must be joint or cnn")
+    if resume_run_name and not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", resume_run_name
+    ):
+        raise ValueError("resume_run_name must be empty or a 1-64 safe filename")
     if model == "cnn" and run_name == "joint-full-v1":
         run_name = "cnn-full-v1"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_name):
@@ -172,6 +183,7 @@ def main(
         quick,
         skip_test,
         model,
+        resume_run_name,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

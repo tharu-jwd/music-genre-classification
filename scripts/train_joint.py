@@ -26,7 +26,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
@@ -125,6 +125,19 @@ class HarmonyStandardizer:
             "count": self.count.tolist(),
             "epsilon": self.epsilon,
         }
+
+    @classmethod
+    def from_state_dict(cls, state: Mapping[str, Any]) -> "HarmonyStandardizer":
+        if tuple(state.get("feature_names", ())) != HARMONY_FEATURES:
+            raise ValueError("Checkpoint harmony feature order does not match")
+        result = cls(epsilon=float(state.get("epsilon", 1e-8)))
+        result.mean = np.asarray(state["mean"], dtype=np.float64)
+        result.scale = np.asarray(state["scale"], dtype=np.float64)
+        result.count = np.asarray(state["count"], dtype=np.int64)
+        expected = (len(HARMONY_FEATURES),)
+        if any(value.shape != expected for value in (result.mean, result.scale, result.count)):
+            raise ValueError("Checkpoint harmony standardizer has invalid dimensions")
+        return result
 
 
 def dataset_schema() -> dict[str, Any]:
@@ -858,11 +871,46 @@ def train(cfg: "TrainConfig") -> None:
     device = torch.device(cfg.device)
     print(f"Device: {device}")
 
+    resume: dict[str, Any] | None = None
+    resume_epoch = 0
+    if cfg.resume_checkpoint is not None:
+        resume_path = Path(cfg.resume_checkpoint)
+        if not resume_path.is_file():
+            raise FileNotFoundError(f"Resume checkpoint not found: {resume_path}")
+        resume = torch.load(resume_path, map_location=device, weights_only=False)
+        resume_epoch = int(resume["epoch"])
+        if cfg.epochs <= resume_epoch:
+            raise ValueError(
+                f"Target epochs ({cfg.epochs}) must exceed checkpoint epoch ({resume_epoch})"
+            )
+        saved_config = resume.get("rhythm_model_config") or {}
+        saved_pooling = saved_config.get("pooling_mode", "attention")
+        if saved_pooling != "attention_mean_std":
+            raise ValueError(
+                f"Checkpoint rhythm pooling is {saved_pooling!r}; only "
+                "attention_mean_std checkpoints can be resumed"
+            )
+        print(f"Resuming checkpoint {resume_path} from epoch {resume_epoch}")
+
     print("Loading data...")
     data_dir = cfg.data_dir or ROOT / "data"
+    resume_timbre_std = (
+        TimbreStandardizer.from_state_dict(resume["timbre_standardizer"])
+        if resume is not None else None
+    )
+    resume_rhythm_std = (
+        RhythmStandardizer.from_state_dict(resume["rhythm_standardizer"])
+        if resume is not None else None
+    )
+    resume_harmony_std = (
+        HarmonyStandardizer.from_state_dict(resume["harmony_standardizer"])
+        if resume is not None else None
+    )
     train_ds, val_ds, test_ds, timbre_std, rhythm_std, harmony_std = build_datasets(
         data_dir, dataset_csv=cfg.dataset_csv, split_csv=cfg.split_csv,
         require_harmony_targets=cfg.require_harmony_targets,
+        timbre_std=resume_timbre_std, rhythm_std=resume_rhythm_std,
+        harmony_std=resume_harmony_std,
         quick=cfg.quick, logmel_root=cfg.logmel_root,
         window_frames=cfg.window_frames, max_windows=cfg.max_windows
     )
@@ -889,9 +937,7 @@ def train(cfg: "TrainConfig") -> None:
     encoder        = SharedAudioEncoder().to(device)
     instrument_head = InstrumentHead().to(device)
     timbre_head    = TimbreBranch().to(device)
-    rhythm_head = RhythmBranch(
-        RhythmBranchConfig(pooling_mode=cfg.rhythm_pooling_mode)
-    ).to(device)
+    rhythm_head = RhythmBranch(RhythmBranchConfig()).to(device)
     harmony_head = TemporalHarmonyBranch(
         128, chord_classes=None, descriptor_dim=N_HARMONY_DESCRIPTORS
     ).to(device)
@@ -911,9 +957,24 @@ def train(cfg: "TrainConfig") -> None:
     )
 
     optimizer = torch.optim.AdamW(all_params, lr=cfg.lr, weight_decay=cfg.weight_decay)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=cfg.epochs, eta_min=cfg.lr * 0.05
-    )
+    scheduler: torch.optim.lr_scheduler.CosineAnnealingLR | None = None
+    if resume is None:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=cfg.epochs, eta_min=cfg.lr * 0.05
+        )
+    else:
+        encoder.load_state_dict(resume["encoder"])
+        instrument_head.load_state_dict(resume["instrument_head"])
+        timbre_head.load_state_dict(resume["timbre_head"])
+        rhythm_head.load_state_dict(resume["rhythm_head"])
+        harmony_head.load_state_dict(resume["harmony_head"])
+        fusion_model.load_state_dict(resume["fusion_model"])
+        optimizer.load_state_dict(resume["optimizer"])
+        print(
+            "Restored model and optimizer states; checkpoint has no scheduler/RNG "
+            f"state, so epochs {resume_epoch + 1}-{cfg.epochs} use the saved "
+            f"optimizer learning rate {optimizer.param_groups[0]['lr']:.2e}."
+        )
     loss_fn = JointLossOrchestrator(
         weights=LossWeights(
             genre=1.0,
@@ -927,11 +988,18 @@ def train(cfg: "TrainConfig") -> None:
     out_dir = ROOT / cfg.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    best_val_ap = -1.0
-    best_epoch = 0
+    best_val_ap = float(resume["val_macro_ap"]) if resume is not None else -1.0
+    best_epoch = resume_epoch
     log: list[dict[str, Any]] = []
+    if resume is not None:
+        previous_results = Path(cfg.resume_checkpoint).with_name("results.json")
+        if previous_results.is_file():
+            previous_summary = json.loads(previous_results.read_text(encoding="utf-8"))
+            log = list(previous_summary.get("log", []))
+        # Keep the prior validation-selected model if no resumed epoch improves.
+        torch.save(resume, out_dir / "best.pt")
 
-    for epoch in range(1, cfg.epochs + 1):
+    for epoch in range(resume_epoch + 1, cfg.epochs + 1):
         for m in (encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model):
             m.train()
 
@@ -972,7 +1040,8 @@ def train(cfg: "TrainConfig") -> None:
                 print(f"Epoch {epoch} batch {n_batches}/{len(train_loader)} "
                       f"loss={epoch_loss/n_batches:.4f} elapsed={elapsed_batch:.0f}s", flush=True)
 
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
         train_loss = epoch_loss / max(n_batches, 1)
         elapsed    = time.perf_counter() - t0
 
@@ -988,7 +1057,7 @@ def train(cfg: "TrainConfig") -> None:
             f"train_loss={train_loss:.4f}  "
             f"val_loss={val_metrics['loss']:.4f}  "
             f"val_macro_ap={val_ap:.4f}  "
-            f"lr={scheduler.get_last_lr()[0]:.2e}  "
+            f"lr={optimizer.param_groups[0]['lr']:.2e}  "
             f"({elapsed:.1f}s)"
         )
         val_branches = val_metrics["branches"]
@@ -1025,6 +1094,8 @@ def train(cfg: "TrainConfig") -> None:
                 "harmony_head":     harmony_head.state_dict(),
                 "fusion_model":     fusion_model.state_dict(),
                 "optimizer":        optimizer.state_dict(),
+                "scheduler":        scheduler.state_dict() if scheduler is not None else None,
+                "resumed_from_epoch": resume_epoch if resume is not None else None,
                 "timbre_standardizer":  timbre_std.state_dict(),
                 "rhythm_standardizer":  rhythm_std.state_dict(),
                 "harmony_standardizer": harmony_std.state_dict(),
@@ -1086,6 +1157,9 @@ def train(cfg: "TrainConfig") -> None:
         "n_test":        len(test_ds),
         "harmony_supervised": bool(train_ds.harmony_mask.any()),
         "rhythm_model_config": rhythm_head.config.to_dict(),
+        "resumed_from_epoch": resume_epoch if resume is not None else None,
+        "resume_checkpoint": str(cfg.resume_checkpoint) if cfg.resume_checkpoint is not None else None,
+        "scheduler_resume_policy": "saved_optimizer_lr_constant" if resume is not None else "cosine_annealing",
         "seed": cfg.seed,
         "log":           log,
     }
@@ -1121,8 +1195,8 @@ class TrainConfig:
     logmel_root:        Path | None = None
     window_frames:     int = 1366
     max_windows:       int = 12
-    rhythm_pooling_mode: str = "attention"
     seed: int = 42
+    resume_checkpoint: Path | None = None
 
 
 def main() -> None:
@@ -1144,12 +1218,11 @@ def main() -> None:
     p.add_argument("--logmel-root", type=Path, help="Local logmel_songs directory; replaces the Colab prefix")
     p.add_argument("--window-frames", type=int, default=1366)
     p.add_argument("--max-windows", type=int, default=12)
-    p.add_argument(
-        "--rhythm-pooling-mode",
-        choices=("attention", "attention_mean_std"),
-        default="attention",
-    )
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument(
+        "--resume-checkpoint", type=Path,
+        help="Checkpoint to continue from; --epochs is the final target epoch",
+    )
     p.add_argument("--skip-test", action="store_true", help="Reserve the test split for final evaluation")
     p.add_argument("--data-dir", type=Path, default=ROOT / "data",
                    help="Directory containing metadata/config files")
@@ -1189,8 +1262,8 @@ def main() -> None:
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,
-        rhythm_pooling_mode = args.rhythm_pooling_mode,
         seed              = args.seed,
+        resume_checkpoint = args.resume_checkpoint,
     )
 
     if args.model == "cnn":

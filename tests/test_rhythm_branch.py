@@ -36,11 +36,10 @@ def _encoded(batch=2, windows=2, frames=12):
     return encoder, mel, encoder.encode_temporal(mel, mask, valid, starts)
 
 
-@pytest.mark.parametrize("pooling_mode", ["attention", "attention_mean_std"])
 @pytest.mark.parametrize("frames", [8, 15])
-def test_output_shapes_and_variable_temporal_length(frames, pooling_mode):
+def test_output_shapes_and_variable_temporal_length(frames):
     _encoder, _mel, temporal = _encoded(frames=frames)
-    branch = RhythmBranch(RhythmBranchConfig(dropout=0, pooling_mode=pooling_mode))
+    branch = RhythmBranch(RhythmBranchConfig(dropout=0))
     output = branch(
         temporal.encoded_sequence,
         temporal.sequence_mask,
@@ -55,9 +54,7 @@ def test_output_shapes_and_variable_temporal_length(frames, pooling_mode):
 
 def test_attention_mean_std_pooling_ignores_padding():
     torch.manual_seed(4)
-    branch = RhythmBranch(
-        RhythmBranchConfig(dropout=0, pooling_mode="attention_mean_std")
-    ).eval()
+    branch = RhythmBranch(RhythmBranchConfig(dropout=0)).eval()
     valid_tokens = torch.randn(2, 3, 128)
     short_mask = torch.ones(2, 3, dtype=torch.bool)
     short = branch(valid_tokens, short_mask)
@@ -73,9 +70,7 @@ def test_attention_mean_std_pooling_ignores_padding():
 
 def test_attention_mean_std_pooling_concatenates_expected_summaries():
     torch.manual_seed(8)
-    branch = RhythmBranch(
-        RhythmBranchConfig(dropout=0, pooling_mode="attention_mean_std")
-    ).eval()
+    branch = RhythmBranch(RhythmBranchConfig(dropout=0)).eval()
     captured = {}
 
     def capture_temporal(_module, _inputs, output):
@@ -114,9 +109,7 @@ def test_attention_mean_std_pooling_concatenates_expected_summaries():
 
 def test_attention_mean_std_pooling_handles_single_and_all_masked_sequences():
     torch.manual_seed(5)
-    branch = RhythmBranch(
-        RhythmBranchConfig(dropout=0, pooling_mode="attention_mean_std")
-    )
+    branch = RhythmBranch(RhythmBranchConfig(dropout=0))
     tokens = torch.randn(2, 4, 128, requires_grad=True)
     mask = torch.tensor([[True, False, False, False], [False, False, False, False]])
     output = branch(tokens, mask)
@@ -133,10 +126,16 @@ def test_attention_mean_std_pooling_handles_single_and_all_masked_sequences():
     assert torch.count_nonzero(tokens.grad[1]) == 0
 
 
-def test_pooling_mode_validation_and_backward_compatible_config_loading():
-    with pytest.raises(ValueError, match="pooling_mode"):
-        RhythmBranchConfig(pooling_mode="mean")
-    assert RhythmBranchConfig.from_dict({"dropout": 0}).pooling_mode == "attention"
+def test_config_loads_statistics_pooling_checkpoint_and_rejects_attention_only():
+    config = RhythmBranchConfig.from_dict(
+        {"dropout": 0, "pooling_mode": "attention_mean_std"}
+    )
+    assert config.dropout == 0
+    assert config.pooling_mode == "attention_mean_std"
+    with pytest.raises(ValueError, match="attention-only"):
+        RhythmBranchConfig.from_dict({"pooling_mode": "attention"})
+    with pytest.raises(ValueError, match="attention-only"):
+        RhythmBranchConfig.from_dict({"dropout": 0})
 
 
 def test_missing_targets_and_all_missing_batch_are_safe():
@@ -255,13 +254,10 @@ def test_duplicate_target_rows_are_rejected(tmp_path):
         load_rhythm_targets(path)
 
 
-@pytest.mark.parametrize("pooling_mode", ["attention", "attention_mean_std"])
-def test_checkpoint_preserves_schema_train_statistics_and_pooling_mode(
-    tmp_path, pooling_mode
-):
+def test_checkpoint_preserves_schema_and_train_statistics(tmp_path):
     values = np.arange(40, dtype=np.float64).reshape(4, 10)
     scaler = RhythmStandardizer().fit(values, np.ones_like(values, dtype=bool))
-    model = RhythmBranch(RhythmBranchConfig(dropout=0, pooling_mode=pooling_mode))
+    model = RhythmBranch(RhythmBranchConfig(dropout=0))
     path = tmp_path / "rhythm.pt"
     save_checkpoint(
         path,
@@ -274,8 +270,7 @@ def test_checkpoint_preserves_schema_train_statistics_and_pooling_mode(
     )
     restored, restored_scaler, payload = load_checkpoint(path)
     assert tuple(payload["feature_names"]) == RHYTHM_FEATURES
-    assert payload["model_config"]["pooling_mode"] == pooling_mode
-    assert restored.config.pooling_mode == pooling_mode
+    assert payload["model_config"]["pooling_mode"] == "attention_mean_std"
     np.testing.assert_allclose(restored_scaler.mean, scaler.mean)
     for expected, actual in zip(model.parameters(), restored.parameters()):
         torch.testing.assert_close(expected, actual)

@@ -1,0 +1,7 @@
+{
+  "sample_rate": 16000,
+  "hop_length": 512,
+  "window_seconds": 15.0,
+  "n_mels": 128,
+  "center": true
+}

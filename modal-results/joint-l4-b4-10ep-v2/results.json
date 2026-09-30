@@ -1,0 +1,168 @@
+{
+  "mel_config": {
+    "sample_rate": 16000,
+    "hop_length": 512,
+    "window_seconds": 15.0,
+    "n_mels": 128,
+    "center": true
+  },
+  "test_evaluated": true,
+  "best_epoch": 10,
+  "val_macro_ap": 0.6804099678993225,
+  "test_macro_ap": 0.678097665309906,
+  "test_loss": 0.33099931811744515,
+  "genre_tags": [
+    "classical",
+    "electronic",
+    "folk",
+    "hiphop",
+    "jazz",
+    "rock"
+  ],
+  "n_train": 5127,
+  "n_val": 1099,
+  "n_test": 1098,
+  "harmony_supervised": false,
+  "log": [
+    {
+      "epoch": 1,
+      "train_loss": 1.39478947071129,
+      "val_loss": 0.4391198458454826,
+      "val_macro_ap": 0.40577372908592224,
+      "train_terms": {
+        "genre": 0.4864560102058833,
+        "instrument": 0.2542348627651956,
+        "rhythm": 0.3483529302833512,
+        "timbre": 0.30574567059807584,
+        "harmony": 0.0
+      },
+      "train_seconds": 788.869694959
+    },
+    {
+      "epoch": 2,
+      "train_loss": 1.1735182388710343,
+      "val_loss": 0.3864669040116397,
+      "val_macro_ap": 0.5253382921218872,
+      "train_terms": {
+        "genre": 0.4223357413818423,
+        "instrument": 0.23298494922587076,
+        "rhythm": 0.3228850411469126,
+        "timbre": 0.1953125048280576,
+        "harmony": 0.0
+      },
+      "train_seconds": 201.56532388000005
+    },
+    {
+      "epoch": 3,
+      "train_loss": 1.1135317678570562,
+      "val_loss": 0.40718500451608136,
+      "val_macro_ap": 0.5463132262229919,
+      "train_terms": {
+        "genre": 0.3921523413355005,
+        "instrument": 0.22927745806805894,
+        "rhythm": 0.3149966207825449,
+        "timbre": 0.17710534648391507,
+        "harmony": 0.0
+      },
+      "train_seconds": 200.9882280400002
+    },
+    {
+      "epoch": 4,
+      "train_loss": 1.0664265832737343,
+      "val_loss": 0.3673834503780712,
+      "val_macro_ap": 0.5758022665977478,
+      "train_terms": {
+        "genre": 0.3808103018845671,
+        "instrument": 0.22542946121412766,
+        "rhythm": 0.3041763502302436,
+        "timbre": 0.156010471644714,
+        "harmony": 0.0
+      },
+      "train_seconds": 197.14413942500005
+    },
+    {
+      "epoch": 5,
+      "train_loss": 1.0006623832325854,
+      "val_loss": 0.35007851096716797,
+      "val_macro_ap": 0.6126527190208435,
+      "train_terms": {
+        "genre": 0.37505976357112253,
+        "instrument": 0.22288998320710363,
+        "rhythm": 0.25667325541807134,
+        "timbre": 0.14603938026333377,
+        "harmony": 0.0
+      },
+      "train_seconds": 204.74618992599994
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.9301290441414868,
+      "val_loss": 0.3474650476737456,
+      "val_macro_ap": 0.6290895342826843,
+      "train_terms": {
+        "genre": 0.36098133128095716,
+        "instrument": 0.22120189149508052,
+        "rhythm": 0.20958168581767406,
+        "timbre": 0.13836413498694736,
+        "harmony": 0.0
+      },
+      "train_seconds": 199.220247471
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.8956161961308136,
+      "val_loss": 0.33499114535071634,
+      "val_macro_ap": 0.6530478000640869,
+      "train_terms": {
+        "genre": 0.35082970187649154,
+        "instrument": 0.21897139938115237,
+        "rhythm": 0.1933993958023939,
+        "timbre": 0.13241569884847879,
+        "harmony": 0.0
+      },
+      "train_seconds": 201.41552695999962
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.8739767621580784,
+      "val_loss": 0.32675650358200076,
+      "val_macro_ap": 0.6753218770027161,
+      "train_terms": {
+        "genre": 0.3421933607963987,
+        "instrument": 0.218268714891674,
+        "rhythm": 0.18583276494611026,
+        "timbre": 0.1276819192195622,
+        "harmony": 0.0
+      },
+      "train_seconds": 201.18620390199976
+    },
+    {
+      "epoch": 9,
+      "train_loss": 0.8585960911281767,
+      "val_loss": 0.3220694412426515,
+      "val_macro_ap": 0.6771833896636963,
+      "train_terms": {
+        "genre": 0.33491232142712507,
+        "instrument": 0.217183533561955,
+        "rhythm": 0.18111083312497683,
+        "timbre": 0.12538940286446892,
+        "harmony": 0.0
+      },
+      "train_seconds": 201.95935190399996
+    },
+    {
+      "epoch": 10,
+      "train_loss": 0.8479493766697632,
+      "val_loss": 0.3204995611851866,
+      "val_macro_ap": 0.6804099678993225,
+      "train_terms": {
+        "genre": 0.3292172063903392,
+        "instrument": 0.2169819080246127,
+        "rhythm": 0.17860741555754694,
+        "timbre": 0.12314284589815763,
+        "harmony": 0.0
+      },
+      "train_seconds": 198.40002026899992
+    }
+  ]
+}

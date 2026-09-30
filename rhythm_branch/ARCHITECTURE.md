@@ -29,7 +29,7 @@ shared CNN encoder
 |                                                                |
 | Linear(128,64) -> LayerNorm -> GELU                            |
 |      -> 3 gap-aware residual temporal Conv1d blocks            |
-|      -> masked pooling (attention by default)                  |
+|      -> attention + masked mean/std pooling                    |
 |      -> Linear(64,64) -> LayerNorm -> GELU                     |
 +----------------------------------------------------------------+
       |                                      |
@@ -59,21 +59,19 @@ The checkpoint architecture identifier is `temporal_rhythm_branch_v1`.
 | Conv1d kernel size | 5 |
 | Block dilations | 1, 2, 4 |
 | Dropout | 0.15 |
-| Pooling mode | `attention` |
+| Pooling | Attention-weighted mean + masked mean/std |
 
-With the default configuration, the branch has **87,883 trainable parameters**:
+With the default configuration, the branch has **100,235 trainable parameters**:
 
 | Component | Parameters |
 |---|---:|
 | Input projection and LayerNorm | 8,384 |
 | Three residual temporal blocks | 74,496 |
 | Attention scorer | 65 |
+| Summary projection | 12,352 |
 | Embedding head and LayerNorm | 4,288 |
 | Regression head | 650 |
-| **Total** | **87,883** |
-
-The optional `attention_mean_std` mode adds a `Linear(192,64)` summary
-projection (12,352 parameters), for **100,235 trainable parameters** in total.
+| **Total** | **100,235** |
 
 ## Input contract
 
@@ -138,26 +136,20 @@ unobserved gaps.
 
 ## Masked pooling
 
-`RhythmBranchConfig.pooling_mode` supports two values. `attention` is the default
-and preserves the original architecture and checkpoint state.
-
-### `attention`
-
 After temporal encoding, a scalar score is learned for each token:
 
 ```text
 score_t = Linear(64,1)(hidden_t)
 weight_t = softmax(score_t over valid tokens)
-pooled = sum(weight_t * hidden_t)
+attention_mean = sum(weight_t * hidden_t)
 ```
 
 Padded tokens are excluded from the softmax. For an all-masked example, the
 implementation uses a temporary safe position to avoid an undefined softmax and
 then zeros the resulting embedding and predictions.
 
-### `attention_mean_std`
-
-This mode computes three summaries over the same post-temporal-block values:
+The branch combines that result with two masked statistical summaries over the
+same post-temporal-block values:
 
 ```text
 attention_mean = sum(attention_weight_t * hidden_t)  # (B,64)
