@@ -1,6 +1,12 @@
-# Architecture from first plan to current implementation
+# Historical architecture transition record (through 2026-09-24)
 
-This document is the full story of the proposed model: the **original plan**, what **Thevindu implemented** on `thevindu-concept-fusion`, what **Anupama** and **Senindu** published on `main`, and the **current architecture** after those contracts were absorbed.
+> **Status, 2026-09-28:** This is a dated account of earlier contracts, not
+> a live architecture specification. Its 40 instruments, 87 genres, and
+> Harmony v1 embedding route have been superseded. For current Harmony v3
+> shapes, losses, and fusion values see the
+> [versioned snapshot](../harmony_branch/docs/architecture-versions/v3/README.md).
+
+This document records the proposed model at that stage: the **original plan**, what **Thevindu implemented** on `thevindu-concept-fusion`, what **Anupama** and **Senindu** published on `main`, and the architecture after those contracts were absorbed.
 
 Fixture scores are not research numbers.
 

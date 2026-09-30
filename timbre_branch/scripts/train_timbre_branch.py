@@ -20,17 +20,19 @@ import torch
 from torch.utils.data import DataLoader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = PROJECT_ROOT.parent
 SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from timbre_branch.constants import FEATURE_COLUMNS
+from timbre_branch.constants import FEATURE_COLUMNS, V2_MAX_EPOCHS
 from timbre_branch.data import TimbreEmbeddingDataset
 from timbre_branch.model import TimbreBranch, TimbreBranchConfig
 from timbre_branch.preprocessing import (
     TimbreStandardizer,
     align_embeddings_and_targets,
     load_timbre_targets,
+    normalize_track_id,
 )
 from timbre_branch.training import evaluate, save_checkpoint, train_one_epoch
 
@@ -38,14 +40,13 @@ from timbre_branch.training import evaluate, save_checkpoint, train_one_epoch
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--embeddings", type=Path, required=True)
-    parser.add_argument("--targets", type=Path, default=PROJECT_ROOT / "data/timbre_features_raw.csv")
+    parser.add_argument("--targets", type=Path, default=REPOSITORY_ROOT / "data/timbre_df.csv")
     parser.add_argument("--splits", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "checkpoints/timbre_branch/best.pt")
-    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=V2_MAX_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--patience", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
@@ -61,8 +62,8 @@ def seed_everything(seed: int) -> None:
 
 def main() -> None:
     args = parse_args()
-    if args.epochs <= 0 or args.batch_size <= 0 or args.patience <= 0:
-        raise ValueError("epochs, batch-size, and patience must be positive")
+    if args.epochs <= 0 or args.batch_size <= 0:
+        raise ValueError("epochs and batch-size must be positive")
     seed_everything(args.seed)
 
     archive = np.load(args.embeddings, allow_pickle=False)
@@ -75,9 +76,13 @@ def main() -> None:
         track_ids, embeddings, targets
     )
 
-    splits = pd.read_csv(args.splits, dtype={"TRACK_ID": str})
-    if not {"TRACK_ID", "split"}.issubset(splits.columns):
-        raise ValueError("Split CSV must contain TRACK_ID and split")
+    splits = pd.read_csv(args.splits, dtype=str)
+    split_id_column = "TRACK_ID" if "TRACK_ID" in splits else "track_id" if "track_id" in splits else None
+    if split_id_column is None or "split" not in splits:
+        raise ValueError("Split CSV must contain TRACK_ID (or track_id) and split")
+    splits = splits.rename(columns={split_id_column: "TRACK_ID"})
+    splits["TRACK_ID"] = splits["TRACK_ID"].map(normalize_track_id)
+    track_ids = np.asarray([normalize_track_id(value) for value in track_ids], dtype=str)
     if splits["TRACK_ID"].duplicated().any():
         raise ValueError("Split CSV contains duplicate TRACK_ID values")
     split_by_id = splits.set_index("TRACK_ID")["split"]
@@ -121,9 +126,11 @@ def main() -> None:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=args.learning_rate * 0.05
+    )
 
     best_validation = float("inf")
-    epochs_without_improvement = 0
     history = []
     for epoch in range(1, args.epochs + 1):
         train_loss = train_one_epoch(model, train_loader, optimizer, device)
@@ -131,10 +138,12 @@ def main() -> None:
         record = {"epoch": epoch, "train_loss": train_loss, **validation}
         history.append(record)
         score = validation["macro_mae_standardized"]
+        scheduler.step()
+        learning_rates = [group["lr"] for group in optimizer.param_groups]
+        record["learning_rates"] = learning_rates
         print(f"epoch={epoch:03d} train={train_loss:.5f} val_macro_mae={score:.5f}")
         if score < best_validation:
             best_validation = score
-            epochs_without_improvement = 0
             save_checkpoint(
                 args.output,
                 model,
@@ -144,10 +153,6 @@ def main() -> None:
                 seed=args.seed,
                 optimizer=optimizer,
             )
-        else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement >= args.patience:
-                break
 
     from timbre_branch.training import load_checkpoint
 

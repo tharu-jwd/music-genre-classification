@@ -1,4 +1,4 @@
-# Harmony branch implementation plan
+# Temporal chroma/chord research plan (not the current v3 run)
 
 > **Status update (2026-09-25):** This is the legacy temporal chroma/chord research
 > plan. The current baseline feature extraction is complete: 7,324 selected tracks,
@@ -32,7 +32,7 @@ final genre evaluation. Those interfaces must be agreed with their owners.
 
 ![Pseudo-supervised harmony flow](diagrams/pseudo-supervision.svg)
 
-### Current gate status
+### Temporal research gate status
 
 The completed descriptor baseline has a separate status from the legacy temporal
 gates below:

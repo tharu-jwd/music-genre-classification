@@ -1,127 +1,108 @@
-# Harmony integration hand-off
+# Harmony handoff: audited current run
 
-## Current extracted-feature hand-off
+This is the handoff for Dehan (training) and Thevindu (fusion), audited on
+2026-09-28. The current joint run uses **12 song-level descriptors**, not 12
+pitch-class probabilities and not all 45 columns of the extracted table. Keep
+those three contracts separate. The team has decided that training audio is
+under four minutes; no further cache-file request is part of this audit.
+For complete component diagrams and version boundaries, use the
+[Harmony v3 architecture snapshot](architecture-versions/v3/README.md).
 
-The current baseline now has complete real data for all 7,324 selected tracks:
+## Implemented and checked
 
-- detailed provenance and diagnostics:
-  `harmony_branch/data/harmony_features_raw.csv`;
-- clean model table: `data/harmony_df.csv`; and
-- schema and semantics: [feature-contract.md](feature-contract.md).
+The supplied [extraction notebook](../notebooks/extract_harmony_features_first4min_vastai.ipynb)
+creates 45 automatic descriptors from the first `min(decoded duration, 240 s)`
+of each full-quality mono MP3. It pins Librosa 0.11.0, resamples to 16 kHz,
+computes CQT chroma every 512 samples, estimates tuning, normalizes valid
+chroma frames to sum to one, and summarizes chroma, Tonnetz, concentration,
+entropy, movement, flux, and valid-frame coverage. It does **not** perform
+harmonic/percussive separation. Its “valid tonal” filter means sufficient RMS
+and finite, nonzero chroma; it is not a calibrated tonality detector.
 
-The clean table contains `TRACK_ID` plus 45 finite harmony descriptors. A harmony
-prediction head may accept the shared encoder's 128-D track embedding and predict
-these 45 standardized concepts. The 45 predicted values are the explainable
-concept-bottleneck output supplied to fusion (or to a fusion-owned projection).
-Normalization parameters must be fitted using training rows only.
+The [raw table](../data/harmony_features_raw.csv) has 7,324 `ok` rows and the
+notebook's 45-column schema, 16 kHz/512-hop/extractor metadata, and 2,583 rows
+at the 240-second analysis cap. The [training table](../../data/harmony_df.csv)
+is an exact column projection of that raw table. The 12 selected targets, in
+checkpoint order, are:
 
-The temporal interface documented below remains a legacy experimental alternative;
-its pooled 12-D chroma output is not the completed 45-D dataset contract.
-
-This is the short operational hand-off for teammates. Detailed research decisions
-remain in the [harmony plan](plan.md).
-
-## Interface frozen in code
-
-Harmony returns a configurable song embedding (32D for the ablation), temporal
-chroma logits `(B,T,12)`, optional chord logits `(B,T,25)`, prediction masks, and
-availability. It does not return a 64D fusion token. Primary `concept_fusion`
-softmaxes the chroma logits per token, masked-means valid tokens, owns
-`Linear(12,64)`, and applies the fusion mask after projection. `Linear(32,64)` over
-the song embedding is retained as `embedding_fusion` only.
-
-Temporal chroma and chords keep separate target masks. Missing pseudo-supervision
-masks only the corresponding auxiliary loss; it does not remove an available
-predicted harmony branch from genre fusion. A missing/unusable audio branch sets the
-fusion mask to zero. The pooled 12-bin chroma in `BranchOutput.concept_values` is a
-prediction used by primary fusion and is never substituted for the temporal target.
-
-Run the contract and fixture checks with:
-
-```bash
-uv run --with-requirements requirements.txt \
-  python -m pytest harmony_branch/tests/test_harmony_fusion_contract.py tests/test_acceptance.py -q
-uv run --with-requirements requirements.txt \
-  python scripts/run_all_fusion.py --quick
+```text
+tonal_concentration_mean, tonal_concentration_std,
+chroma_entropy_mean, chroma_entropy_std,
+chroma_flux_mean, chroma_flux_std,
+tonnetz_movement_mean, tonnetz_movement_std,
+valid_tonal_ratio, tonnetz_01_mean, tonnetz_02_mean, tonnetz_03_mean
 ```
 
-Fixture scores are discarded engineering checks, not research results.
+In the current [joint trainer](../../scripts/train_joint.py), the shared encoder
+provides ordered `(B,T,128)` features and a valid-token mask. The harmony branch
+masked-pools them to a song embedding `(B,32)` and predicts standardized
+descriptors `(B,12)`. Training targets are standardized using **training rows
+only**. The 12 predictions receive masked Smooth L1 supervision, and the
+[harmony adapter](../../concept_fusion/harmony_adapter.py) passes those same
+predicted values, with availability mask, to the [fusion-owned projection](../../concept_fusion/projections.py)
+`Linear(12,64)`. They are *not* softmax probabilities. Temporal chroma logits
+also exist `(B,T,12)` but have no chroma target in this run; the chord head is
+disabled. The 32D embedding is not the primary fusion input.
 
-## Compatibility audit
+The supplied [run report](evidence/harmony_supervised_joint_run_results.json)
+records 5,127/1,099/1,098 train/validation/test tracks, best epoch 20,
+validation genre macro AP 0.7660, and test genre macro AP 0.7356. Harmony test
+macro R² is 0.4704, standardized MAE 0.4791, and standardized RMSE 0.6940,
+over all 12 targets on 1,098 test tracks. Selected per-target R² values:
 
-| Component | Compatible boundary | Remaining live-input issue |
-|---|---|---|
-| Instrument v2 | Adapter accepts 40 probabilities/logits and fusion owns 40-to-64 projection | Implementation is notebook-contained and needs real 128D song representations |
-| Timbre v2 | Adapter accepts the fixed 35 standardized values and fusion owns 35-to-64 projection | Real target table and real 128D song representations are absent |
-| Shared encoder | `SharedAudioEncoder` can emit configurable-width ordered tokens and pooled output; harmony consumes the ordered tokens | The validated checkpoint must use the team-approved configuration; instrument/timbre require 128D pooled input |
-| Harmony descriptor baseline | 128D shared track embedding predicts 45 interpretable descriptors; detailed and clean real tables cover all 7,324 tracks | Prediction-head training and fusion integration remain |
-| Harmony temporal v2 (legacy experiment) | Adapter preserves temporal logits and projects masked-pooled 12D predicted chroma; 32D embedding route is an ablation | Aligned temporal targets and cached ordered encoder features are absent |
-| Rhythm v2 | Adapter sends ten predicted descriptors through fusion-owned 10→64; 64D embedding route is an ablation | Real target coverage audit and cached `(B,T,128)` encoder features are absent |
-| Fusion | Four 64D tokens, masks, joint losses, removal, gradients, and restore are fixture-tested | A real `BranchBundle` data loader remains project-level work |
+| Descriptor | Test R² |
+|---|---:|
+| Tonnetz movement mean | 0.811 |
+| Chroma flux mean | 0.796 |
+| Tonal concentration mean | 0.762 |
+| Valid tonal ratio | 0.138 |
+| Tonnetz 01 mean | 0.072 |
+| Tonnetz 02 mean | 0.044 |
+| Tonnetz 03 mean | -0.004 |
 
-## External inputs still required
+The separately supplied `best.pt` checkpoint matches report epoch 20 and
+validation AP 0.765960. Its metadata confirms the 12 target names/order above,
+`standardized_song_descriptor_regression`, harmony supervision enabled,
+16 kHz/512-hop/128-mel/15-second cache metadata, a saved
+`window_frames=1366` fallback for the 2D log-Mel loader, and a 12-window
+limit. The 3D stacked-cache loader uses the cache's actual frame width rather
+than `window_frames`; the checkpoint alone does not establish that width.
+SHA-256:
+`7916839945e30ca9b4c2d5d6796a9989e1950313b0e5546a4ef8180440e46761`.
+The checkpoint remains outside Git, consistent with the repository's checkpoint
+ignore policy. The checkpoint and JSON do not record a code commit or the exact
+harmony loss weight used; the current code's default of 0.5 must not be
+presented as a verified historical run setting.
 
-| Provider | Required artifact | Expected location or hand-off |
-|---|---|---|
-| Data-pipeline owner | Canonical selected-track metadata and frozen train/validation/test assignment | `data/split_csv.csv` and `data/track_split_assignments.csv` |
-| Shared-encoder/instrument owner | Validated checkpoint, vocabulary, validation metric, encoder configuration, and provenance | `checkpoints/pretraining/instrument/best.pt` and its metadata |
-| Chord-benchmark owner/team | Legally usable existing annotated benchmark and immutable audio/reference mapping; no new manual labels | mapping CSV passed to `prepare_chord_benchmark_source.py` |
-| Timbre owner | Ignored 7,324-row real target table when real joint rows are assembled | `timbre_branch/data/timbre_features_raw.csv` |
-| Fusion owner/team | Ratification of predicted-concept contract v0.3 | [ADR 0001](../../docs/adr/0001-concept-fusion-architecture.md) |
+The three weak Tonnetz means are not constant: their training-set standard
+deviations are approximately 0.1324, 0.1256, and 0.0822. Weak R² alone does
+not identify a model-depth problem. The reported genre AP is a whole-model
+score, **not** evidence that harmony improves genre prediction; a matched
+no-harmony comparison is needed for that claim.
 
-The harmony descriptor tables are present and audited. The remaining external
-inputs in this section are required only for the legacy temporal/chord experiment
-or later joint-model training. Therefore the following temporal real-data commands
-are intentionally not claimed as completed.
+## Decision and work boundaries
 
-## Commands once the artifacts arrive
+- **Keep as the implemented baseline:** the 12 standardized song-descriptor
+  target and fusion contract above. Do not silently substitute all 45 table
+  columns or 12 chroma probabilities.
+- **Proposed for Dehan's experiments:** a matched leave-harmony-out run, using
+  the same split, encoder, training budget, and genre macro AP evaluation, to
+  measure harmony's contribution. If testing a revised target set or loss,
+  compare against this baseline and report per-descriptor metrics.
+- **Deferred, not implemented in this run:** temporal chroma supervision,
+  chord labels/progressions, an Essentia replacement, extra temporal summaries,
+  and a deeper harmony model. Each requires its own target-quality check and
+  matched experiment; none follows automatically from the weak Tonnetz scores.
+- **For Thevindu:** consume the predicted standardized `(B,12)` descriptor
+  vector through the current `12→64` projection. The variable name
+  `harmony_chroma_projection` is historical; its input in this run is not chroma.
 
-Freeze the registered 8/2 train/validation harmony cohort and exact audio regions:
+No manual annotation is required for the current baseline. These are
+automatically extracted reference measurements, not human-verified chords or
+notes. The [review brief](evidence/harmony_branch_evaluation_brief.md) is
+evidence to evaluate, not an approved architecture specification. The
+[root audit plan](../../plan.md) records the checks and remaining limitations.
 
-```bash
-python scripts/freeze_experiment_cohort.py dataset/song_manifest.csv \
-  --splits train validation --require-available waveform_available \
-  --limit train=8 --limit validation=2 --seed 42 \
-  --output results/cohorts/harmony_extractor_seed42.json
-
-python harmony_branch/scripts/export_harmony_regions.py dataset/song_manifest.csv \
-  results/cohorts/harmony_extractor_seed42.json \
-  --root <MTG-root> --regions-per-song 2 \
-  --output results/cohorts/harmony_regions_seed42.json
-```
-
-Run and decide the bounded CPU extractor comparison:
-
-```bash
-uv run --with-requirements harmony_branch/requirements.txt \
-  python harmony_branch/scripts/benchmark_harmony_extractors.py \
-  --regions results/cohorts/harmony_regions_seed42.json \
-  --output results/evaluations/harmony_extractor_candidates.json
-
-python harmony_branch/scripts/decide_harmony_extractor.py \
-  results/evaluations/harmony_extractor_candidates.json \
-  --output results/evaluations/harmony_extractor_decision.json
-```
-
-Prepare the existing annotated chord benchmark before inference:
-
-```bash
-python harmony_branch/scripts/prepare_chord_benchmark_source.py <mapping.csv> \
-  --root <benchmark-root> --benchmark-name <name> \
-  --benchmark-source <source> --benchmark-license <license> \
-  --output results/chord-teacher/source.json
-```
-
-Then follow Steps 4, 6, 7, and 9 of the harmony plan for policy registration,
-teacher inference/evaluation, target materialization, encoder caching, screening
-dataset assembly, and the pre-registered branch decision. Every command is CPU-only
-until a passing branch decision and a separate GPU approval exist.
-
-## Readiness meaning
-
-- **Fixture integration:** ready and CPU-tested.
-- **45-D descriptor extraction:** complete and audited for 7,324 tracks.
-- **Temporal real-data screening:** blocked on the temporal artifacts above.
-- **Joint GPU training:** not approved; it additionally requires all four real
-  branch rows, the frozen comparison cohort, team-ratified v0.3, and a passing CPU
-  branch decision.
+This audit used static code/checkpoint inspection, JSON validation, and CSV
+consistency checks. It did not retrain the model or recompute features from
+source MP3s; PyTorch is not installed in the local audit environment.

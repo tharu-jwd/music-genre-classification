@@ -1,9 +1,21 @@
-# Project status and remaining work
+# Historical project plan and status snapshot
 
-This is the single project-wide progress document. It records what code exists, what
-is trustworthy, what is blocked, and what remains. Architecture details belong in
-[architecture.md](architecture.md); team-wide implementation contracts belong in
-[team-standards.md](team-standards.md).
+> **Status, 2026-09-28:** The detailed status table and phase sequence below
+> describe an earlier stage and must not be used as current Harmony readiness
+> criteria. In particular, they predate the completed 45-descriptor extraction
+> and an audited real-data joint run. Current Harmony v3 predicts 12 selected
+> standardized song descriptors and sends those predictions to fusion; temporal
+> chroma/chord supervision remains a separate unrun experiment. Read the
+> [Harmony handoff](../harmony_branch/docs/integration-handoff.md),
+> [v3 architecture snapshot](../harmony_branch/docs/architecture-versions/v3/README.md),
+> and [completed evaluation plan](../plan.md). The supplied report gives
+> Harmony test macro R² 0.4704 and whole-model genre macro AP 0.7356, but no
+> matched no-harmony result; it does not prove Harmony's genre contribution.
+
+This preserves the earlier project-wide plan and its rationale. It is not a live
+status tracker. Current implementation details belong in the code, the
+[joint-training guide](joint-training.md), and the versioned branch records;
+team-wide implementation contracts belong in [team-standards.md](team-standards.md).
 
 ## Status meanings
 
@@ -92,7 +104,7 @@ hosted manifest run is still required, so Phase 1 is not yet marked ready.
 - save per-target supervision masks;
 - align all concept targets to the canonical manifest.
 
-Detailed harmony work is tracked in the [harmony plan](../harmony_branch/docs/plan.md).
+The optional temporal harmony work is tracked in the [research plan](../harmony_branch/docs/temporal-chroma-research-plan.md).
 Its pseudo-label teacher selection is a quality gate: failure to find an acceptable
 teacher reduces scope to temporal chroma rather than silently accepting poor chords.
 The complete cheap harmony artifact chain also has a two-song CPU integration test;
@@ -137,7 +149,7 @@ through Essentia inference, `mir_eval`, and the accept/reject decision.
 The harmony implementation follows its own ordered sequence: waveform/alignment
 preflight, temporal chroma comparison, chord-teacher benchmark, immutable raw
 pseudo-labels, masks/schema, temporal model interface, standalone training, then
-joint integration. See the [harmony plan](../harmony_branch/docs/plan.md) for exit criteria.
+joint integration. See the [temporal research plan](../harmony_branch/docs/temporal-chroma-research-plan.md) for historical exit criteria.
 
 Integration update (2026-09-24): the old provisional `harmony=18` contract is
 removed. Harmony preserves temporal 12-bin chroma predictions and optional 25-class

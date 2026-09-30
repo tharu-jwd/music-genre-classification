@@ -1,6 +1,15 @@
-# Complete model architecture and training specification
+# Historical system architecture proposal (not the current run contract)
 
-This is the system-level specification for the implemented concept-guided,
+> **Status, 2026-09-28:** This page records an earlier system-wide proposal.
+> Its 96-mel, 40-instrument, 87-genre, temporal-chroma, and chord-supervision
+> defaults are **not** the audited joint run. Do not use the shapes, target
+> definitions, or training instructions below as current configuration.
+> For implemented Harmony v3 use the
+> [versioned snapshot](../harmony_branch/docs/architecture-versions/v3/README.md),
+> [handoff](../harmony_branch/docs/integration-handoff.md), and
+> [joint-training guide](joint-training.md).
+
+This was the system-level specification for an earlier concept-guided,
 multi-label music-genre classifier. It covers the shared encoder, all four concept
 branches, fusion, genre prediction, target provenance, masking, losses, and the
 intended training procedure.
@@ -346,9 +355,9 @@ is retained only for the configured `embedding_fusion` ablation, where fusion ow
 `Linear(32,64)`. Optional chord predictions do not enter either primary fusion or
 the predicted chroma vector.
 
-### 7.2 Chroma reference targets
+### 7.2 Chroma reference targets (proposed, not v3 supervision)
 
-The primary target is a 12-bin pitch-class distribution per encoder token:
+The proposed temporal target was a 12-bin pitch-class distribution per encoder token:
 
 ```text
 C, C#, D, D#, E, F, F#, G, G#, A, A#, B
@@ -367,7 +376,7 @@ L_chroma(t) = -sum_c target[t,c] * log_softmax(logits[t,:])[c]
 
 Only positions enabled by both prediction and target masks are reduced.
 
-### 7.3 Optional chord pseudo-labels
+### 7.3 Optional chord pseudo-labels (proposed, not v3 supervision)
 
 MTG-Jamendo has no aligned human chord timelines. The optional chord vocabulary is
 12 major roots, 12 minor roots, and `N` (no chord). An automatic teacher may supply
@@ -585,10 +594,9 @@ not evidence of trained model quality.
 | Instrument | [`instrument_branch/ARCHITECTURE.md`](../instrument_branch/ARCHITECTURE.md) |
 | Rhythm | [`rhythm_branch/ARCHITECTURE.md`](../rhythm_branch/ARCHITECTURE.md) |
 | Timbre | [`timbre-branch-implementation.md`](../timbre_branch/docs/timbre-branch-implementation.md) |
-| Harmony | [`harmony_branch/ARCHITECTURE.md`](../harmony_branch/ARCHITECTURE.md) |
+| Harmony | [Current v3 snapshot](../harmony_branch/docs/architecture-versions/v3/README.md) |
 | Fusion | [`concept_fusion/`](../concept_fusion/) |
 | Decisions | [`docs/adr/`](adr/) |
 
-When code and prose diverge, tested runtime contracts are the immediate
-implementation truth. Update this document in the same change that modifies a
-shape, target order, mask rule, or objective.
+When code and historical prose diverge, tested runtime contracts are the
+implementation truth. New contract changes belong in the versioned snapshot.
