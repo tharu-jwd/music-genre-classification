@@ -52,19 +52,18 @@ h_audio (B, 128)
   -> z_timbre = d_hat_standardized (B, 35)
 ```
 
-The fusion layer receives only the 35 named predicted concepts. There is no direct path from the unrestricted 128-dimensional encoder representation to the timbre fusion input. V2 keeps this neural head unchanged while adding training-only log preprocessing for spectral flatness, equal weighting across the three descriptor families, differential joint-training learning rates, and plateau scheduling.
+The fusion layer receives only the 35 named predicted concepts. There is no direct path from the unrestricted 128-dimensional encoder representation to the timbre fusion input. V2 keeps this neural head unchanged and adds training-only log preprocessing for spectral flatness. Loss weighting, optimization, scheduling, checkpoint selection, and fusion-level evaluation remain owned by the existing full-architecture trainer.
 
 ## V2 training contract
 
 - Fit `timbre_v2_log_flatness_zscore_v1` on training rows only.
 - Apply `log(max(spectral_flatness_mean, 1e-12))` before its z-score.
 - Z-score the other 34 concepts directly using training statistics.
-- Train with group-balanced masked Smooth L1 over widths 7, 2, and 26.
-- Use AdamW learning rates `1e-4` for the shared encoder and `5e-4` for both the timbre branch and fusion head.
-- Use `ReduceLROnPlateau(mode="max", factor=0.5, patience=3, min_lr=1e-6)` with validation macro AP during joint genre training.
-- Train for at most 50 epochs with early-stopping patience 8 and restore the best validation checkpoint.
+- Use the full trainer's masked, cell-averaged Smooth L1 timbre loss.
+- Use the optimizer, learning rate, cosine schedule, and checkpoint-selection policy supplied by the full architecture.
+- Train for at most 30 epochs. Any later increase must be recorded as a V2 training revision.
 
-The standalone `train_timbre_branch.py` utility has no genre labels, so its plateau scheduler uses validation standardized timbre MAE in `mode="min"`. The full joint trainer must use validation macro AP as specified above.
+The standalone `train_timbre_branch.py` utility mirrors the current full trainer with AdamW, a default learning rate of `3e-4`, cosine annealing, and no branch-owned early stopping. It selects the best standalone checkpoint by validation standardized timbre MAE because genre labels are not available to that utility.
 
 ## Current data status
 
@@ -80,8 +79,7 @@ python -m unittest -v tests.test_timbre_branch_smoke
 ```
 
 The self-contained tests cover the 128-to-35 shape contract, V2 log-flatness
-round-trip, group-balanced masked Smooth L1 loss, differential optimizer groups,
-plateau scheduling, end-to-end gradient flow, checkpoint equivalence, invalid-input
+round-trip, masked Smooth L1 loss, downstream gradient flow, checkpoint equivalence, invalid-input
 rejection, and command-line training on disposable synthetic inputs. If
 the ignored real target table is present, they also check its 7,324-row contract.
 

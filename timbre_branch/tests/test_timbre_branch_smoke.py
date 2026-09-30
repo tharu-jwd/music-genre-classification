@@ -17,12 +17,10 @@ from timbre_branch.constants import (
     FEATURE_COLUMNS,
     FLATNESS_INDEX,
     PREPROCESSING_VERSION,
+    V2_MAX_EPOCHS,
 )
 from timbre_branch.data import TimbreEmbeddingDataset
-from timbre_branch.losses import (
-    group_balanced_masked_smooth_l1_loss,
-    masked_smooth_l1_loss,
-)
+from timbre_branch.losses import masked_smooth_l1_loss
 from timbre_branch.inference import predict_timbre_concepts
 from timbre_branch.model import TimbreBranch
 from timbre_branch.preprocessing import (
@@ -30,13 +28,7 @@ from timbre_branch.preprocessing import (
     load_timbre_targets,
     normalize_track_id,
 )
-from timbre_branch.training import (
-    build_v2_optimizer,
-    build_v2_scheduler,
-    load_checkpoint,
-    save_checkpoint,
-    train_one_epoch,
-)
+from timbre_branch.training import load_checkpoint, save_checkpoint, train_one_epoch
 
 
 class TimbreBranchSmokeTest(unittest.TestCase):
@@ -94,7 +86,7 @@ class TimbreBranchSmokeTest(unittest.TestCase):
         self.assertEqual(tuple(output.shape), (5, 35))
         self.assertTrue(torch.isfinite(output).all())
 
-        loss = group_balanced_masked_smooth_l1_loss(
+        loss = masked_smooth_l1_loss(
             output,
             torch.from_numpy(standardized[:5]),
             torch.from_numpy(mask[:5]),
@@ -153,45 +145,16 @@ class TimbreBranchSmokeTest(unittest.TestCase):
         self.assertEqual(state["preprocessing_version"], PREPROCESSING_VERSION)
         self.assertEqual(state["target_transforms"]["spectral_flatness_mean"], "log_clamp")
 
-    def test_group_balancing_is_equal_across_three_families(self):
-        prediction = torch.zeros(1, 35, requires_grad=True)
-        target = torch.zeros(1, 35)
-        mask = torch.ones(1, 35, dtype=torch.bool)
-        target[:, 0:7] = 1.0
-        target[:, 7:9] = 2.0
-        target[:, 9:35] = 3.0
-        loss = group_balanced_masked_smooth_l1_loss(prediction, target, mask)
-        expected = torch.tensor((0.5 + 1.5 + 2.5) / 3)
-        torch.testing.assert_close(loss.detach(), expected)
-        loss.backward()
-        self.assertTrue(torch.isfinite(prediction.grad).all())
-
-    def test_v2_optimizer_scheduler_and_gradient_contract(self):
+    def test_downstream_gradient_contract(self):
         shared_encoder = torch.nn.Linear(16, 128)
         timbre_branch = TimbreBranch()
         fusion_head = torch.nn.Linear(35, 64)
         genre_head = torch.nn.Linear(64, 6)
-        optimizer = build_v2_optimizer(
-            shared_encoder=shared_encoder,
-            timbre_branch=timbre_branch,
-            fusion_head=fusion_head,
-        )
-        self.assertEqual(
-            [group["group_name"] for group in optimizer.param_groups],
-            ["shared_encoder", "timbre_branch", "fusion_head"],
-        )
-        self.assertEqual(
-            [group["lr"] for group in optimizer.param_groups],
-            [1e-4, 5e-4, 5e-4],
-        )
-        scheduler = build_v2_scheduler(optimizer)
-        self.assertEqual(scheduler.mode, "max")
-
         audio = torch.randn(4, 16)
         target = torch.randn(4, 35)
         mask = torch.ones_like(target, dtype=torch.bool)
         concepts = timbre_branch(shared_encoder(audio))
-        loss = group_balanced_masked_smooth_l1_loss(concepts, target, mask)
+        loss = masked_smooth_l1_loss(concepts, target, mask)
         genre_logits = genre_head(fusion_head(concepts))
         genre_targets = torch.randint(0, 2, genre_logits.shape).float()
         loss = loss + torch.nn.functional.binary_cross_entropy_with_logits(
@@ -211,6 +174,7 @@ class TimbreBranchSmokeTest(unittest.TestCase):
     def test_track_id_normalization(self):
         self.assertEqual(normalize_track_id("track_00142798"), "142798")
         self.assertEqual(normalize_track_id("142798.0"), "142798")
+        self.assertEqual(V2_MAX_EPOCHS, 30)
 
     def test_training_cli_end_to_end(self):
         targets = self._synthetic_targets()
@@ -245,7 +209,6 @@ class TimbreBranchSmokeTest(unittest.TestCase):
                     "--splits", str(split_path),
                     "--output", str(checkpoint_path),
                     "--epochs", "2",
-                    "--patience", "2",
                     "--batch-size", "12",
                     "--device", "cpu",
                 ],

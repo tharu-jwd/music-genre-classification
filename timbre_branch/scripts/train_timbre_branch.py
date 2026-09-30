@@ -25,12 +25,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from timbre_branch.constants import (
-    FEATURE_COLUMNS,
-    V2_EARLY_STOPPING_PATIENCE,
-    V2_MAX_EPOCHS,
-    V2_TIMBRE_BRANCH_LR,
-)
+from timbre_branch.constants import FEATURE_COLUMNS, V2_MAX_EPOCHS
 from timbre_branch.data import TimbreEmbeddingDataset
 from timbre_branch.model import TimbreBranch, TimbreBranchConfig
 from timbre_branch.preprocessing import (
@@ -39,12 +34,7 @@ from timbre_branch.preprocessing import (
     load_timbre_targets,
     normalize_track_id,
 )
-from timbre_branch.training import (
-    build_v2_scheduler,
-    evaluate,
-    save_checkpoint,
-    train_one_epoch,
-)
+from timbre_branch.training import evaluate, save_checkpoint, train_one_epoch
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,9 +45,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "checkpoints/timbre_branch/best.pt")
     parser.add_argument("--epochs", type=int, default=V2_MAX_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--learning-rate", type=float, default=V2_TIMBRE_BRANCH_LR)
+    parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--patience", type=int, default=V2_EARLY_STOPPING_PATIENCE)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
@@ -73,8 +62,8 @@ def seed_everything(seed: int) -> None:
 
 def main() -> None:
     args = parse_args()
-    if args.epochs <= 0 or args.batch_size <= 0 or args.patience <= 0:
-        raise ValueError("epochs, batch-size, and patience must be positive")
+    if args.epochs <= 0 or args.batch_size <= 0:
+        raise ValueError("epochs and batch-size must be positive")
     seed_everything(args.seed)
 
     archive = np.load(args.embeddings, allow_pickle=False)
@@ -137,13 +126,11 @@ def main() -> None:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
-    # This branch-only utility has no genre labels, so it uses validation timbre
-    # MAE in min mode. The full joint trainer must use build_v2_scheduler()'s
-    # default max mode and step it with validation macro average precision.
-    scheduler = build_v2_scheduler(optimizer, mode="min")
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=args.learning_rate * 0.05
+    )
 
     best_validation = float("inf")
-    epochs_without_improvement = 0
     history = []
     for epoch in range(1, args.epochs + 1):
         train_loss = train_one_epoch(model, train_loader, optimizer, device)
@@ -151,13 +138,12 @@ def main() -> None:
         record = {"epoch": epoch, "train_loss": train_loss, **validation}
         history.append(record)
         score = validation["macro_mae_standardized"]
-        scheduler.step(score)
+        scheduler.step()
         learning_rates = [group["lr"] for group in optimizer.param_groups]
         record["learning_rates"] = learning_rates
         print(f"epoch={epoch:03d} train={train_loss:.5f} val_macro_mae={score:.5f}")
         if score < best_validation:
             best_validation = score
-            epochs_without_improvement = 0
             save_checkpoint(
                 args.output,
                 model,
@@ -167,10 +153,6 @@ def main() -> None:
                 seed=args.seed,
                 optimizer=optimizer,
             )
-        else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement >= args.patience:
-                break
 
     from timbre_branch.training import load_checkpoint
 
