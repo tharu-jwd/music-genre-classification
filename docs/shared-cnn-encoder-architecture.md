@@ -45,7 +45,8 @@ window_start_seconds: (B,W)        song-relative start of each sampled window
 
 The frozen data schema uses 12 kHz mono audio, a 512-sample analysis frame, a
 256-sample hop (approximately 21.333 ms), 96 Slaney Mel bands, 1,366 frames per
-window, and at most 12 ordered, evenly selected windows.
+window, and all valid ordered windows by default. A positive `--max-windows`
+evenly selects a capped subset.
 
 The v1 data policy applies no additional normalization after the stored log-Mel dB
 representation. Encoder v2 uses GroupNorm, whose statistics are computed per

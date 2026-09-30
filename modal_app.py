@@ -47,6 +47,7 @@ image = (
     .add_local_dir("timbre_branch/src/timbre_branch", str(PROJECT_DIR / "timbre_branch/src/timbre_branch"))
     .add_local_dir("harmony_branch/src/harmony_branch", str(PROJECT_DIR / "harmony_branch/src/harmony_branch"))
     .add_local_dir("instrument_branch/docs", str(PROJECT_DIR / "instrument_branch/docs"))
+    .add_local_file("integration_adapters.py", str(PROJECT_DIR / "integration_adapters.py"))
     .add_local_file("scripts/train_cnn.py", str(PROJECT_DIR / "scripts/train_cnn.py"))
     .add_local_file("scripts/train_joint.py", str(PROJECT_DIR / "scripts/train_joint.py"))
     .add_local_file("scripts/mtg_data_contract.py", str(PROJECT_DIR / "scripts/mtg_data_contract.py"))
@@ -79,7 +80,7 @@ def train_remote(
     quick: bool,
     skip_test: bool,
     model: str = "joint",
-    resume_run_name: str = "",
+    experiment: str = "current",
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -99,7 +100,11 @@ def train_remote(
         )
 
     out_dir = Path(RUNS_MOUNT) / run_name
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if out_dir.exists():
+        raise FileExistsError(
+            f"Run output already exists: {out_dir}. Choose a new --run-name to preserve it."
+        )
+    out_dir.mkdir(parents=True, exist_ok=False)
     command = [
         sys.executable,
         str(PROJECT_DIR / "scripts/train_joint.py"),
@@ -115,16 +120,18 @@ def train_remote(
         "--lr", str(learning_rate),
         "--num-workers", str(num_workers),
         "--max-windows", str(max_windows),
+        "--instrument-architecture", instrument_architecture,
     ]
     if quick:
         command.append("--quick")
     if skip_test:
         command.append("--skip-test")
-    if resume_run_name:
-        resume_checkpoint = Path(RUNS_MOUNT) / resume_run_name / "best.pt"
-        if not resume_checkpoint.is_file():
-            raise FileNotFoundError(f"Resume checkpoint not found: {resume_checkpoint}")
-        command.extend(("--resume-checkpoint", str(resume_checkpoint)))
+    if experiment == "i1":
+        command.append("--experiment-i1")
+    elif experiment == "i1-control":
+        command.append("--experiment-i1-control")
+    elif experiment != "current":
+        raise ValueError("experiment must be current, i1, or i1-control")
 
     print("Starting:", " ".join(command), flush=True)
     subprocess.run(command, cwd=PROJECT_DIR, check=True)
@@ -151,27 +158,31 @@ def main(
     batch_size: int = 1,
     learning_rate: float = 3e-4,
     num_workers: int = 2,
-    max_windows: int = 12,
+    max_windows: int = 0,
     gpu: str = "A10",
     quick: bool = False,
     skip_test: bool = False,
     background: bool = False,
     model: str = "joint",
-    resume_run_name: str = "",
+    experiment: str = "current",
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
         raise ValueError("model must be joint or cnn")
-    if resume_run_name and not re.fullmatch(
-        r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", resume_run_name
-    ):
-        raise ValueError("resume_run_name must be empty or a 1-64 safe filename")
+    if experiment not in ("current", "i1", "i1-control"):
+        raise ValueError("experiment must be current, i1, or i1-control")
+    if experiment != "current" and model != "joint":
+        raise ValueError("I1 modes are available only for the joint model")
+    if experiment != "current" and epochs != 30:
+        raise ValueError("I1 and its matched control require exactly 30 epochs")
+    if experiment != "current" and quick:
+        raise ValueError("I1 is a strict 30-epoch experiment and cannot use --quick")
     if model == "cnn" and run_name == "joint-full-v1":
         run_name = "cnn-full-v1"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_name):
         raise ValueError("run_name must be 1-64 safe filename characters")
-    if epochs < 1 or batch_size < 1 or num_workers < 0 or max_windows < 1:
-        raise ValueError("epochs, batch_size, and max_windows must be positive; workers cannot be negative")
+    if epochs < 1 or batch_size < 1 or num_workers < 0 or max_windows < 0:
+        raise ValueError("epochs and batch_size must be positive; workers and max_windows cannot be negative")
 
     arguments = (
         run_name,
@@ -183,7 +194,7 @@ def main(
         quick,
         skip_test,
         model,
-        resume_run_name,
+        experiment,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

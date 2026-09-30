@@ -116,7 +116,7 @@ Run the bounded smoke test first. `--quick` uses at most 32 tracks per split and
 three epochs:
 
 ```bash
-modal run modal_app.py --quick --run-name smoke-v1
+modal run modal_app.py --quick --run-name instrument-residual-smoke --instrument-architecture residual
 ```
 
 Then submit the full run. `--detach` lets the job continue if the local terminal
@@ -125,16 +125,35 @@ disconnects:
 ```bash
 modal run --detach modal_app.py \
   --background \
-  --run-name joint-full-v1 \
+  --run-name instrument-residual-full \
+  --epochs 30 \
+  --batch-size 1 \
+  --gpu A10 \
+  --instrument-architecture residual
+```
+
+For the 30-epoch I1 integration-adapter experiment, submit a unique run with:
+
+```bash
+modal run --detach modal_app.py \
+  --background \
+  --experiment i1 \
+  --run-name i1-adapter-30epoch \
   --epochs 30 \
   --batch-size 1 \
   --gpu L4
 ```
 
-The rhythm branch always uses attention + masked mean/std pooling. The GPU can be
-changed at submission time, for example `--gpu L40S` or `--gpu A100-40GB`. Start
-with batch size 1 because the model processes up to 12 long windows per track;
-raise it only after observing GPU memory use.
+The optional matched Full Architecture V1 control uses `--experiment
+i1-control` and a different run name. I1 modes reject any epoch budget other
+than 30. The Modal image includes `integration_adapters.py`, and the remote
+runner forwards the selected mode to `scripts/train_joint.py`.
+
+The GPU can be changed at submission time, for example `--gpu L40S` or
+`--gpu A100-40GB`. Start with batch size 1 because the default processes every
+valid stored window per track. Memory use varies with track length; raise the
+batch size only after observing GPU memory use. A positive `--max-windows` caps
+windows; omitting it or setting it to 0 uses all available windows.
 
 `--background` submits the training input with Modal's durable asynchronous
 invocation API and returns a function-call ID immediately. Use it together with
@@ -147,12 +166,12 @@ streamed synchronously.
 Every run writes `best.pt` and `results.json` under its run name:
 
 ```bash
-modal volume ls music-genre-runs joint-full-v1
-modal volume get music-genre-runs joint-full-v1 ./modal-results/joint-full-v1
+modal volume ls music-genre-runs instrument-residual-full
+modal volume get music-genre-runs instrument-residual-full ./modal-results/instrument-residual-full
 ```
 
-Use a new `--run-name` for every experiment. Runs with the same name share an
-output directory and can overwrite artifacts.
+Use a new `--run-name` for every experiment. The Modal runner now refuses to start
+when that run directory already exists, preserving its checkpoints and metrics.
 
 `results.json` includes per-epoch validation metrics for the genre, instrument,
 rhythm, timbre, and harmony outputs. Aggregate

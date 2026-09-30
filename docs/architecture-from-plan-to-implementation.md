@@ -10,6 +10,9 @@ This document records the proposed model at that stage: the **original plan**, w
 
 Fixture scores are not research numbers.
 
+Current instrument outputs use the fixed 41-tag project vocabulary, including
+`ukulele`. Sections 2 and 3 retain the earlier 40-tag design as history.
+
 ---
 
 ## 1. Original plan
@@ -109,7 +112,7 @@ Main also removed the old hosted Colab/Kaggle notebook set in that merge. Propos
 | `h_audio` into fusion | Not specified | **Rejected** (bypasses the bottleneck) |
 | Feature order | Unspecified | `TIMBRE_FEATURES` loaded from Senindu’s `constants.py` |
 
-Instrument handling is unchanged: still fusion-owned `Linear(40,64)`.
+Current instrument handling uses fusion-owned `Linear(41,64)`.
 
 Rhythm still supplies a provisional 64D token. Harmony now has a published
 integration candidate described below.
@@ -136,7 +139,7 @@ prediction/availability masks.
 
 ```text
 shared encoder
-    ├── pooled song (B,128) → Instrument v2 → 40 probs → Linear(40,64)
+    ├── pooled song (B,128) → Instrument v2 → 41 probs → Linear(41,64)
     ├── ordered features (B,T,128) → Rhythm v1 → token (B,64)
     │                                      └→ 10 AB regression predictions
     ├── pooled song (B,128) → Timbre v2 → 35 values → Linear(35,64)
@@ -147,7 +150,7 @@ shared encoder
                     ↓
      dropout p=0.15 → LayerNorm → gated / concat / attention
                     ↓
-            fused (B, 128) → 87 genre logits → independent sigmoid
+            fused (B, 128) → 6 genre logits → independent sigmoid
 ```
 
 Ingest helpers:
@@ -163,7 +166,7 @@ python -m pytest tests -q
 python scripts/run_all_fusion.py --quick
 ```
 
-Next live wiring requires official split-0 rows, Dehan's `song_repr` for instrument
+Next live wiring requires representative-cohort rows, Dehan's `song_repr` for instrument
 and timbre, and ordered encoder features plus accepted pseudo-labels for harmony.
 
 Related: [ADR](adr/0001-concept-fusion-architecture.md), [fusion runbook](concept-fusion-runbook.md), [instrument README](../instrument_branch/README.md), [timbre README](../timbre_branch/README.md).

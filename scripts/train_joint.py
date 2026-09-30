@@ -68,6 +68,7 @@ from concept_fusion.rhythm_adapter import from_rhythm_branch
 from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.types import BranchBundle
 from harmony_branch.model import TemporalHarmonyBranch
+from integration_adapters import I1BranchAdapters
 from scripts.mtg_data_contract import NOTEBOOK_DATA_CONTRACT
 from rhythm_branch.model import RhythmBranch, RhythmBranchConfig
 from rhythm_branch.preprocessing import RhythmStandardizer
@@ -75,6 +76,62 @@ from shared_encoder import SharedAudioEncoder
 from timbre_branch.model import TimbreBranch
 from timbre_branch.preprocessing import TimbreStandardizer
 from scripts.build_vector_dataset import VECTOR_GROUPS
+
+
+@dataclass
+class TimbreV1Standardizer:
+    """Raw-then-z-score timbre preprocessing required by the I1 V1 baseline."""
+
+    mean: np.ndarray | None = None
+    scale: np.ndarray | None = None
+    count: np.ndarray | None = None
+    epsilon: float = 1e-8
+
+    def fit(self, values: np.ndarray, valid_mask: np.ndarray | None = None):
+        values = np.asarray(values, dtype=np.float64)
+        if values.ndim != 2 or values.shape[1] != N_TIMBRE_CONCEPTS:
+            raise ValueError(f"Expected timbre targets [samples,{N_TIMBRE_CONCEPTS}]")
+        mask = np.isfinite(values)
+        if valid_mask is not None:
+            valid_mask = np.asarray(valid_mask, dtype=bool)
+            if valid_mask.shape != values.shape:
+                raise ValueError("valid_mask must match timbre values")
+            mask &= valid_mask
+        count = mask.sum(axis=0)
+        if np.any(count == 0):
+            raise ValueError("Every timbre concept needs a valid V1 training target")
+        safe = np.where(mask, values, 0.0)
+        mean = safe.sum(axis=0) / count
+        variance = np.where(mask, (values - mean) ** 2, 0.0).sum(axis=0) / count
+        scale = np.sqrt(variance)
+        self.mean = mean
+        self.scale = np.where(scale < self.epsilon, 1.0, scale)
+        self.count = count.astype(np.int64)
+        return self
+
+    def transform(self, values: np.ndarray) -> np.ndarray:
+        if self.mean is None or self.scale is None:
+            raise RuntimeError("TimbreV1Standardizer has not been fitted")
+        values = np.asarray(values, dtype=np.float64)
+        return ((values - self.mean) / self.scale).astype(np.float32)
+
+    def inverse_transform(self, values: np.ndarray) -> np.ndarray:
+        if self.mean is None or self.scale is None:
+            raise RuntimeError("TimbreV1Standardizer has not been fitted")
+        return np.asarray(values, dtype=np.float64) * self.scale + self.mean
+
+    def state_dict(self) -> dict[str, Any]:
+        if self.mean is None or self.scale is None or self.count is None:
+            raise RuntimeError("TimbreV1Standardizer has not been fitted")
+        return {
+            "preprocessing_version": "timbre_v1_raw_zscore_v1",
+            "feature_names": list(TIMBRE_FEATURES),
+            "target_transforms": {"all_features": "identity"},
+            "mean": self.mean.tolist(),
+            "scale": self.scale.tolist(),
+            "count": self.count.tolist(),
+            "epsilon": self.epsilon,
+        }
 
 @dataclass
 class HarmonyStandardizer:
@@ -176,7 +233,7 @@ class MultiTargetDataset(Dataset):
     Loads log-mel .npy files on demand and returns all branch targets.
 
     Each .npy is (mel_bins, T_total) or (windows, mel_bins, frames).
-    Segmented into bounded ordered windows, preserving valid frames and starts.
+    Uses all ordered windows by default, preserving valid frames and starts.
     """
 
     def __init__(
@@ -192,7 +249,7 @@ class MultiTargetDataset(Dataset):
         harmony_targets: np.ndarray,     # (N, 12) float32 standardized descriptors
         harmony_mask: np.ndarray | None = None,  # (N, 12) bool
         window_frames: int = 1366,
-        max_windows: int = 12,
+        max_windows: int = 0,
         mel_config: dict | None = None,
         durations: dict[str, float] | None = None,
     ) -> None:
@@ -234,7 +291,7 @@ class MultiTargetDataset(Dataset):
             window_seconds = float(self.mel_config["window_seconds"])
             duration = self.durations[self.track_ids[idx]]
             indices = np.arange(len(mel))
-            if len(indices) > self.max_windows:
+            if self.max_windows and len(indices) > self.max_windows:
                 indices = np.linspace(0, len(mel) - 1, self.max_windows, dtype=int)
             starts = (indices * window_seconds).astype(np.float32)
             seconds = np.clip(duration - starts, 0, window_seconds)
@@ -313,19 +370,34 @@ def collate_fn(batch):
 
 
 # ---------------------------------------------------------------------------
-# Instrument head (equivalent of the notebook v2 head)
+# Instrument head: pooled-song baseline or notebook v3 residual architecture
 # ---------------------------------------------------------------------------
 
 class InstrumentHead(nn.Module):
     """pooled_song (B, 128) -> 41 probabilities + logits."""
 
-    def __init__(self) -> None:
+    def __init__(self, architecture: str = "baseline") -> None:
         super().__init__()
-        self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.15))
+        if architecture not in ("baseline", "residual"):
+            raise ValueError("instrument architecture must be baseline or residual")
+        self.architecture = architecture
+        if architecture == "residual":
+            self.input_norm = nn.LayerNorm(128)
+            self.hidden = nn.Sequential(
+                nn.Linear(128, 128), nn.GELU(), nn.Dropout(0.1),
+                nn.Linear(128, 128), nn.Dropout(0.1),
+            )
+            self.output_norm = nn.LayerNorm(128)
+        else:
+            self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.15))
         self.classifier = nn.Linear(128, N_INSTRUMENT_TAGS)
 
     def forward(self, pooled_song: Tensor) -> dict:
-        h = self.hidden(pooled_song)
+        if self.architecture == "residual":
+            normalized = self.input_norm(pooled_song)
+            h = self.output_norm(normalized + self.hidden(normalized))
+        else:
+            h = self.hidden(pooled_song)
         logits = self.classifier(h)
         return {
             "concept_values": logits.sigmoid(),
@@ -417,16 +489,17 @@ def build_datasets(
     dataset_csv: Path | None = None,
     split_csv: Path | None = None,
     require_harmony_targets: bool = False,
-    timbre_std: TimbreStandardizer | None = None,
+    timbre_std: TimbreStandardizer | TimbreV1Standardizer | None = None,
     rhythm_std: RhythmStandardizer | None = None,
     harmony_std: HarmonyStandardizer | None = None,
     quick: bool = False,
     logmel_root: Path | None = None,
     window_frames: int = 1366,
     max_windows: int = 12,
+    timbre_v1_preprocessing: bool = False,
 ) -> tuple[
     MultiTargetDataset, MultiTargetDataset, MultiTargetDataset,
-    TimbreStandardizer, RhythmStandardizer, HarmonyStandardizer,
+    TimbreStandardizer | TimbreV1Standardizer, RhythmStandardizer, HarmonyStandardizer,
 ]:
     """Load, align, standardize, and split all data sources.
 
@@ -515,7 +588,9 @@ def build_datasets(
     train_mask = master["split"] == "train"
     if timbre_std is None:
         t_vals = master.loc[train_mask, timbre_feat].to_numpy(dtype=np.float64)
-        timbre_std = TimbreStandardizer().fit(t_vals, np.isfinite(t_vals))
+        timbre_std = (
+            TimbreV1Standardizer() if timbre_v1_preprocessing else TimbreStandardizer()
+        ).fit(t_vals, np.isfinite(t_vals))
     if rhythm_std is None:
         r_vals = master.loc[train_mask, rhythm_feat].to_numpy(dtype=np.float64)
         rhythm_std = RhythmStandardizer().fit(r_vals, np.isfinite(r_vals))
@@ -571,6 +646,7 @@ def _build_bundle(
     timbre_head: TimbreBranch,
     rhythm_head: RhythmBranch,
     harmony_head: TemporalHarmonyBranch,
+    integration_adapters: I1BranchAdapters | None = None,
     *,
     instr_tgt: Tensor,
     timbre_tgt: Tensor,
@@ -581,13 +657,38 @@ def _build_bundle(
     harmony_msk: Tensor,
     device: torch.device,
 ) -> tuple[BranchBundle, dict]:
+    pooled_instrument = (
+        encoded.pooled_song
+        if integration_adapters is None
+        else integration_adapters.pooled("instrument", encoded.pooled_song)
+    )
+    pooled_timbre = (
+        encoded.pooled_song
+        if integration_adapters is None
+        else integration_adapters.pooled("timbre", encoded.pooled_song)
+    )
+    rhythm_sequence = (
+        encoded.encoded_sequence
+        if integration_adapters is None
+        else integration_adapters.temporal(
+            "rhythm", encoded.encoded_sequence, encoded.sequence_mask
+        )
+    )
+    harmony_sequence = (
+        encoded.encoded_sequence
+        if integration_adapters is None
+        else integration_adapters.temporal(
+            "harmony", encoded.encoded_sequence, encoded.sequence_mask
+        )
+    )
+
     # Instrument
-    instr_out = instrument_head(encoded.pooled_song)
+    instr_out = instrument_head(pooled_instrument)
     instr_out["supervision_mask"] = torch.isfinite(instr_tgt).float()
     instr_br  = from_instrument_branch(instr_out)
 
     # Timbre
-    timbre_raw  = timbre_head(encoded.pooled_song)
+    timbre_raw  = timbre_head(pooled_timbre)
     timbre_fmsk = encoded.availability.unsqueeze(1).float()
     timbre_br   = from_timbre_branch(
         timbre_raw,
@@ -597,7 +698,7 @@ def _build_bundle(
 
     # Rhythm
     rhythm_out = rhythm_head(
-        encoded.encoded_sequence,
+        rhythm_sequence,
         encoded.sequence_mask,
         encoded.sequence_window_index,
     )
@@ -606,8 +707,8 @@ def _build_bundle(
     # Predict song-level harmony descriptors from the temporal harmony embedding.
     windows = encoded.window_repr.shape[1]
     harmony_out = harmony_head(
-        encoded.encoded_sequence, encoded.sequence_mask, encoded.sequence_window_index,
-        windows=windows, tokens_per_window=encoded.encoded_sequence.shape[1] // windows,
+        harmony_sequence, encoded.sequence_mask, encoded.sequence_window_index,
+        windows=windows, tokens_per_window=harmony_sequence.shape[1] // windows,
     )
     harmony_br = from_temporal_harmony_branch(
         harmony_out,
@@ -769,8 +870,12 @@ def evaluate(
     fusion_model: ConceptBottleneckModel,
     loader: DataLoader,
     device: torch.device,
+    integration_adapters: I1BranchAdapters | None = None,
 ) -> dict[str, Any]:
-    for m in (encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model):
+    modules = [encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model]
+    if integration_adapters is not None:
+        modules.append(integration_adapters)
+    for m in modules:
         m.eval()
 
     genre_loss_fn = JointLossOrchestrator(
@@ -794,6 +899,7 @@ def evaluate(
         encoded = encoder(mel, wm, vf, ws, sample_rate=loader.dataset.sample_rate, hop_length=loader.dataset.hop_length)
         bundle, concept_targets = _build_bundle(
             encoded, instrument_head, timbre_head, rhythm_head, harmony_head,
+            integration_adapters,
             instr_tgt=instr_tgt, timbre_tgt=timbre_tgt, timbre_msk=timbre_msk,
             rhythm_tgt=rhythm_tgt, rhythm_msk=rhythm_msk,
             harmony_tgt=harmony_tgt, harmony_msk=harmony_msk, device=device,
@@ -864,11 +970,16 @@ def evaluate(
 # ---------------------------------------------------------------------------
 
 def train(cfg: "TrainConfig") -> None:
-    np.random.seed(cfg.seed)
-    torch.manual_seed(cfg.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(cfg.seed)
+    if cfg.experiment_i1 and cfg.experiment_i1_control:
+        raise ValueError("I1 adapters and the matched I1 control are mutually exclusive")
     device = torch.device(cfg.device)
+    v1_protocol = cfg.experiment_i1 or cfg.experiment_i1_control
+    if v1_protocol and cfg.epochs != 30:
+        raise ValueError("I1 and its matched V1 control require exactly 30 epochs")
+    experiment_name = (
+        "I1" if cfg.experiment_i1 else "I1_V1_control" if cfg.experiment_i1_control
+        else "current_default"
+    )
     print(f"Device: {device}")
 
     resume: dict[str, Any] | None = None
@@ -912,7 +1023,8 @@ def train(cfg: "TrainConfig") -> None:
         timbre_std=resume_timbre_std, rhythm_std=resume_rhythm_std,
         harmony_std=resume_harmony_std,
         quick=cfg.quick, logmel_root=cfg.logmel_root,
-        window_frames=cfg.window_frames, max_windows=cfg.max_windows
+        window_frames=cfg.window_frames, max_windows=cfg.max_windows,
+        timbre_v1_preprocessing=v1_protocol,
     )
 
     missing = [p for ds in (train_ds, val_ds, test_ds) for p in ds.npy_paths if not Path(p).is_file()]
@@ -935,7 +1047,7 @@ def train(cfg: "TrainConfig") -> None:
 
     # Models
     encoder        = SharedAudioEncoder().to(device)
-    instrument_head = InstrumentHead().to(device)
+    instrument_head = InstrumentHead(cfg.instrument_architecture).to(device)
     timbre_head    = TimbreBranch().to(device)
     rhythm_head = RhythmBranch(RhythmBranchConfig()).to(device)
     harmony_head = TemporalHarmonyBranch(
@@ -946,6 +1058,7 @@ def train(cfg: "TrainConfig") -> None:
         dropout_p=0.15,
         harmony_embedding_dim=harmony_head.embedding_dim,
     ).to(device)
+    integration_adapters = I1BranchAdapters().to(device) if cfg.experiment_i1 else None
 
     all_params = (
         list(encoder.parameters())
@@ -954,27 +1067,16 @@ def train(cfg: "TrainConfig") -> None:
         + list(rhythm_head.parameters())
         + list(harmony_head.parameters())
         + list(fusion_model.parameters())
+        + ([] if integration_adapters is None else list(integration_adapters.parameters()))
     )
 
     optimizer = torch.optim.AdamW(all_params, lr=cfg.lr, weight_decay=cfg.weight_decay)
-    scheduler: torch.optim.lr_scheduler.CosineAnnealingLR | None = None
-    if resume is None:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=cfg.epochs, eta_min=cfg.lr * 0.05
-        )
-    else:
-        encoder.load_state_dict(resume["encoder"])
-        instrument_head.load_state_dict(resume["instrument_head"])
-        timbre_head.load_state_dict(resume["timbre_head"])
-        rhythm_head.load_state_dict(resume["rhythm_head"])
-        harmony_head.load_state_dict(resume["harmony_head"])
-        fusion_model.load_state_dict(resume["fusion_model"])
-        optimizer.load_state_dict(resume["optimizer"])
-        print(
-            "Restored model and optimizer states; checkpoint has no scheduler/RNG "
-            f"state, so epochs {resume_epoch + 1}-{cfg.epochs} use the saved "
-            f"optimizer learning rate {optimizer.param_groups[0]['lr']:.2e}."
-        )
+    # I1 screens must reproduce epochs 1..5 of the 30-epoch V1 trajectory;
+    # shortening T_max to five would change the controlled scheduler.
+    scheduler_t_max = 30 if v1_protocol else cfg.epochs
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=scheduler_t_max, eta_min=cfg.lr * 0.05
+    )
     loss_fn = JointLossOrchestrator(
         weights=LossWeights(
             genre=1.0,
@@ -991,16 +1093,12 @@ def train(cfg: "TrainConfig") -> None:
     best_val_ap = float(resume["val_macro_ap"]) if resume is not None else -1.0
     best_epoch = resume_epoch
     log: list[dict[str, Any]] = []
-    if resume is not None:
-        previous_results = Path(cfg.resume_checkpoint).with_name("results.json")
-        if previous_results.is_file():
-            previous_summary = json.loads(previous_results.read_text(encoding="utf-8"))
-            log = list(previous_summary.get("log", []))
-        # Keep the prior validation-selected model if no resumed epoch improves.
-        torch.save(resume, out_dir / "best.pt")
 
-    for epoch in range(resume_epoch + 1, cfg.epochs + 1):
-        for m in (encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model):
+    for epoch in range(1, cfg.epochs + 1):
+        modules = [encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model]
+        if integration_adapters is not None:
+            modules.append(integration_adapters)
+        for m in modules:
             m.train()
 
         epoch_loss = 0.0
@@ -1017,6 +1115,7 @@ def train(cfg: "TrainConfig") -> None:
             encoded = encoder(mel, wm, vf, ws, sample_rate=train_ds.sample_rate, hop_length=train_ds.hop_length)
             bundle, concept_targets = _build_bundle(
                 encoded, instrument_head, timbre_head, rhythm_head, harmony_head,
+                integration_adapters,
                 instr_tgt=instr_tgt, timbre_tgt=timbre_tgt, timbre_msk=timbre_msk,
                 rhythm_tgt=rhythm_tgt, rhythm_msk=rhythm_msk,
                 harmony_tgt=harmony_tgt, harmony_msk=harmony_msk, device=device,
@@ -1048,7 +1147,7 @@ def train(cfg: "TrainConfig") -> None:
         print("Evaluating validation split...", flush=True)
         val_metrics = evaluate(
             encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
-            fusion_model, val_loader, device,
+            fusion_model, val_loader, device, integration_adapters,
         )
         val_ap = val_metrics["macro_ap"]
 
@@ -1088,11 +1187,20 @@ def train(cfg: "TrainConfig") -> None:
                 "val_macro_ap": val_ap,
                 "encoder":          encoder.state_dict(),
                 "instrument_head":  instrument_head.state_dict(),
+                "instrument_architecture": cfg.instrument_architecture,
                 "timbre_head":      timbre_head.state_dict(),
                 "rhythm_head":      rhythm_head.state_dict(),
                 "rhythm_model_config": rhythm_head.config.to_dict(),
                 "harmony_head":     harmony_head.state_dict(),
                 "fusion_model":     fusion_model.state_dict(),
+                "integration_adapters": (
+                    None if integration_adapters is None else integration_adapters.state_dict()
+                ),
+                "experiment": experiment_name,
+                "scheduler_t_max": scheduler_t_max,
+                "adapter_config": (
+                    None if integration_adapters is None else integration_adapters.config.to_dict()
+                ),
                 "optimizer":        optimizer.state_dict(),
                 "scheduler":        scheduler.state_dict() if scheduler is not None else None,
                 "resumed_from_epoch": resume_epoch if resume is not None else None,
@@ -1131,10 +1239,15 @@ def train(cfg: "TrainConfig") -> None:
         rhythm_head.load_state_dict(best["rhythm_head"])
         harmony_head.load_state_dict(best["harmony_head"])
         fusion_model.load_state_dict(best["fusion_model"])
+        if integration_adapters is not None:
+            adapter_state = best.get("integration_adapters")
+            if adapter_state is None:
+                raise ValueError("I1 checkpoint is missing integration adapter state")
+            integration_adapters.load_state_dict(adapter_state)
 
         test_metrics = evaluate(
             encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
-            fusion_model, test_loader, device,
+            fusion_model, test_loader, device, integration_adapters,
         )
         print(
             f"\nTest: macro_ap={test_metrics['macro_ap']:.4f}  "
@@ -1156,11 +1269,12 @@ def train(cfg: "TrainConfig") -> None:
         "n_val":         len(val_ds),
         "n_test":        len(test_ds),
         "harmony_supervised": bool(train_ds.harmony_mask.any()),
-        "rhythm_model_config": rhythm_head.config.to_dict(),
-        "resumed_from_epoch": resume_epoch if resume is not None else None,
-        "resume_checkpoint": str(cfg.resume_checkpoint) if cfg.resume_checkpoint is not None else None,
-        "scheduler_resume_policy": "saved_optimizer_lr_constant" if resume is not None else "cosine_annealing",
-        "seed": cfg.seed,
+        "experiment":     experiment_name,
+        "scheduler_t_max": scheduler_t_max,
+        "timbre_preprocessing_version": timbre_std.state_dict()["preprocessing_version"],
+        "integration_adapters": (
+            None if integration_adapters is None else integration_adapters.config.to_dict()
+        ),
         "log":           log,
     }
     out_path = out_dir / "results.json"
@@ -1195,8 +1309,8 @@ class TrainConfig:
     logmel_root:        Path | None = None
     window_frames:     int = 1366
     max_windows:       int = 12
-    seed: int = 42
-    resume_checkpoint: Path | None = None
+    experiment_i1:     bool = False
+    experiment_i1_control: bool = False
 
 
 def main() -> None:
@@ -1217,12 +1331,9 @@ def main() -> None:
                    help="32-track subsets, 3 epochs — smoke test only")
     p.add_argument("--logmel-root", type=Path, help="Local logmel_songs directory; replaces the Colab prefix")
     p.add_argument("--window-frames", type=int, default=1366)
-    p.add_argument("--max-windows", type=int, default=12)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument(
-        "--resume-checkpoint", type=Path,
-        help="Checkpoint to continue from; --epochs is the final target epoch",
-    )
+    p.add_argument("--max-windows", type=int, default=0,
+                   help="Maximum windows per track; 0 (default) uses every available window")
+    p.add_argument("--instrument-architecture", choices=("baseline", "residual"), default="baseline")
     p.add_argument("--skip-test", action="store_true", help="Reserve the test split for final evaluation")
     p.add_argument("--data-dir", type=Path, default=ROOT / "data",
                    help="Directory containing metadata/config files")
@@ -1232,14 +1343,29 @@ def main() -> None:
                    help="TRACK_ID/track_id + split CSV; defaults to DATA_DIR/track_split_assignments.csv")
     p.add_argument("--require-harmony-targets", action="store_true",
                    help="Require observed values for all 12 harmony descriptors")
+    experiment_group = p.add_mutually_exclusive_group()
+    experiment_group.add_argument(
+        "--experiment-i1", action="store_true",
+        help=(
+            "Run the strict V1 integration-adapter experiment: Timbre V1 raw z-score "
+            "targets plus four zero-initialized branch-private adapters"
+        ),
+    )
+    experiment_group.add_argument(
+        "--experiment-i1-control", action="store_true",
+        help=(
+            "Run the matched Full Architecture V1 control with Timbre V1 "
+            "preprocessing and no integration adapters"
+        ),
+    )
     p.add_argument("--print-dataset-schema", action="store_true",
                    help="Print the canonical dataset.csv vector groups and exit")
     args = p.parse_args()
     if args.print_dataset_schema:
         print(json.dumps(dataset_schema(), indent=2))
         return
-    if args.window_frames < 1 or args.max_windows < 1:
-        p.error("window-frames and max-windows must be positive")
+    if args.window_frames < 1 or args.max_windows < 0:
+        p.error("window-frames must be positive; max-windows must be nonnegative")
 
     cfg = TrainConfig(
         epochs            = 3 if args.quick else args.epochs,
@@ -1262,8 +1388,8 @@ def main() -> None:
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,
-        seed              = args.seed,
-        resume_checkpoint = args.resume_checkpoint,
+        experiment_i1     = args.experiment_i1,
+        experiment_i1_control = args.experiment_i1_control,
     )
 
     if args.model == "cnn":
@@ -1282,6 +1408,12 @@ def main() -> None:
     print(f"  Harmony    : {N_HARMONY_DESCRIPTORS} standardized song descriptors")
     print(f"  Epochs     : {cfg.epochs}   Batch: {cfg.batch_size}   LR: {cfg.lr}")
     print(f"  Device     : {cfg.device}")
+    experiment_label = (
+        "I1 (strict V1 adapters)" if cfg.experiment_i1
+        else "I1 matched V1 control" if cfg.experiment_i1_control
+        else "current default"
+    )
+    print(f"  Experiment : {experiment_label}")
     print("=" * 60)
 
     train(cfg)

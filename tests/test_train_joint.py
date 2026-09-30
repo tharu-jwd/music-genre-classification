@@ -19,6 +19,18 @@ def test_combined_dataset_schema_has_one_vector_per_branch():
     assert len(schema["fusion_target"]["genre"]) == 6
 
 
+def test_residual_instrument_head_keeps_concept_contract_and_gradients():
+    head = j.InstrumentHead("residual")
+    song = torch.randn(2, 128, requires_grad=True)
+    output = head(song)
+    assert output["concept_values"].shape == (2, 41)
+    torch.testing.assert_close(output["concept_values"], output["logits"].sigmoid())
+    output["concept_values"].sum().backward()
+    assert song.grad is not None and song.grad.abs().sum() > 0
+    assert j.TrainConfig().max_windows == 0
+    assert j.TrainConfig(instrument_architecture="residual").instrument_architecture == "residual"
+
+
 def test_harmony_supervision_reaches_branch_and_encoder_without_target_leakage():
     torch.manual_seed(7)
     encoder = j.SharedAudioEncoder().eval()
@@ -163,3 +175,18 @@ def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):
     assert starts.tolist() == [0., 30.]
     assert valid.tolist() == [469, 32]
     assert not mel[1, :, :, 32:].any()
+
+
+def test_stored_windows_default_uses_all_available(tmp_path):
+    path = tmp_path / 'stack.npy'
+    np.save(path, np.ones((3, 128, 469), dtype=np.float32))
+    ds = j.MultiTargetDataset(['1'], [str(path)], np.zeros((1, 6)), np.zeros((1, 41)),
+        np.zeros((1, 35)), np.ones((1, 35), bool), np.zeros((1, 10)),
+        np.ones((1, 10), bool), np.ones((1, 12)) / 12,
+        mel_config={'sample_rate': 16000, 'hop_length': 512, 'window_seconds': 15,
+                    'n_mels': 128, 'center': True}, durations={'1': 31.0})
+    (mel, valid, starts), *_ = ds[0]
+    assert mel.shape == (3, 1, 128, 469)
+    assert starts.tolist() == [0., 15., 30.]
+    assert valid.tolist() == [469, 469, 32]
+    assert not mel[2, :, :, 32:].any()

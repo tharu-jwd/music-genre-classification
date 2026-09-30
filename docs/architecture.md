@@ -35,7 +35,7 @@ sampled log-Mel windows: (B, W, 1, 96, F)
        ┌────┴────┐                  ┌───┴────┐
        ▼         ▼                  ▼        ▼
  instrument   timbre             rhythm   harmony
- 40 probs     35 values        10 values  12 pooled probs
+ 41 probs     35 values        10 values  12 pooled probs
        │         │               │          │
        └────┬────┴───────────────┬──────────┘
             ▼                    ▼
@@ -45,7 +45,7 @@ sampled log-Mel windows: (B, W, 1, 96, F)
                          │
                   fused vector (B, 128)
                          │
-                 genre head: 87 logits
+                 genre head: 6 logits
 ```
 
 All branches consume outputs from the **same encoder forward pass**. Instrument
@@ -60,13 +60,13 @@ layout metadata.
 | Component | Input | Output used downstream | Parameters |
 |---|---|---|---:|
 | Shared CNN | `(B,W,1,96,F)` | sequence `(B,T,128)`, song `(B,128)` | 86,913 |
-| Instrument | song `(B,128)` | 40 probabilities | 21,672 |
+| Instrument | song `(B,128)` | 41 probabilities | 21,801 |
 | Rhythm | sequence `(B,T,128)` | 10 standardized predictions | 87,883 |
 | Timbre | song `(B,128)` | 35 standardized predictions | 27,299 |
 | Harmony | sequence `(B,T,128)` | 12 standardized song-level descriptor predictions | implementation-dependent |
 | Optional harmony chord head | 32D token embeddings | 25 logits/token | +825 |
 | Fusion | four projected 64D tokens | 128D fused representation | variant-dependent |
-| Genre head | 128D fused representation | 87 logits | 11,223 |
+| Genre head | 128D fused representation | 6 logits | 774 |
 
 Counts use current defaults and exclude optional components unless stated.
 
@@ -74,12 +74,12 @@ Counts use current defaults and exclude optional components unless stated.
 
 ### 2.1 Dataset split and labels
 
-The project uses the official MTG-Jamendo split-0 train, validation, and test
-partitions. Split membership must not be recomputed randomly. Extractors,
+The project uses a representative six-genre cohort with frozen train, validation,
+and test partitions. Split membership must not be recomputed randomly. Extractors,
 normalizers, class weights, early stopping, threshold calibration, and final
 evaluation must respect this partition.
 
-Genre prediction has 87 outputs. It is multi-label: outputs are independent logits,
+Genre prediction has 6 outputs. It is multi-label: outputs are independent logits,
 not one softmax distribution.
 
 ### 2.2 Audio representation
@@ -99,7 +99,8 @@ The canonical preprocessing contract is:
 - hop length: 256 samples, or 21.333 ms per Mel frame;
 - Mel bins: 96;
 - canonical window: 1,366 frames, approximately 29.14 seconds;
-- maximum selected windows per track: 12;
+- selected windows per track: all valid windows by default; a positive
+  `--max-windows` can cap them for an explicit comparison;
 - stored values: log-Mel magnitudes in dB;
 - no second dataset-wide Mel normalization inside the encoder.
 
@@ -185,17 +186,17 @@ Detailed document:
 ```text
 pooled_song (B,128)
   → Linear(128,128) → ReLU → Dropout(0.10)
-  → Linear(128,40) → logits → sigmoid → probabilities
+  → Linear(128,41) → logits → sigmoid → probabilities
 ```
 
-The 40 probabilities form the primary concept bottleneck. Fusion owns
-`Linear(40,64)`. The detached 128D hidden state is diagnostic and is allowed only
+The 41 probabilities form the primary concept bottleneck. Fusion owns
+`Linear(41,64)`. The detached 128D hidden state is diagnostic and is allowed only
 in the named `F-Hidden` ablation. A supplied `(B,W,128)` tensor is validated by the
 standalone implementation but is not used in its current prediction path.
 
 ### 4.2 Targets, loss, and metrics
 
-Targets are the official 40 MTG-Jamendo instrument tags in the frozen alphabetical
+Targets use the fixed 41-tag project vocabulary, including `ukulele`, in alphabetical
 order stored in
 [`instrument-vocabulary.json`](../instrument_branch/docs/instrument-vocabulary.json).
 
@@ -206,9 +207,9 @@ absence. A row without instrument annotation gets an all-zero supervision mask.
 
 | Split | Genre cohort | Instrument-annotated | Unknown instrument labels |
 |---|---:|---:|---:|
-| Train | 32,572 | 14,218 | 18,354 |
-| Validation | 11,043 | 5,428 | 5,615 |
-| Test | 11,479 | 5,063 | 6,416 |
+| Train | 5,127 | 5,127 | 0 |
+| Validation | 1,099 | 1,099 | 0 |
+| Test | 1,098 | 1,098 | 0 |
 
 Training uses element-wise BCE with logits, reduced only over the supervision mask.
 Optional positive weights come from observed training rows only. Per-tag thresholds
@@ -398,7 +399,7 @@ The frozen order is `[instrument, rhythm, timbre, harmony]`:
 
 | Branch value | Fusion-owned adapter | Token |
 |---|---|---|
-| 40 instrument probabilities | `Linear(40,64)` | `(B,64)` |
+| 41 instrument probabilities | `Linear(41,64)` | `(B,64)` |
 | 10 standardized rhythm predictions | `Linear(10,64)` | `(B,64)` |
 | 35 standardized timbre predictions | `Linear(35,64)` | `(B,64)` |
 | 12 masked-pooled chroma probabilities | `Linear(12,64)` | `(B,64)` |
@@ -449,10 +450,10 @@ only to `F-Shortcut`; private hidden vectors belong only to `F-Hidden`.
 ### 8.4 Genre head and target
 
 ```text
-fused (B,128) → Dropout(0.10) → Linear(128,87) → logits
+fused (B,128) → Dropout(0.10) → Linear(128,6) → logits
 ```
 
-Training uses BCE with logits against the official 87D multi-hot genre annotation.
+Training uses BCE with logits against the cohort's six-genre multi-hot annotation.
 Sigmoid is applied once for metrics/inference, never before BCE. Genre tags are
 also weak uploader labels: zero means “not annotated under the benchmark policy,”
 not guaranteed acoustic absence. Report macro/micro average precision, macro
@@ -463,8 +464,8 @@ metrics use validation-selected thresholds only.
 
 | Output | Shape/granularity | Source | Status | Loss |
 |---|---|---|---|---|
-| Genre | 87/song | official genre tags | weak human/uploader annotation | BCE with logits |
-| Instrument | 40/song | official instrument tags | weak human/uploader annotation | masked BCE with logits |
+| Genre | 6/song | representative cohort genre tags | weak human/uploader annotation | BCE with logits |
+| Instrument | 41/song | project 41-tag CSV, including `ukulele` | weak human/uploader annotation | masked BCE with logits |
 | Rhythm | 10/song | AcousticBrainz/Essentia | extracted target | masked Smooth L1 |
 | Timbre | 35/song | deterministic audio extractor | extracted target | masked Smooth L1 |
 | Harmony descriptors | 12/song | deterministic tonal summaries | extracted target | masked Smooth L1 |
@@ -502,7 +503,7 @@ same CNN. The encoder is optimized by all unmasked active objectives unless froz
 
 ### Stage 0 — contracts and artifacts
 
-1. Use official split-0 IDs and fixed 87-genre/40-instrument orders.
+1. Use the frozen representative-cohort IDs and fixed 6-genre/41-instrument orders.
 2. Produce log-Mel windows and complete window metadata.
 3. Join targets by normalized track ID without changing splits.
 4. Generate availability masks; never silently impute missing targets.
@@ -534,7 +535,7 @@ For each batch:
 5. use instrument probabilities, rhythm predictions, timbre predictions, and
    predicted song-level harmony descriptors, then project four ordered 64D tokens;
 6. apply training-only concept dropout;
-7. fuse tokens and produce 87 genre logits;
+7. fuse tokens and produce 6 genre logits;
 8. compute genre and independently masked auxiliary losses;
 9. backpropagate their weighted total.
 

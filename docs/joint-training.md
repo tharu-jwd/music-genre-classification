@@ -17,7 +17,8 @@ the Google Drive shortcut. `--logmel-root PATH` overrides it. The original Colab
 CSV paths are relocated at load time; the CSV itself is unchanged.
 
 The current cache stores `(windows, 128, 469)` arrays. Stored windows stay separate;
-up to `--max-windows` windows are selected evenly across the stored sequence.
+the default uses every valid stored window. A positive `--max-windows` selects a
+capped subset evenly across the sequence; `--max-windows 0` means all windows.
 `data/logmel_audit.csv` supplies track durations for final-window masking.
 
 Before using this cache for training, create `data/logmel_config.json` with the
