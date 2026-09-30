@@ -149,3 +149,18 @@ def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):
     assert starts.tolist() == [0., 30.]
     assert valid.tolist() == [469, 32]
     assert not mel[1, :, :, 32:].any()
+
+
+def test_stored_windows_default_uses_all_available(tmp_path):
+    path = tmp_path / 'stack.npy'
+    np.save(path, np.ones((3, 128, 469), dtype=np.float32))
+    ds = j.MultiTargetDataset(['1'], [str(path)], np.zeros((1, 6)), np.zeros((1, 41)),
+        np.zeros((1, 35)), np.ones((1, 35), bool), np.zeros((1, 10)),
+        np.ones((1, 10), bool), np.ones((1, 12)) / 12,
+        mel_config={'sample_rate': 16000, 'hop_length': 512, 'window_seconds': 15,
+                    'n_mels': 128, 'center': True}, durations={'1': 31.0})
+    (mel, valid, starts), *_ = ds[0]
+    assert mel.shape == (3, 1, 128, 469)
+    assert starts.tolist() == [0., 15., 30.]
+    assert valid.tolist() == [469, 469, 32]
+    assert not mel[2, :, :, 32:].any()

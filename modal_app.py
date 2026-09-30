@@ -151,7 +151,7 @@ def main(
     batch_size: int = 1,
     learning_rate: float = 3e-4,
     num_workers: int = 2,
-    max_windows: int = 12,
+    max_windows: int = 0,
     gpu: str = "A10",
     quick: bool = False,
     skip_test: bool = False,
@@ -168,8 +168,8 @@ def main(
         run_name = "cnn-full-v1"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_name):
         raise ValueError("run_name must be 1-64 safe filename characters")
-    if epochs < 1 or batch_size < 1 or num_workers < 0 or max_windows < 1:
-        raise ValueError("epochs, batch_size, and max_windows must be positive; workers cannot be negative")
+    if epochs < 1 or batch_size < 1 or num_workers < 0 or max_windows < 0:
+        raise ValueError("epochs and batch_size must be positive; workers and max_windows cannot be negative")
 
     arguments = (
         run_name,

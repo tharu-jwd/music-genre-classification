@@ -59,8 +59,8 @@ script](https://github.com/MTG/mtg-jamendo-dataset/blob/master/scripts/melspectr
 | Mel representation | 96 Slaney Mel power bands followed by linear-to-dB conversion |
 | Source duration | Full-song precomputed Mel, not a single center crop |
 | Model window | 1,366 frames (approximately 29.1 seconds) |
-| Song cap | 12 ordered windows |
-| Long songs | Select evenly spaced non-overlapping chunk indices, including the beginning and end |
+| Song cap | All valid ordered windows by default (`--max-windows 0`) |
+| Long songs | Use every non-overlapping chunk by default; a positive cap selects evenly spaced chunks including the beginning and end |
 | Short/final windows | Right-pad time with zero; mark the window real in the mask |
 | Unused slots | All-zero tensor with mask value zero |
 | Additional normalization | None in v1; any later change is a separately versioned decision |

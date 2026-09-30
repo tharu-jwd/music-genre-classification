@@ -90,7 +90,8 @@ The canonical preprocessing contract is:
 - hop length: 256 samples, or 21.333 ms per Mel frame;
 - Mel bins: 96;
 - canonical window: 1,366 frames, approximately 29.14 seconds;
-- maximum selected windows per track: 12;
+- selected windows per track: all valid windows by default; a positive
+  `--max-windows` can cap them for an explicit comparison;
 - stored values: log-Mel magnitudes in dB;
 - no second dataset-wide Mel normalization inside the encoder.
 
