@@ -10,8 +10,9 @@ Rhythm v2: 10 standardized predictions are primary; the 64D embedding is retaine
 for the embedding-fusion ablation. Fusion owns Linear(10, 64) in the primary mode.
 Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
 Fusion owns Linear(35, 64).
-Harmony v3: 12 standardized song-level descriptor predictions are primary during
-joint vector-dataset training. Temporal 12-bin chroma logits remain available for
+Harmony v3: 12 standardized song-level descriptor predictions. The joint trainer
+can now select v4's 45 descriptors without changing the v3 default fixture
+contract. Temporal 12-bin chroma logits remain available for
 aligned chroma supervision, and the 32D song embedding remains available for the
 embedding-fusion ablation. Chords never enter primary fusion.
 """
@@ -79,6 +80,22 @@ HARMONY_FEATURES: tuple[str, ...] = (
     "valid_tonal_ratio", "tonnetz_01_mean", "tonnetz_02_mean", "tonnetz_03_mean",
 )
 assert len(HARMONY_FEATURES) == N_HARMONY_DESCRIPTORS
+
+# v4 candidate: preserve the v3 12-descriptor contract for existing runs/tests,
+# but allow joint training to select the complete extracted 45-column table.
+_PITCH_CLASSES = (
+    "c", "csharp", "d", "dsharp", "e", "f", "fsharp", "g", "gsharp", "a", "asharp", "b"
+)
+HARMONY_FEATURES_45: tuple[str, ...] = (
+    *(f"chroma_{pitch}_{stat}" for stat in ("mean", "std") for pitch in _PITCH_CLASSES),
+    *(f"tonnetz_{axis:02d}_{stat}" for stat in ("mean", "std") for axis in range(1, 7)),
+    "tonal_concentration_mean", "tonal_concentration_std",
+    "chroma_entropy_mean", "chroma_entropy_std",
+    "chroma_flux_mean", "chroma_flux_std",
+    "tonnetz_movement_mean", "tonnetz_movement_std", "valid_tonal_ratio",
+)
+assert len(HARMONY_FEATURES_45) == 45 and len(set(HARMONY_FEATURES_45)) == 45
+HARMONY_FEATURE_SETS = {"selected12": HARMONY_FEATURES, "all45": HARMONY_FEATURES_45}
 
 
 def _load_timbre_features() -> tuple[str, ...]:

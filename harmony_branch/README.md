@@ -10,24 +10,30 @@ is `data/harmony_features_raw.csv`.
 See [docs/feature-contract.md](docs/feature-contract.md) for the exact feature
 names, definitions, extraction settings, provenance, and completed-data audit.
 
-The current joint run selects 12 of those descriptors for prediction and genre
-fusion. See the [audited handoff](docs/integration-handoff.md) for the exact
+The completed v3 joint run selected 12 descriptors for prediction and genre
+fusion. The new v4 training configuration uses all 45 and is not yet a trained
+result. See the [audited handoff](docs/integration-handoff.md) for the exact v3
 targets, scores, checkpoint checks, and decision. Temporal chroma/chord
 supervision remains a separate experimental route; its 12 pitch classes must
 not be confused with the 12 selected song descriptors.
 
 Dehan's detailed, diagrammed architecture record is the
 [version register](docs/architecture-versions/README.md), with the current
-[Harmony v3 snapshot](docs/architecture-versions/v3/README.md).
+[Harmony v3 snapshot](docs/architecture-versions/v3/README.md) and the
+[v4 implementation record](docs/architecture-versions/v4/README.md).
 
 Read by purpose:
 
 | Need | Document | Status |
 |---|---|---|
-| Understand the model, tensors, diagrams, and version changes | [v3 snapshot](docs/architecture-versions/v3/README.md) | Current architecture |
+| Understand the current 45-target implementation | [v4 record](docs/architecture-versions/v4/README.md) | Implemented; untrained |
+| Review the completed 12-target model and diagrams | [v3 snapshot](docs/architecture-versions/v3/README.md) | Historical trained run |
 | Know the 45 extracted values and their provenance | [Feature contract](docs/feature-contract.md) | Current data contract |
 | Hand off targets, fusion interface, results, and limits | [Integration handoff](docs/integration-handoff.md) | Audited run |
 | Review the supplied files | [Evidence index](docs/evidence/README.md) | Source evidence, not instructions |
+| Evaluate redundancy and potential feature sets | [Feature evaluation](docs/feature-selection-evaluation.md) | Findings; all-45 option now implemented, not yet evaluated |
+| Explore musical information beyond the original 45 | [52-entry candidate catalog](docs/harmony-feature-candidate-catalog.md) | Broad theoretical search with musical rationale |
+| Choose candidates we can extract automatically | [Feasibility shortlist](docs/pseudo-label-feasibility-shortlist.md) | Tool review, proposed ten-value audio pilot, and teacher gates |
 | Consider future aligned chroma/chord work | [Temporal proposal](TEMPORAL_CHROMA_PROPOSAL.md) and [research plan](docs/temporal-chroma-research-plan.md) | Historical/proposed; not v3 |
 
 The repository-root [evaluation plan](../plan.md) records the completed audit;
@@ -55,14 +61,15 @@ harmony_branch/
 ## Contract
 
 For the extracted table, use the [45-D feature contract](docs/feature-contract.md).
-For the current trained model and fusion boundary, use the
+For the completed v3 trained model and fusion boundary, use the
 [audited handoff](docs/integration-handoff.md). See the [current architecture
-entry point](ARCHITECTURE.md) and [v3 snapshot](docs/architecture-versions/v3/README.md)
-for implemented network, tensor, masking, and fusion details. The older
+entry point](ARCHITECTURE.md), [v3 snapshot](docs/architecture-versions/v3/README.md),
+and [v4 record](docs/architecture-versions/v4/README.md) for implemented network,
+tensor, masking, and fusion details. The older
 [temporal proposal](TEMPORAL_CHROMA_PROPOSAL.md) is separate.
 
 The branch consumes fine-grained ordered shared-encoder features with masks and
-window identity. In the current run it returns:
+window identity. The completed v3 run returned:
 
 - a configurable song embedding (32D in the initial screen);
 - 12 predicted standardized song-level descriptors for primary fusion;
@@ -74,6 +81,8 @@ It does not own a 64D fusion token. Primary fusion owns the `Linear(12,64)`
 projection of predicted descriptors; `Linear(D_harmony,64)` over the embedding
 is an ablation route. Temporal predictions remain available for separate
 experiments but are not supervised in the current descriptor run.
+In the untrained v4 option, the descriptor output is `(B,45)` and the
+fusion-owned projection is `Linear(45,64)`; the other shapes are unchanged.
 
 The only harmony-specific file that belongs in the shared fusion package is
 `concept_fusion/harmony_adapter.py`. Necessary shared contract, projection, and

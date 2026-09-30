@@ -21,6 +21,7 @@ from concept_fusion.contract import (
     N_TIMBRE_CONCEPTS,
     RHYTHM_FEATURES,
     HARMONY_FEATURES,
+    HARMONY_FEATURES_45,
     TOKEN_DIM,
     ConceptCounts,
 )
@@ -109,10 +110,11 @@ class BranchOutput:
             require_finite(f"{self.name}.hidden_token", hid)
 
     def _validate_harmony(self, batch: int, values: torch.Tensor) -> None:
-        if values.shape[1] != N_HARMONY_DESCRIPTORS:
-            raise ContractError(f"harmony C={values.shape[1]} != {N_HARMONY_DESCRIPTORS}")
-        if self.tag_order is not None and self.tag_order != HARMONY_FEATURES:
-            raise ContractError("harmony tag_order must match HARMONY_FEATURES")
+        if values.shape[1] not in (len(HARMONY_FEATURES), len(HARMONY_FEATURES_45)):
+            raise ContractError(f"harmony C={values.shape[1]} must be 12 or 45")
+        expected_order = HARMONY_FEATURES_45 if values.shape[1] == 45 else HARMONY_FEATURES
+        if self.tag_order is not None and self.tag_order != expected_order:
+            raise ContractError("harmony tag_order must match the selected feature set")
         if self.embedding is None:
             raise ContractError("harmony must supply its configurable song embedding")
         embedding = require_tensor("harmony.embedding", self.embedding, ndim=2)

@@ -1,12 +1,14 @@
-# Harmony handoff: audited current run
+# Harmony handoff: audited v3 run
 
 This is the handoff for Dehan (training) and Thevindu (fusion), audited on
-2026-09-28. The current joint run uses **12 song-level descriptors**, not 12
+2026-09-28. The completed v3 joint run uses **12 song-level descriptors**, not 12
 pitch-class probabilities and not all 45 columns of the extracted table. Keep
 those three contracts separate. The team has decided that training audio is
 under four minutes; no further cache-file request is part of this audit.
 For complete component diagrams and version boundaries, use the
 [Harmony v3 architecture snapshot](architecture-versions/v3/README.md).
+The later [v4 implementation record](architecture-versions/v4/README.md) describes
+an untrained all-45 option; no v3 scores in this handoff apply to v4.
 
 ## Implemented and checked
 
@@ -33,7 +35,7 @@ tonnetz_movement_mean, tonnetz_movement_std,
 valid_tonal_ratio, tonnetz_01_mean, tonnetz_02_mean, tonnetz_03_mean
 ```
 
-In the current [joint trainer](../../scripts/train_joint.py), the shared encoder
+In the audited v3 [joint trainer](../../scripts/train_joint.py) configuration, the shared encoder
 provides ordered `(B,T,128)` features and a valid-token mask. The harmony branch
 masked-pools them to a song embedding `(B,32)` and predicts standardized
 descriptors `(B,12)`. Training targets are standardized using **training rows
@@ -81,6 +83,18 @@ score, **not** evidence that harmony improves genre prediction; a matched
 no-harmony comparison is needed for that claim.
 
 ## Decision and work boundaries
+
+Follow-up, 2026-09-30: the [feature-selection evaluation](feature-selection-evaluation.md)
+records training-set redundancy checks, assessment of all 45 columns, and
+proposed seven- and nine-value candidates plus temporal research options. These
+are hypotheses for Dehan's comparisons; the audited v3 contract remains the
+12-target baseline above.
+
+The follow-up [musical candidate catalog](harmony-feature-candidate-catalog.md)
+and [feasibility shortlist](pseudo-label-feasibility-shortlist.md) broaden the
+search beyond those 45 columns. Tool existence, extraction feasibility, and
+teacher accuracy are recorded separately. Their proposed ten-value audio
+pilot has not been implemented and is not an instruction to change fusion.
 
 - **Keep as the implemented baseline:** the 12 standardized song-descriptor
   target and fusion contract above. Do not silently substitute all 45 table

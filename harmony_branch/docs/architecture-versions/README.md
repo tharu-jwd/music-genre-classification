@@ -1,17 +1,18 @@
 # Harmony architecture versions
 
 This directory is the version register for the **harmony branch's architecture**.
-The current implementation calls itself **Harmony v3** in
-[`concept_fusion/contract.py`](../../../concept_fusion/contract.py). The detailed
-[v3 snapshot](v3/README.md) is the source of truth for that version's data,
-model, loss, fusion boundary, and evidence. The existing
+The current trainer defaults to the **Harmony v4 all-45 candidate**. The detailed
+[v4 record](v4/README.md) documents this implemented but untrained configuration.
+The [v3 snapshot](v3/README.md) remains the source of truth for the completed
+12-feature run and its evidence. The existing
 [`ARCHITECTURE.md`](../../ARCHITECTURE.md) is the short current entry point.
 The older [temporal proposal](../../TEMPORAL_CHROMA_PROPOSAL.md) is retained
 separately; it is not the v3 specification.
 
 | Record | Status | What it means | Authority |
 |---|---|---|---|
-| [v3](v3/README.md) | Implemented; documentation snapshot dated 2026-09-28 | 45 extracted song descriptors; 12 selected standardized descriptor predictions to fusion | Current code contract, trainer, supplied checkpoint and run report |
+| [v4](v4/README.md) | Implemented training option; no run result | All 45 standardized descriptor predictions to fusion | Current code and tests; no checkpoint/metric yet |
+| [v3](v3/README.md) | Completed historical run; documentation snapshot dated 2026-09-28 | 45 extracted song descriptors; 12 selected standardized descriptor predictions to fusion | Supplied checkpoint and run report; `selected12` compatibility option |
 | Harmony v1 in [ADR 0001](../../../docs/adr/0001-concept-fusion-architecture.md) | Historical contract | Temporal chroma/chords and embedding-oriented fusion | Historical ADR only; do not apply to current run |
 | Older 18-value extraction prototype | Historical, not current data provenance | STFT/mel-band-derived summaries in older branches | Git history; not the 45-column CQT table |
 | `temporal_chroma_v1` / chord route | Proposed experiment, not v3 training | Aligned per-token chroma and optional chord teacher | [Temporal research plan](../temporal-chroma-research-plan.md) |
@@ -19,6 +20,10 @@ separately; it is not the v3 specification.
 Do not invent a Harmony v2 implementation from the gaps between old documents.
 If a prior v2 artifact is recovered, add a separate evidence-backed entry with
 its actual code and output contract.
+
+The [2026-09-30 feature evaluation](../feature-selection-evaluation.md) proposed
+candidate target sets and temporal information families. V4 implements the
+all-45 candidate without claiming it performs better than v3.
 
 ## How to record the next change
 

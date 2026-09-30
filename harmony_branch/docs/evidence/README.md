@@ -12,3 +12,7 @@ Both files were copied unchanged from the supplied Downloads files on
 2026-09-28 (original names: `04_tharupahan_harmony.md` and `results.json`).
 See the repository-root `plan.md` for the completed audit and the
 [integration handoff](../integration-handoff.md) for decisions and open evidence.
+
+The [feature-selection evaluation](../feature-selection-evaluation.md) records
+separate 2026-09-30 training-table diagnostics, source hashes, and theoretical
+candidate sets. Those analyses are not additional results from the supplied run.

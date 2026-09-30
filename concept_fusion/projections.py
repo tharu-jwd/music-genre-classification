@@ -11,6 +11,7 @@ from concept_fusion.contract import (
     FUSION_INPUT_MODES,
     INSTRUMENT_HIDDEN_DIM,
     N_HARMONY_CHROMA,
+    N_HARMONY_DESCRIPTORS,
     N_INSTRUMENT_TAGS,
     N_RHYTHM_CONCEPTS,
     N_TIMBRE_CONCEPTS,
@@ -26,8 +27,8 @@ class TokenAssembler(nn.Module):
     """Build tokens (B, 4, 64) in CONCEPT_ORDER.
 
     Primary ``predicted_concepts`` mode owns 41→64, 10→64, 35→64, and
-    12→64 projections. The harmony input is the configured 12-value predicted
-    concept vector (song descriptors in joint vector-dataset training).
+    selected Harmony descriptor width→64 projections (12 for v3, 45 for v4).
+    The harmony input is predicted song descriptors, not targets or chroma.
     ``embedding_fusion`` preserves the previous rhythm 64D
     embedding and harmony D→64 embedding route. Masks are applied after projection.
     """
@@ -37,6 +38,7 @@ class TokenAssembler(nn.Module):
         *,
         input_mode: FusionInputMode = PRIMARY_FUSION_INPUT_MODE,
         harmony_embedding_dim: int = DEFAULT_HARMONY_EMBEDDING_DIM,
+        harmony_concept_dim: int = N_HARMONY_DESCRIPTORS,
     ):
         super().__init__()
         if input_mode not in FUSION_INPUT_MODES:
@@ -47,11 +49,14 @@ class TokenAssembler(nn.Module):
             raise ValueError("harmony_embedding_dim must be positive")
         self.input_mode = input_mode
         self.harmony_embedding_dim = harmony_embedding_dim
+        if harmony_concept_dim not in (12, 45):
+            raise ContractError("harmony_concept_dim must be 12 or 45")
+        self.harmony_concept_dim = harmony_concept_dim
         self.instrument_projection = nn.Linear(N_INSTRUMENT_TAGS, TOKEN_DIM)
         self.rhythm_projection = nn.Linear(N_RHYTHM_CONCEPTS, TOKEN_DIM)
         self.instrument_hidden_projection = nn.Linear(INSTRUMENT_HIDDEN_DIM, TOKEN_DIM)
         self.timbre_projection = nn.Linear(N_TIMBRE_CONCEPTS, TOKEN_DIM)
-        self.harmony_chroma_projection = nn.Linear(N_HARMONY_CHROMA, TOKEN_DIM)
+        self.harmony_chroma_projection = nn.Linear(harmony_concept_dim, TOKEN_DIM)
         # Retain this exact module for the versioned embedding-fusion ablation.
         self.harmony_projection = nn.Linear(harmony_embedding_dim, TOKEN_DIM)
 
@@ -91,7 +96,7 @@ class TokenAssembler(nn.Module):
             return self.timbre_projection(z) * br.fusion_mask
         if br.name == "harmony":
             harmony_values = require_tensor(
-                "harmony.concept_values", br.concept_values, ndim=2, last=N_HARMONY_CHROMA
+                "harmony.concept_values", br.concept_values, ndim=2, last=self.harmony_concept_dim
             )
             require_finite("harmony.concept_values", harmony_values)
             # Keep the historical parameter name for checkpoint compatibility.

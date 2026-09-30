@@ -13,6 +13,7 @@ from concept_fusion.contract import (
     FUSED_DIM,
     FUSION_CONTRACT_VERSION,
     N_GENRE_TAGS,
+    N_HARMONY_DESCRIPTORS,
     PRIMARY_FUSION_INPUT_MODE,
     FusionInputMode,
 )
@@ -42,6 +43,7 @@ class ConceptBottleneckModel(nn.Module):
         allow_no_dropout: bool = False,
         song_repr_dim: int = 128,
         harmony_embedding_dim: int = DEFAULT_HARMONY_EMBEDDING_DIM,
+        harmony_concept_dim: int = N_HARMONY_DESCRIPTORS,
         fusion_input_mode: FusionInputMode = PRIMARY_FUSION_INPUT_MODE,
     ):
         super().__init__()
@@ -59,6 +61,7 @@ class ConceptBottleneckModel(nn.Module):
         self.assembler = TokenAssembler(
             input_mode=fusion_input_mode,
             harmony_embedding_dim=harmony_embedding_dim,
+            harmony_concept_dim=harmony_concept_dim,
         )
         self.fusion = build_fusion(fusion, fused_dim=fused_dim)
         self.head = GenreHead(fused_dim=fused_dim, n_tags=n_tags)

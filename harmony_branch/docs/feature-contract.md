@@ -57,10 +57,15 @@ The pitch placeholder is expanded in this fixed order:
 c, csharp, d, dsharp, e, f, fsharp, g, gsharp, a, asharp, b
 ```
 
-The 45 values are an explicit concept bottleneck: each output dimension retains a
-defined audio meaning. Downstream normalization must be fitted on the training
-split only. The raw values must remain available for interpretation and inverse
-transformation even if a later projection is used for fusion.
+The 45 values are the available descriptor table. The completed v3 run
+predicted only the 12 selected values listed in the
+[integration handoff](integration-handoff.md). Each descriptor has a defined
+calculation, but the columns are not necessarily independent or equally useful.
+The new v4 training configuration predicts all 45; no v4 score exists yet.
+The [feature-selection evaluation](feature-selection-evaluation.md) records
+redundancy findings and candidate alternatives. Downstream normalization must be
+fitted on the training split only; preserve raw values for interpretation and
+inverse transformation.
 
 ## Files
 

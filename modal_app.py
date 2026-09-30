@@ -79,6 +79,7 @@ def train_remote(
     quick: bool,
     skip_test: bool,
     model: str = "joint",
+    harmony_feature_set: str = "all45",
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -91,6 +92,8 @@ def train_remote(
     split_csv = dataset_dir / "track_split_assignments.csv"
     logmel_root = Path(AUDIO_MOUNT) / "logmel_songs"
     required = (dataset_csv, split_csv, logmel_root)
+    if model == "joint" and harmony_feature_set == "all45":
+        required += (dataset_dir / "harmony_df.csv",)
     missing = [str(path) for path in required if not path.exists()]
     if missing:
         raise FileNotFoundError(
@@ -114,6 +117,7 @@ def train_remote(
         "--lr", str(learning_rate),
         "--num-workers", str(num_workers),
         "--max-windows", str(max_windows),
+        "--harmony-feature-set", harmony_feature_set,
     ]
     if quick:
         command.append("--quick")
@@ -151,10 +155,13 @@ def main(
     skip_test: bool = False,
     background: bool = False,
     model: str = "joint",
+    harmony_feature_set: str = "all45",
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
         raise ValueError("model must be joint or cnn")
+    if harmony_feature_set not in ("selected12", "all45"):
+        raise ValueError("harmony_feature_set must be selected12 or all45")
     if model == "cnn" and run_name == "joint-full-v1":
         run_name = "cnn-full-v1"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_name):
@@ -172,6 +179,7 @@ def main(
         quick,
         skip_test,
         model,
+        harmony_feature_set,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

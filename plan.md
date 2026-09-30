@@ -5,6 +5,31 @@
 contract, evidence, and deferred experiments. No further input is required
 from Tharupahan for this handoff.
 
+**Follow-up, 2026-09-30:** Findings about feature redundancy, omitted information,
+and potential target sets are documented in the
+[feature-selection evaluation](harmony_branch/docs/feature-selection-evaluation.md).
+Its candidate derivations and comparison sequence were proposals; the all-45
+target wiring is now implemented, but training has not been performed. The completed v3 audit
+below remains the record of the implemented baseline.
+
+**All-45 preparation, 2026-09-30:** The trainer now has an `all45` Harmony
+configuration and a `selected12` compatibility option. The 45 labels come from
+`data/harmony_df.csv`, not a guessed chord teacher. This is code/data preparation
+for Dehan, not a training result. Next: run a bounded all-45 smoke test with the
+actual log-mel cache, then a matched 12-versus-45 training comparison under the
+same split and budget. Compare genre macro AP as the primary outcome and inspect
+all per-feature Harmony errors; decide whether to retain, reduce, or replace
+targets only after that evidence. The [v4 architecture record](harmony_branch/docs/architecture-versions/v4/README.md)
+defines the exact new path.
+
+The next research scope is broader than selecting columns from the old table:
+the [52-entry catalog](harmony_branch/docs/harmony-feature-candidate-catalog.md)
+records musical hypotheses, and the
+[feasibility shortlist](harmony_branch/docs/pseudo-label-feasibility-shortlist.md)
+filters them by audio availability, tool capability, compute, and pseudo-label
+quality. It defines a proposed ten-value audio pilot and preparation gates for
+handoff to Dehan. No new extraction or training has been run.
+
 ## Purpose
 
 Evaluate the current harmony targets and model hand-off before proposing changes.

@@ -3,12 +3,19 @@
 `scripts/train_joint.py` trains the shared encoder, all four concept branches,
 and fusion for the current six genres and 41 instrument labels.
 
-Harmony is predicted from the shared audio sequence. A song-level descriptor head
-maps the masked temporal embedding to the 12 values in `harmony_vector`. The
+Harmony is predicted from the shared audio sequence. By default, the song-level
+descriptor head predicts all 45 columns in `data/harmony_df.csv`. The trainer
+joins that authoritative table by track ID even when the supplied compact CSV
+still contains the historical 12-value `harmony_vector`. Use
+`--harmony-feature-set selected12` to reproduce the earlier contract. The
 targets are standardized using training-split statistics and optimized with masked
 Smooth L1 loss. Predicted descriptors—not targets—enter fusion, so validation and
 test inference remain leakage-free. The temporal chroma and optional chord heads
 remain available for future aligned targets but are not supervised by this run.
+The 45-feature mode is implemented but has not yet been trained or validated for
+genre improvement. The selected set and exact column order are saved in `best.pt`
+and `results.json`; compare it with the 12-feature run under the same split,
+encoder settings, loss weight, and training budget.
 
 ## Local audio setup
 

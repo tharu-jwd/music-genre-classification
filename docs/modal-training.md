@@ -21,7 +21,7 @@ track_id,path,instrument_vector,rhythm_vector,timbre_vector,harmony_vector,genre
 | `instrument_vector` | 41 | supervision for the instrument branch |
 | `rhythm_vector` | 10 | supervision for the rhythm branch |
 | `timbre_vector` | 35 | supervision for the timbre branch |
-| `harmony_vector` | 12 | tonal descriptor vector from the source dataset |
+| `harmony_vector` | 12 or 45 | old compact CSVs have 12; the default trainer joins all 45 from `harmony_df.csv` |
 | `genre` | 6 | final multi-label target after concept fusion |
 
 Each vector cell is a compact JSON array such as `[0,1,0]`. The exact vector
@@ -36,14 +36,17 @@ Print the machine-readable contract at any time with:
 python scripts/train_joint.py --print-dataset-schema
 ```
 
-Regenerate the compact dataset deterministically with:
+Regenerate a 45-value compact dataset deterministically with:
 
 ```bash
 python scripts/build_vector_dataset.py --overwrite
 ```
 
-The generated harmony vector contains the 12 tonal summary descriptors present in
-`full_dataset.csv`; it is not a chroma distribution. The joint trainer fits a
+The generated harmony vector contains all 45 tonal summary descriptors from
+`harmony_df.csv`; it is not a chroma distribution. Older 12-value compact CSVs
+remain usable because the trainer joins the 45-column table by track ID. To run
+the historical 12-value setup, pass `--harmony-feature-set selected12` to the
+trainer (or `--harmony-feature-set selected12` to the Modal entrypoint). The trainer fits a
 training-split-only standardizer and supervises a song-level descriptor head with
 masked Smooth L1 loss. Its predicted descriptor vector enters fusion.
 
@@ -53,6 +56,7 @@ The log-mel arrays are not stored in Git. The runner mounts two input Volumes:
 music-genre-data/
 ├── dataset/
 │   ├── vector-dataset-normalized.csv
+│   ├── harmony_df.csv             # required for default all45 mode
 │   ├── track_split_assignments.csv
 │   ├── logmel_config.json        # optional, required for stacked 3-D arrays
 │   └── logmel_audit.csv          # optional, required for stacked 3-D arrays
@@ -86,6 +90,7 @@ modal volume put music-genre-data \
   data/vector-dataset-normalized.csv \
   dataset/vector-dataset-normalized.csv
 modal volume put music-genre-data data/track_split_assignments.csv dataset/track_split_assignments.csv
+modal volume put music-genre-data data/harmony_df.csv dataset/harmony_df.csv
 modal volume put mtg-jamendo /absolute/path/to/logmel_songs logmel_songs
 ```
 

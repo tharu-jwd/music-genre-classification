@@ -14,7 +14,7 @@ def test_combined_dataset_schema_has_one_vector_per_branch():
     assert schema["logmel_input"] == "path"
     assert {name: len(columns) for name, columns in schema["branch_vectors"].items()} == {
         "instrument_vector": 41, "rhythm_vector": 10,
-        "timbre_vector": 35, "harmony_vector": 12,
+        "timbre_vector": 35, "harmony_vector": 45,
     }
     assert len(schema["fusion_target"]["genre"]) == 6
 
@@ -71,7 +71,8 @@ def test_training_saves_and_reloads_learned_harmony(tmp_path, monkeypatch):
         frame.insert(0, 'TRACK_ID', ids)
         frame.to_csv(data / f'{name}_df.csv', index=False)
     monkeypatch.setattr(j, 'ROOT', tmp_path)
-    j.train(j.TrainConfig(epochs=1, batch_size=2, device='cpu', window_frames=16, max_windows=2))
+    j.train(j.TrainConfig(epochs=1, batch_size=2, device='cpu', window_frames=16, max_windows=2,
+                          harmony_feature_set='selected12'))
     checkpoint = torch.load(tmp_path / 'results/joint/best.pt', weights_only=False)
     assert checkpoint['harmony_head']
     assert checkpoint['harmony_strategy'] == 'standardized_song_descriptor_regression'
@@ -101,7 +102,7 @@ def test_combined_dataset_requires_harmony_descriptors(tmp_path):
     with pytest.raises(ValueError, match="tonal_concentration_mean"):
         j.build_datasets(
             tmp_path, dataset_csv=dataset_csv, split_csv=split_csv,
-            logmel_root=tmp_path / "logmel_songs",
+            logmel_root=tmp_path / "logmel_songs", harmony_feature_set='selected12',
         )
 
 
@@ -126,7 +127,7 @@ def test_compact_json_vectors_expand_for_training(tmp_path):
 
     train, val, test, *_ = j.build_datasets(
         tmp_path, dataset_csv=dataset_csv, split_csv=split_csv,
-        logmel_root=tmp_path / "logmel_songs",
+        logmel_root=tmp_path / "logmel_songs", harmony_feature_set='selected12',
     )
 
     assert [len(train), len(val), len(test)] == [1, 1, 1]
@@ -134,6 +135,62 @@ def test_compact_json_vectors_expand_for_training(tmp_path):
     assert train.genre.tolist() == [[0, 1, 0, 0, 0, 0]]
     assert train.harmony.shape == (1, 12)
     assert train.harmony_mask.all()
+
+
+def test_all45_joins_authoritative_harmony_table_and_projects(tmp_path):
+    ids = [f"track_{i:07d}" for i in range(3)]
+    row = {
+        "instrument_vector": json.dumps([0] * 41),
+        "rhythm_vector": json.dumps([1.0] * 10),
+        "timbre_vector": json.dumps([2.0] * 35),
+        "harmony_vector": json.dumps([999.0] * 12),
+        "genre": json.dumps([0, 1, 0, 0, 0, 0]),
+    }
+    compact = pd.DataFrame([
+        {"track_id": track_id, "path": f"logmel_songs/0/{i}.npy", **row}
+        for i, track_id in enumerate(ids)
+    ])
+    compact.to_csv(tmp_path / "dataset.csv", index=False)
+    pd.DataFrame({"track_id": ids, "split": ["train", "validation", "test"]}).to_csv(
+        tmp_path / "splits.csv", index=False
+    )
+    harmony = pd.DataFrame(np.tile(np.arange(45, dtype=float), (3, 1)), columns=j.HARMONY_FEATURE_SETS['all45'])
+    harmony.insert(0, "TRACK_ID", ids)
+    harmony.to_csv(tmp_path / "harmony_df.csv", index=False)
+    train, val, test, *_ = j.build_datasets(
+        tmp_path, dataset_csv=tmp_path / "dataset.csv", split_csv=tmp_path / "splits.csv",
+        logmel_root=tmp_path / "logmel_songs",
+    )
+    assert all(ds.harmony.shape[1] == 45 for ds in (train, val, test))
+    assert not train.harmony.eq(999).any()
+    assert j.ConceptBottleneckModel(harmony_concept_dim=45).assembler.harmony_chroma_projection.in_features == 45
+
+
+def test_all45_bundle_loss_and_fusion_backward():
+    torch.manual_seed(9)
+    encoder = j.SharedAudioEncoder().eval()
+    heads = [j.InstrumentHead(), j.TimbreBranch(), j.RhythmBranch(),
+             j.TemporalHarmonyBranch(128, descriptor_dim=45)]
+    encoded = encoder(torch.randn(2, 1, 1, 16, 12), torch.ones(2, 1, dtype=torch.bool),
+                      torch.full((2, 1), 12), torch.zeros(2, 1))
+    features = j.HARMONY_FEATURE_SETS['all45']
+    bundle, targets = j._build_bundle(
+        encoded, *heads, instr_tgt=torch.zeros(2, 41),
+        timbre_tgt=torch.zeros(2, 35), timbre_msk=torch.ones(2, 35, dtype=torch.bool),
+        rhythm_tgt=torch.zeros(2, 10), rhythm_msk=torch.ones(2, 10, dtype=torch.bool),
+        harmony_tgt=torch.randn(2, 45), harmony_msk=torch.ones(2, 45, dtype=torch.bool),
+        device=torch.device('cpu'), harmony_features=features,
+    )
+    model = j.ConceptBottleneckModel(harmony_concept_dim=45).eval()
+    logits, _ = model.from_bundle(bundle, apply_dropout=False)
+    assert logits.shape == (2, 6)
+    loss = j.JointLossOrchestrator(
+        counts=j.ConceptCounts(harmony=45),
+        weights=j.LossWeights(genre=0, instrument=0, rhythm=0, timbre=0, harmony=1),
+    )(logits, torch.zeros_like(logits), bundle, targets)
+    assert loss.n_observed['harmony'] == 90
+    loss.total.backward()
+    assert heads[-1].descriptor_head[-1].weight.grad.abs().sum() > 0
 
 
 def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):

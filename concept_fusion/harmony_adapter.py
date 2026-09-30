@@ -22,6 +22,7 @@ def from_temporal_harmony_branch(
     descriptor_supervision_mask: torch.Tensor | None = None,
     fusion_mask: torch.Tensor | None = None,
     hidden_token: torch.Tensor | None = None,
+    descriptor_features: tuple[str, ...] = HARMONY_FEATURES,
 ) -> BranchOutput:
     """Pool predicted chroma probabilities and preserve the embedding for ablation.
 
@@ -79,9 +80,9 @@ def from_temporal_harmony_branch(
 
     descriptor_values = getattr(output, "descriptor_values", None)
     if descriptor_values is not None:
-        if descriptor_values.shape != (batch, N_HARMONY_DESCRIPTORS):
+        if descriptor_values.shape != (batch, len(descriptor_features)):
             raise ContractError(
-                f"harmony descriptor values must have shape (B,{N_HARMONY_DESCRIPTORS})"
+                f"harmony descriptor values must have shape (B,{len(descriptor_features)})"
             )
         if not torch.isfinite(descriptor_values).all():
             raise ContractError("harmony descriptor values must be finite")
@@ -120,7 +121,7 @@ def from_temporal_harmony_branch(
         temporal_chroma_logits=chroma_logits,
         temporal_chord_logits=chord_logits,
         temporal_prediction_mask=prediction_mask,
-        tag_order=HARMONY_FEATURES if descriptor_values is not None else None,
+        tag_order=descriptor_features if descriptor_values is not None else None,
     )
     branch.validate(batch=batch, n_concepts=pooled.shape[1])
     return branch

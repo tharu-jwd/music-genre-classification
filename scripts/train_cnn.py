@@ -74,6 +74,7 @@ def train(cfg: j.TrainConfig):
         split_csv=cfg.split_csv, require_harmony_targets=cfg.require_harmony_targets,
         quick=cfg.quick, logmel_root=cfg.logmel_root,
         window_frames=cfg.window_frames, max_windows=cfg.max_windows,
+        harmony_feature_set="selected12",  # CNN has no Harmony head or fusion input.
     )[:3]
     for ds in datasets:
         if not len(ds):
