@@ -1,0 +1,50 @@
+{
+  "model_type": "joint_music_genre_concept_bottleneck",
+  "framework": "pytorch",
+  "architecture": {
+    "shared_encoder": "shared_cnn_audio_encoder_v2",
+    "fusion": "gated",
+    "concept_dropout_probability": 0.15,
+    "rhythm_pooling_mode": "attention_mean_std",
+    "rhythm_pooling": {
+      "summaries": ["attention_mean", "masked_mean", "masked_population_std"],
+      "concatenated_dimension": 192,
+      "projection_dimension": 64,
+      "outputs": 10
+    }
+  },
+  "genres": ["classical", "electronic", "folk", "hiphop", "jazz", "rock"],
+  "preprocessing": {
+    "sample_rate": 16000,
+    "hop_length": 512,
+    "window_seconds": 15.0,
+    "n_mels": 128,
+    "center": true,
+    "window_frames": 1366,
+    "max_windows": 12
+  },
+  "training": {
+    "run_name": "rhythm-attention-mean-std-l4",
+    "gpu": "NVIDIA L4",
+    "epochs": 30,
+    "batch_size": 1,
+    "seed": 42,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.0001,
+    "best_epoch": 28,
+    "source_revision": "a9f5a44"
+  },
+  "evaluation": {
+    "validation_macro_average_precision": 0.8080843389034271,
+    "test_macro_average_precision": 0.7769315242767334,
+    "test_micro_average_precision": 0.7777344584465027,
+    "test_macro_f1": 0.6955907674867677,
+    "test_micro_f1": 0.6967953985209532,
+    "test_rhythm_mae_standardized": 0.45154018158903975,
+    "test_rhythm_rmse_standardized": 0.6713814968774615,
+    "test_rhythm_macro_r2": 0.544731094241939,
+    "n_train": 5127,
+    "n_validation": 1099,
+    "n_test": 1098
+  }
+}

@@ -141,7 +141,7 @@ modal run --detach modal_app.py \
   --run-name i1-adapter-30epoch \
   --epochs 30 \
   --batch-size 1 \
-  --gpu A10
+  --gpu L4
 ```
 
 The optional matched Full Architecture V1 control uses `--experiment

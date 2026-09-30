@@ -1,0 +1,42 @@
+{
+  "model_type": "joint_music_genre_concept_bottleneck",
+  "framework": "pytorch",
+  "architecture": {
+    "shared_encoder": "shared_cnn_audio_encoder_v2",
+    "fusion": "gated",
+    "concept_dropout_probability": 0.15,
+    "branches": {
+      "instrument": {"outputs": 41, "task": "multilabel"},
+      "rhythm": {"outputs": 10, "task": "standardized_regression"},
+      "timbre": {"outputs": 35, "task": "standardized_regression"},
+      "harmony": {"outputs": 12, "task": "chroma_distribution", "auxiliary_supervised": false}
+    }
+  },
+  "genres": ["classical", "electronic", "folk", "hiphop", "jazz", "rock"],
+  "preprocessing": {
+    "sample_rate": 16000,
+    "hop_length": 512,
+    "window_seconds": 15.0,
+    "n_mels": 128,
+    "center": true,
+    "window_frames": 1366,
+    "max_windows": 12
+  },
+  "training": {
+    "run_name": "joint-l4-b4-10ep-v2",
+    "gpu": "NVIDIA L4",
+    "epochs": 10,
+    "batch_size": 4,
+    "learning_rate": 0.0003,
+    "best_epoch": 10,
+    "source_revision": "ce0fe2d"
+  },
+  "evaluation": {
+    "validation_macro_average_precision": 0.6804099678993225,
+    "test_macro_average_precision": 0.678097665309906,
+    "test_binary_cross_entropy": 0.33099931811744515,
+    "n_train": 5127,
+    "n_validation": 1099,
+    "n_test": 1098
+  }
+}

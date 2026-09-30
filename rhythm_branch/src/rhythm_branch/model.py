@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping
 
 import torch
@@ -20,6 +20,7 @@ class RhythmBranchConfig:
     temporal_layers: int = 3
     kernel_size: int = 5
     dropout: float = 0.15
+    pooling_mode: str = field(default="attention_mean_std", init=False)
 
     def __post_init__(self) -> None:
         for name in ("input_dim", "hidden_dim", "embedding_dim", "output_dim", "temporal_layers"):
@@ -41,7 +42,14 @@ class RhythmBranchConfig:
 
     @classmethod
     def from_dict(cls, values: Mapping[str, Any]) -> "RhythmBranchConfig":
-        return cls(**dict(values))
+        config = dict(values)
+        legacy_pooling_mode = config.pop("pooling_mode", "attention")
+        if legacy_pooling_mode != "attention_mean_std":
+            raise ValueError(
+                "attention-only rhythm checkpoints are incompatible with the "
+                "attention/mean/std pooling architecture"
+            )
+        return cls(**config)
 
 
 @dataclass
@@ -96,6 +104,9 @@ class RhythmBranch(nn.Module):
             for layer in range(self.config.temporal_layers)
         )
         self.attention = nn.Linear(self.config.hidden_dim, 1)
+        self.summary_projection = nn.Linear(
+            3 * self.config.hidden_dim, self.config.hidden_dim
+        )
         self.embedding_head = nn.Sequential(
             nn.Linear(self.config.hidden_dim, self.config.embedding_dim),
             nn.LayerNorm(self.config.embedding_dim),
@@ -151,7 +162,22 @@ class RhythmBranch(nn.Module):
             scores = scores.masked_fill(~safe_mask, torch.finfo(scores.dtype).min)
             scores[~availability, 0] = 0
         weights = torch.softmax(scores, dim=1) * mask.to(scores.dtype)
-        pooled = (values * weights.unsqueeze(-1)).sum(dim=1)
+        attention_mean = (values * weights.unsqueeze(-1)).sum(dim=1)
+        valid = mask.unsqueeze(-1).to(values.dtype)
+        count = valid.sum(dim=1).clamp_min(1)
+        masked_mean = (values * valid).sum(dim=1) / count
+        centered = (values - masked_mean.unsqueeze(1)) * valid
+        variance = centered.square().sum(dim=1) / count
+        # Avoid sqrt(0)'s undefined derivative while retaining an exact zero
+        # for constant, single-token, and all-masked sequences.
+        positive_variance = variance > 0
+        safe_variance = torch.where(
+            positive_variance, variance, torch.ones_like(variance)
+        )
+        masked_std = torch.sqrt(safe_variance) * positive_variance.to(values.dtype)
+        pooled = self.summary_projection(
+            torch.cat((attention_mean, masked_mean, masked_std), dim=-1)
+        )
         embedding = self.embedding_head(pooled)
         embedding = embedding * availability.unsqueeze(-1).to(embedding.dtype)
         predictions = self.regression_head(embedding)

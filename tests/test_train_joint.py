@@ -83,13 +83,27 @@ def test_training_saves_and_reloads_learned_harmony(tmp_path, monkeypatch):
         frame.insert(0, 'TRACK_ID', ids)
         frame.to_csv(data / f'{name}_df.csv', index=False)
     monkeypatch.setattr(j, 'ROOT', tmp_path)
-    j.train(j.TrainConfig(epochs=1, batch_size=2, device='cpu', window_frames=16, max_windows=2))
+    j.train(j.TrainConfig(
+        epochs=1, batch_size=2, device='cpu', window_frames=16, max_windows=2,
+    ))
     checkpoint = torch.load(tmp_path / 'results/joint/best.pt', weights_only=False)
     assert checkpoint['harmony_head']
     assert checkpoint['harmony_strategy'] == 'standardized_song_descriptor_regression'
     assert checkpoint['harmony_standardizer']['feature_names'] == list(j.HARMONY_FEATURES)
     assert checkpoint['n_instrument_tags'] == 41
+    assert checkpoint['rhythm_model_config']['pooling_mode'] == 'attention_mean_std'
+    assert checkpoint['seed'] == 42
     assert json.loads((tmp_path / 'results/joint/results.json').read_text())['n_test'] == 2
+
+    j.train(j.TrainConfig(
+        epochs=2, batch_size=2, device='cpu', window_frames=16, max_windows=2,
+        resume_checkpoint=tmp_path / 'results/joint/best.pt',
+        out_dir='results/resumed',
+    ))
+    resumed = json.loads((tmp_path / 'results/resumed/results.json').read_text())
+    assert resumed['resumed_from_epoch'] == 1
+    assert resumed['scheduler_resume_policy'] == 'saved_optimizer_lr_constant'
+    assert [row['epoch'] for row in resumed['log']] == [1, 2]
 
 
 def test_relocates_colab_logmel_path(tmp_path):

@@ -1,0 +1,48 @@
+{
+  "model_type": "joint_music_genre_concept_bottleneck",
+  "framework": "pytorch",
+  "architecture": {
+    "shared_encoder": "shared_cnn_audio_encoder_v2",
+    "fusion": "gated",
+    "concept_dropout_probability": 0.15,
+    "branches": {
+      "instrument": {"outputs": 41, "task": "multilabel"},
+      "rhythm": {"outputs": 10, "task": "standardized_regression"},
+      "timbre": {"outputs": 35, "task": "standardized_regression"},
+      "harmony": {"outputs": 12, "task": "standardized_descriptor_regression", "auxiliary_supervised": true}
+    }
+  },
+  "genres": ["classical", "electronic", "folk", "hiphop", "jazz", "rock"],
+  "preprocessing": {
+    "sample_rate": 16000,
+    "hop_length": 512,
+    "window_seconds": 15.0,
+    "n_mels": 128,
+    "center": true,
+    "window_frames": 1366,
+    "max_windows": 12
+  },
+  "training": {
+    "run_name": "joint-l4-b4-20ep-all-supervised",
+    "gpu": "NVIDIA L4",
+    "epochs": 20,
+    "batch_size": 4,
+    "learning_rate": 0.0003,
+    "best_epoch": 20,
+    "source_revision": "83616d8"
+  },
+  "evaluation": {
+    "validation_macro_average_precision": 0.7659601271152496,
+    "test_macro_average_precision": 0.7355780998865763,
+    "test_binary_cross_entropy": 0.29750791239467533,
+    "test_branches": {
+      "instrument": {"macro_average_precision": 0.2440642640335349, "micro_average_precision": 0.38767296075820923, "macro_f1": 0.03995096093741948, "micro_f1": 0.16556453588048003},
+      "rhythm": {"mae_standardized": 0.4357811905212958, "rmse_standardized": 0.6491204490642812, "macro_r2": 0.5736137540670537},
+      "timbre": {"mae_standardized": 0.31784197578757745, "rmse_standardized": 0.5610400852226979, "macro_r2": 0.7007768322152175},
+      "harmony": {"mae_standardized": 0.47914579584877925, "rmse_standardized": 0.6940072720506659, "macro_r2": 0.470401505996261}
+    },
+    "n_train": 5127,
+    "n_validation": 1099,
+    "n_test": 1098
+  }
+}
