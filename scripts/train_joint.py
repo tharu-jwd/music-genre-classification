@@ -11,7 +11,11 @@ The legacy seven-table layout is also supported:
   instrument_df.csv            TRACK_ID + 41 instrument columns
   timbre_df.csv                TRACK_ID + 35 timbre descriptor columns
   rhythm_df.csv                TRACK_ID + 10 rhythm columns
-  harmony_df.csv               TRACK_ID + 12 song-level harmony descriptors
+  harmony_df.csv               TRACK_ID + 45 song-level harmony descriptors
+
+With a combined table, the 45 raw harmony descriptors are always taken from
+harmony_df.csv (--harmony-csv) by TRACK_ID; the compact vector table carries only
+a min-max-scaled 12-descriptor subset.
 
 Usage:
     python scripts/train_joint.py
@@ -52,6 +56,7 @@ for p in (
 from concept_fusion.contract import (
     GENRE_TAGS,
     HARMONY_FEATURES,
+    HARMONY_V3_FEATURES,
     INSTRUMENT_TAGS,
     N_GENRE_TAGS,
     N_HARMONY_DESCRIPTORS,
@@ -67,7 +72,9 @@ from concept_fusion.model import ConceptBottleneckModel
 from concept_fusion.rhythm_adapter import from_rhythm_branch
 from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.types import BranchBundle
-from harmony_branch.model import TemporalHarmonyBranch
+from harmony_branch.constants import DESCRIPTOR_GROUPS, HARMONY_SCHEMA_VERSION
+from harmony_branch.descriptors import HarmonyTargetTransform
+from harmony_branch.model import ChromaGroundedHarmonyBranch
 from scripts.mtg_data_contract import NOTEBOOK_DATA_CONTRACT
 from rhythm_branch.model import RhythmBranch
 from rhythm_branch.preprocessing import RhythmStandardizer
@@ -76,55 +83,8 @@ from timbre_branch.model import TimbreBranch
 from timbre_branch.preprocessing import TimbreStandardizer
 from scripts.build_vector_dataset import VECTOR_GROUPS
 
-@dataclass
-class HarmonyStandardizer:
-    """Leakage-safe z-score transform for the 12 harmony descriptors."""
-
-    mean: np.ndarray | None = None
-    scale: np.ndarray | None = None
-    count: np.ndarray | None = None
-    epsilon: float = 1e-8
-
-    def fit(self, values: np.ndarray, valid_mask: np.ndarray) -> "HarmonyStandardizer":
-        values = np.asarray(values, dtype=np.float64)
-        valid_mask = np.asarray(valid_mask, dtype=bool)
-        expected_width = len(HARMONY_FEATURES)
-        if values.ndim != 2 or values.shape[1] != expected_width:
-            raise ValueError(f"Expected harmony targets [samples, {expected_width}], got {values.shape}")
-        if valid_mask.shape != values.shape:
-            raise ValueError("harmony valid_mask must match values")
-        valid_mask = valid_mask & np.isfinite(values)
-        count = valid_mask.sum(axis=0)
-        if np.any(count == 0):
-            missing = [HARMONY_FEATURES[i] for i in np.flatnonzero(count == 0)]
-            raise ValueError(f"No valid training harmony targets for: {missing}")
-        safe = np.where(valid_mask, values, 0.0)
-        mean = safe.sum(axis=0) / count
-        variance = np.where(valid_mask, (values - mean) ** 2, 0.0).sum(axis=0) / count
-        scale = np.sqrt(variance)
-        self.mean = mean.astype(np.float64)
-        self.scale = np.where(scale < self.epsilon, 1.0, scale).astype(np.float64)
-        self.count = count.astype(np.int64)
-        return self
-
-    def transform(self, values: np.ndarray) -> np.ndarray:
-        if self.mean is None or self.scale is None:
-            raise RuntimeError("HarmonyStandardizer has not been fitted")
-        values = np.asarray(values, dtype=np.float64)
-        if values.ndim != 2 or values.shape[1] != len(HARMONY_FEATURES):
-            raise ValueError("Harmony target width does not match HARMONY_FEATURES")
-        return ((values - self.mean) / self.scale).astype(np.float32)
-
-    def state_dict(self) -> dict[str, Any]:
-        if self.mean is None or self.scale is None or self.count is None:
-            raise RuntimeError("HarmonyStandardizer has not been fitted")
-        return {
-            "feature_names": list(HARMONY_FEATURES),
-            "mean": self.mean.tolist(),
-            "scale": self.scale.tolist(),
-            "count": self.count.tolist(),
-            "epsilon": self.epsilon,
-        }
+# Named log/log1m transform + train-only z-score over all 45 descriptors.
+HarmonyStandardizer = HarmonyTargetTransform
 
 
 def dataset_schema() -> dict[str, Any]:
@@ -176,8 +136,8 @@ class MultiTargetDataset(Dataset):
         timbre_mask: np.ndarray,         # (N, 35) bool
         rhythm_targets: np.ndarray,      # (N, 10) float32 standardized
         rhythm_mask: np.ndarray,         # (N, 10) bool
-        harmony_targets: np.ndarray,     # (N, 12) float32 standardized descriptors
-        harmony_mask: np.ndarray | None = None,  # (N, 12) bool
+        harmony_targets: np.ndarray,     # (N, 45) float32 transformed + standardized
+        harmony_mask: np.ndarray | None = None,  # (N, 45) bool
         window_frames: int = 1366,
         max_windows: int = 12,
         mel_config: dict | None = None,
@@ -293,8 +253,8 @@ def collate_fn(batch):
         torch.stack(timbre_mask),              # (B, 35)
         torch.stack(rhythm),                   # (B, 10)
         torch.stack(rhythm_mask),              # (B, 10)
-        torch.stack(harmony),                  # (B, 12)
-        torch.stack(harmony_mask),             # (B, 12)
+        torch.stack(harmony),                  # (B, 45)
+        torch.stack(harmony_mask),             # (B, 45)
         list(ids),
     )
 
@@ -347,6 +307,39 @@ def _norm_col(df: pd.DataFrame, col: str) -> pd.DataFrame:
     return df
 
 
+def _is_legacy_harmony_vector(cells: pd.Series) -> bool:
+    if cells.empty:
+        return False
+    first = cells.iloc[0]
+    values = json.loads(first) if isinstance(first, str) else first
+    return len(values) == len(HARMONY_V3_FEATURES)
+
+
+def _attach_harmony_descriptors(master: pd.DataFrame, harmony_csv: Path | None) -> pd.DataFrame:
+    """Left-join the 45 raw descriptors by TRACK_ID from the canonical harmony table."""
+    if harmony_csv is None or not harmony_csv.is_file():
+        missing = sorted(set(HARMONY_FEATURES) - set(master.columns))
+        if missing:
+            raise ValueError(
+                f"Combined dataset lacks {len(missing)} harmony descriptors and no harmony table "
+                f"was found; pass --harmony-csv (first missing: {missing[0]})"
+            )
+        return master
+    harmony = _norm_col(pd.read_csv(harmony_csv, dtype={"TRACK_ID": str}), "TRACK_ID")
+    missing = sorted(set(HARMONY_FEATURES) - set(harmony.columns))
+    if missing:
+        raise ValueError(f"{harmony_csv} is missing harmony descriptors: {missing}")
+    if harmony["TRACK_ID"].duplicated().any():
+        raise ValueError(f"{harmony_csv} contains duplicate TRACK_ID values")
+    overlap = sorted(set(HARMONY_FEATURES) & set(master.columns))
+    master = master.drop(columns=overlap).merge(
+        harmony[["TRACK_ID", *HARMONY_FEATURES]], on="TRACK_ID", how="left", validate="one_to_one"
+    )
+    covered = int(master[list(HARMONY_FEATURES)].notna().all(axis=1).sum())
+    print(f"  harmony descriptors from {harmony_csv.name}: {covered}/{len(master)} tracks")
+    return master
+
+
 def _expand_vector_columns(frame: pd.DataFrame) -> pd.DataFrame:
     """Expand canonical JSON vector cells into named internal training columns."""
     vector_names = {name for name, _ in VECTOR_GROUPS}
@@ -357,6 +350,9 @@ def _expand_vector_columns(frame: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"Vector dataset is missing vector columns: {sorted(vector_names - present)}")
     expanded = frame.copy()
     for vector_name, columns in VECTOR_GROUPS:
+        if vector_name == "harmony_vector" and _is_legacy_harmony_vector(expanded[vector_name]):
+            # v3 tables hold a scaled 12-descriptor subset; harmony_df.csv supplies all 45.
+            continue
         rows: list[list[float]] = []
         for row_number, raw in enumerate(expanded[vector_name], start=2):
             try:
@@ -403,6 +399,7 @@ def build_datasets(
     *,
     dataset_csv: Path | None = None,
     split_csv: Path | None = None,
+    harmony_csv: Path | None = None,
     require_harmony_targets: bool = False,
     timbre_std: TimbreStandardizer | None = None,
     rhythm_std: RhythmStandardizer | None = None,
@@ -418,11 +415,14 @@ def build_datasets(
     """Load, align, standardize, and split all data sources.
 
     ``dataset_csv`` selects the combined-table contract used by Modal.  If it is
-    omitted, the original seven-table contract remains available.
+    omitted, the original seven-table contract remains available. With a combined
+    table the 45 raw harmony descriptors come from ``harmony_csv`` (default
+    ``DATA_DIR/harmony_df.csv``).
     """
     data_dir = Path(data_dir)
     dataset_csv = Path(dataset_csv) if dataset_csv is not None else None
     split_csv = Path(split_csv) if split_csv is not None else data_dir / "track_split_assignments.csv"
+    harmony_csv = Path(harmony_csv) if harmony_csv is not None else data_dir / "harmony_df.csv"
     root_config = data_dir / "logmel_root.txt"
     if logmel_root is None and root_config.is_file():
         logmel_root = Path(root_config.read_text(encoding="utf-8-sig").strip())
@@ -447,6 +447,9 @@ def build_datasets(
         master = _expand_vector_columns(_norm_col(
             _canonicalize_combined_columns(master), "TRACK_ID"
         ))
+        if master["TRACK_ID"].duplicated().any():
+            raise ValueError("Combined dataset contains duplicate TRACK_ID values")
+        master = _attach_harmony_descriptors(master, harmony_csv)
         splits = pd.read_csv(split_csv, dtype={"TRACK_ID": str, "track_id": str})
         splits = _norm_col(splits.rename(columns={"track_id": "TRACK_ID"}), "TRACK_ID")
         required = {
@@ -557,7 +560,7 @@ def _build_bundle(
     instrument_head: InstrumentHead,
     timbre_head: TimbreBranch,
     rhythm_head: RhythmBranch,
-    harmony_head: TemporalHarmonyBranch,
+    harmony_head: ChromaGroundedHarmonyBranch,
     *,
     instr_tgt: Tensor,
     timbre_tgt: Tensor,
@@ -743,6 +746,22 @@ def _masked_regression_metrics(
     }
 
 
+def _harmony_group_r2(per_feature: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Macro R2 per descriptor group and over the v3 12-descriptor subset.
+
+    The v3 subset score shares feature names with Harmony v3 reports, but nine of
+    those targets are now log-transformed, so it is indicative, not identical.
+    """
+    def macro(names) -> float | None:
+        values = [per_feature[n]["r2"] for n in names if per_feature.get(n, {}).get("r2") is not None]
+        return sum(values) / len(values) if values else None
+
+    return {
+        "group_macro_r2": {group: macro(names) for group, names in DESCRIPTOR_GROUPS.items()},
+        "v3_subset_macro_r2": macro(HARMONY_V3_FEATURES),
+    }
+
+
 def _metric_text(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.4f}"
 
@@ -752,7 +771,7 @@ def evaluate(
     instrument_head: InstrumentHead,
     timbre_head: TimbreBranch,
     rhythm_head: RhythmBranch,
-    harmony_head: TemporalHarmonyBranch,
+    harmony_head: ChromaGroundedHarmonyBranch,
     fusion_model: ConceptBottleneckModel,
     loader: DataLoader,
     device: torch.device,
@@ -831,6 +850,7 @@ def evaluate(
         torch.cat(concept_masks["harmony"]),
         HARMONY_FEATURES,
     )
+    harmony_metrics.update(_harmony_group_r2(harmony_metrics["per_feature"]))
     macro_ap = genre_metrics["macro_average_precision"]
     return {
         "loss": total_loss / max(n_batches, 1),
@@ -858,6 +878,7 @@ def train(cfg: "TrainConfig") -> None:
     data_dir = cfg.data_dir or ROOT / "data"
     train_ds, val_ds, test_ds, timbre_std, rhythm_std, harmony_std = build_datasets(
         data_dir, dataset_csv=cfg.dataset_csv, split_csv=cfg.split_csv,
+        harmony_csv=cfg.harmony_csv,
         require_harmony_targets=cfg.require_harmony_targets,
         quick=cfg.quick, logmel_root=cfg.logmel_root,
         window_frames=cfg.window_frames, max_windows=cfg.max_windows
@@ -886,9 +907,10 @@ def train(cfg: "TrainConfig") -> None:
     instrument_head = InstrumentHead().to(device)
     timbre_head    = TimbreBranch().to(device)
     rhythm_head    = RhythmBranch().to(device)
-    harmony_head = TemporalHarmonyBranch(
-        128, chord_classes=None, descriptor_dim=N_HARMONY_DESCRIPTORS
-    ).to(device)
+    harmony_head = ChromaGroundedHarmonyBranch(128, chord_classes=None)
+    # Exact chroma/Tonnetz outputs are standardized inside the model.
+    harmony_head.set_target_transform(harmony_std)
+    harmony_head = harmony_head.to(device)
     fusion_model   = ConceptBottleneckModel(
         fusion="gated",
         dropout_p=0.15,
@@ -992,7 +1014,8 @@ def train(cfg: "TrainConfig") -> None:
             f"instrument_F1={_metric_text(val_branches['instrument']['macro_f1'])}  "
             f"rhythm_RMSE={_metric_text(val_branches['rhythm']['rmse_standardized'])}  "
             f"timbre_RMSE={_metric_text(val_branches['timbre']['rmse_standardized'])}  "
-            f"harmony_RMSE={_metric_text(val_branches['harmony']['rmse_standardized'])}",
+            f"harmony_RMSE={_metric_text(val_branches['harmony']['rmse_standardized'])}  "
+            f"harmony_R2={_metric_text(val_branches['harmony']['macro_r2'])}",
             flush=True,
         )
         log.append({
@@ -1032,7 +1055,9 @@ def train(cfg: "TrainConfig") -> None:
                 "window_frames": cfg.window_frames,
                 "max_windows": cfg.max_windows,
                 "harmony_target_columns": list(HARMONY_FEATURES),
-                "harmony_strategy":  "standardized_song_descriptor_regression",
+                "harmony_strategy":  "chroma_grounded_45_descriptor_regression",
+                "harmony_schema_version": HARMONY_SCHEMA_VERSION,
+                "harmony_architecture": "harmony_v4_chroma_grounded",
                 "harmony_supervised": bool(train_ds.harmony_mask.any()),
             }
             torch.save(ckpt, out_dir / "best.pt")
@@ -1107,6 +1132,7 @@ class TrainConfig:
     data_dir:           Path | None = None
     dataset_csv:        Path | None = None
     split_csv:          Path | None = None
+    harmony_csv:        Path | None = None
     require_harmony_targets: bool = False
     logmel_root:        Path | None = None
     window_frames:     int = 1366
@@ -1140,7 +1166,10 @@ def main() -> None:
     p.add_argument("--split-csv", type=Path,
                    help="TRACK_ID/track_id + split CSV; defaults to DATA_DIR/track_split_assignments.csv")
     p.add_argument("--require-harmony-targets", action="store_true",
-                   help="Require observed values for all 12 harmony descriptors")
+                   help="Require observed values for all 45 harmony descriptors")
+    p.add_argument("--harmony-csv", type=Path,
+                   help="TRACK_ID + 45 raw harmony descriptors joined into a combined dataset; "
+                        "defaults to DATA_DIR/harmony_df.csv")
     p.add_argument("--print-dataset-schema", action="store_true",
                    help="Print the canonical dataset.csv vector groups and exit")
     args = p.parse_args()
@@ -1167,6 +1196,7 @@ def main() -> None:
         data_dir          = args.data_dir,
         dataset_csv       = args.dataset_csv,
         split_csv         = args.split_csv,
+        harmony_csv       = args.harmony_csv,
         require_harmony_targets = args.require_harmony_targets,
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
@@ -1186,7 +1216,7 @@ def main() -> None:
     print(f"  Instrument : {N_INSTRUMENT_TAGS} tags")
     print(f"  Timbre     : {N_TIMBRE_CONCEPTS} descriptors")
     print(f"  Rhythm     : {N_RHYTHM_CONCEPTS} AcousticBrainz fields")
-    print(f"  Harmony    : {N_HARMONY_DESCRIPTORS} standardized song descriptors")
+    print(f"  Harmony    : {N_HARMONY_DESCRIPTORS} descriptors, chroma-grounded v4 branch")
     print(f"  Epochs     : {cfg.epochs}   Batch: {cfg.batch_size}   LR: {cfg.lr}")
     print(f"  Device     : {cfg.device}")
     print("=" * 60)

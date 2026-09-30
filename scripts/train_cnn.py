@@ -71,7 +71,8 @@ def train(cfg: j.TrainConfig):
     device = torch.device(cfg.device)
     datasets = j.build_datasets(
         cfg.data_dir or j.ROOT / "data", dataset_csv=cfg.dataset_csv,
-        split_csv=cfg.split_csv, require_harmony_targets=cfg.require_harmony_targets,
+        split_csv=cfg.split_csv, harmony_csv=cfg.harmony_csv,
+        require_harmony_targets=cfg.require_harmony_targets,
         quick=cfg.quick, logmel_root=cfg.logmel_root,
         window_frames=cfg.window_frames, max_windows=cfg.max_windows,
     )[:3]

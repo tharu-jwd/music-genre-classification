@@ -10,7 +10,7 @@ from concept_fusion.contract import (
     DEFAULT_HARMONY_EMBEDDING_DIM,
     FUSION_INPUT_MODES,
     INSTRUMENT_HIDDEN_DIM,
-    N_HARMONY_CHROMA,
+    N_HARMONY_DESCRIPTORS,
     N_INSTRUMENT_TAGS,
     N_RHYTHM_CONCEPTS,
     N_TIMBRE_CONCEPTS,
@@ -26,8 +26,8 @@ class TokenAssembler(nn.Module):
     """Build tokens (B, 4, 64) in CONCEPT_ORDER.
 
     Primary ``predicted_concepts`` mode owns 41→64, 10→64, 35→64, and
-    12→64 projections. The harmony input is the configured 12-value predicted
-    concept vector (song descriptors in joint vector-dataset training).
+    45→64 projections. The harmony input is the 45 predicted song descriptors
+    (Harmony v4).
     ``embedding_fusion`` preserves the previous rhythm 64D
     embedding and harmony D→64 embedding route. Masks are applied after projection.
     """
@@ -51,7 +51,7 @@ class TokenAssembler(nn.Module):
         self.rhythm_projection = nn.Linear(N_RHYTHM_CONCEPTS, TOKEN_DIM)
         self.instrument_hidden_projection = nn.Linear(INSTRUMENT_HIDDEN_DIM, TOKEN_DIM)
         self.timbre_projection = nn.Linear(N_TIMBRE_CONCEPTS, TOKEN_DIM)
-        self.harmony_chroma_projection = nn.Linear(N_HARMONY_CHROMA, TOKEN_DIM)
+        self.harmony_descriptor_projection = nn.Linear(N_HARMONY_DESCRIPTORS, TOKEN_DIM)
         # Retain this exact module for the versioned embedding-fusion ablation.
         self.harmony_projection = nn.Linear(harmony_embedding_dim, TOKEN_DIM)
 
@@ -91,11 +91,11 @@ class TokenAssembler(nn.Module):
             return self.timbre_projection(z) * br.fusion_mask
         if br.name == "harmony":
             harmony_values = require_tensor(
-                "harmony.concept_values", br.concept_values, ndim=2, last=N_HARMONY_CHROMA
+                "harmony.concept_values", br.concept_values, ndim=2, last=N_HARMONY_DESCRIPTORS
             )
             require_finite("harmony.concept_values", harmony_values)
             # Keep the historical parameter name for checkpoint compatibility.
-            return self.harmony_chroma_projection(harmony_values) * br.fusion_mask
+            return self.harmony_descriptor_projection(harmony_values) * br.fusion_mask
         raise ContractError(f"no predicted-concept projection for {br.name}")
 
     def _embedding_fusion_token(self, br) -> torch.Tensor:

@@ -10,10 +10,11 @@ Rhythm v2: 10 standardized predictions are primary; the 64D embedding is retaine
 for the embedding-fusion ablation. Fusion owns Linear(10, 64) in the primary mode.
 Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
 Fusion owns Linear(35, 64).
-Harmony v3: 12 standardized song-level descriptor predictions are primary during
-joint vector-dataset training. Temporal 12-bin chroma logits remain available for
-aligned chroma supervision, and the 32D song embedding remains available for the
-embedding-fusion ablation. Chords never enter primary fusion.
+Harmony v4: all 45 extracted song-level descriptors (transformed, train-only
+z-scored) are predicted and primary. Fusion owns Linear(45, 64). Chroma and
+Tonnetz means are derived exactly from the branch's temporal chroma head; the
+song embedding remains available for the embedding-fusion ablation. Chords
+never enter primary fusion. (v3 used a hand-picked 12-descriptor subset.)
 """
 
 from __future__ import annotations
@@ -45,9 +46,9 @@ N_INSTRUMENT_TAGS = 41
 N_RHYTHM_CONCEPTS = 10
 N_TIMBRE_CONCEPTS = 35
 N_HARMONY_CHROMA = 12
-N_HARMONY_DESCRIPTORS = 12
+N_HARMONY_DESCRIPTORS = 45
 N_HARMONY_CHORDS = 25
-DEFAULT_HARMONY_EMBEDDING_DIM = 32
+DEFAULT_HARMONY_EMBEDDING_DIM = 64
 INSTRUMENT_HIDDEN_DIM = 128
 # Published branches that do not own a 64-D token. Fusion projects them.
 BRANCHES_WITHOUT_FUSION_TOKEN: frozenset[str] = frozenset(
@@ -71,14 +72,29 @@ def _load_instrument_tags() -> tuple[str, ...]:
 
 INSTRUMENT_TAGS: tuple[str, ...] = _load_instrument_tags()
 
-HARMONY_FEATURES: tuple[str, ...] = (
-    "tonal_concentration_mean", "tonal_concentration_std",
-    "chroma_entropy_mean", "chroma_entropy_std",
-    "chroma_flux_mean", "chroma_flux_std",
-    "tonnetz_movement_mean", "tonnetz_movement_std",
-    "valid_tonal_ratio", "tonnetz_01_mean", "tonnetz_02_mean", "tonnetz_03_mean",
-)
-assert len(HARMONY_FEATURES) == N_HARMONY_DESCRIPTORS
+def _load_harmony_constants():
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "harmony_branch"
+        / "src"
+        / "harmony_branch"
+        / "constants.py"
+    )
+    if not path.is_file():
+        raise FileNotFoundError(f"harmony descriptor list missing: {path}")
+    spec = importlib.util.spec_from_file_location("harmony_branch_constants", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load harmony constants from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_harmony_constants = _load_harmony_constants()
+HARMONY_FEATURES: tuple[str, ...] = tuple(_harmony_constants.HARMONY_DESCRIPTORS)
+HARMONY_V3_FEATURES: tuple[str, ...] = tuple(_harmony_constants.HARMONY_V3_DESCRIPTORS)
+if len(HARMONY_FEATURES) != N_HARMONY_DESCRIPTORS or len(set(HARMONY_FEATURES)) != N_HARMONY_DESCRIPTORS:
+    raise ValueError(f"harmony HARMONY_DESCRIPTORS must be {N_HARMONY_DESCRIPTORS} unique names")
 
 
 def _load_timbre_features() -> tuple[str, ...]:
@@ -148,7 +164,7 @@ class ConceptCounts:
     instrument: int = N_INSTRUMENT_TAGS  # 41
     rhythm: int = N_RHYTHM_CONCEPTS       # 10
     timbre: int = N_TIMBRE_CONCEPTS        # 35
-    harmony: int = N_HARMONY_DESCRIPTORS   # 12 song-level harmony descriptors
+    harmony: int = N_HARMONY_DESCRIPTORS   # 45 song-level harmony descriptors
 
     def for_name(self, name: str) -> int:
         if name not in CONCEPT_ORDER:

@@ -14,6 +14,7 @@ from concept_fusion.contract import (
     INSTRUMENT_TAGS,
     N_GENRE_TAGS,
     N_HARMONY_CHORDS,
+    N_HARMONY_CHROMA,
     TIMBRE_FEATURES,
     TOKEN_DIM,
     ConceptCounts,
@@ -65,13 +66,11 @@ def make_branch_output(
         )
     if name == "harmony":
         time_steps = 6
-        temporal_logits = torch.randn(batch, time_steps, n_concepts, generator=g)
+        temporal_logits = torch.randn(batch, time_steps, N_HARMONY_CHROMA, generator=g)
         prediction_mask = torch.rand(batch, time_steps, generator=g) < 0.9
         chord_logits = torch.randn(batch, time_steps, N_HARMONY_CHORDS, generator=g)
-        probabilities = torch.softmax(temporal_logits, dim=-1)
-        weights = prediction_mask.to(probabilities.dtype)
-        values = (probabilities * weights.unsqueeze(-1)).sum(1)
-        values = values / weights.sum(1, keepdim=True).clamp_min(1.0)
+        # Standardized song-descriptor predictions (45 in the v4 contract).
+        values = torch.randn(batch, n_concepts, generator=g)
         embedding = torch.randn(batch, DEFAULT_HARMONY_EMBEDDING_DIM, generator=g)
         hidden = torch.randn(batch, TOKEN_DIM, generator=g)
         return BranchOutput(

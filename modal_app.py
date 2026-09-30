@@ -54,6 +54,8 @@ image = (
         "scripts/build_vector_dataset.py",
         str(PROJECT_DIR / "scripts/build_vector_dataset.py"),
     )
+    # Harmony v4 trains on all 45 raw descriptors; the vector table has only 12.
+    .add_local_file("data/harmony_df.csv", str(PROJECT_DIR / "data/harmony_df.csv"))
 )
 
 
@@ -89,6 +91,9 @@ def train_remote(
     dataset_dir = Path(DATA_MOUNT) / "dataset"
     dataset_csv = dataset_dir / DATASET_FILENAME
     split_csv = dataset_dir / "track_split_assignments.csv"
+    harmony_csv = dataset_dir / "harmony_df.csv"
+    if not harmony_csv.is_file():
+        harmony_csv = PROJECT_DIR / "data/harmony_df.csv"
     logmel_root = Path(AUDIO_MOUNT) / "logmel_songs"
     required = (dataset_csv, split_csv, logmel_root)
     missing = [str(path) for path in required if not path.exists()]
@@ -106,6 +111,7 @@ def train_remote(
         "--data-dir", str(dataset_dir),
         "--dataset-csv", str(dataset_csv),
         "--split-csv", str(split_csv),
+        "--harmony-csv", str(harmony_csv),
         "--logmel-root", str(logmel_root),
         "--out-dir", str(out_dir),
         "--device", "cuda",

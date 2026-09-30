@@ -19,7 +19,7 @@ from concept_fusion.model import ConceptBottleneckModel
 from concept_fusion.rhythm_adapter import from_rhythm_branch
 from concept_fusion.types import BranchBundle
 from concept_fusion.validation import ContractError
-from harmony_branch.model import TemporalHarmonyBranch
+from harmony_branch.model import ChromaGroundedHarmonyBranch
 from rhythm_branch.model import RhythmBranch, RhythmBranchConfig
 from shared_encoder import SharedAudioEncoder
 
@@ -38,7 +38,7 @@ def test_both_fusion_input_modes_have_fixed_shape_and_order():
     )
     torch.testing.assert_close(
         primary_tokens[:, 3],
-        primary.assembler.harmony_chroma_projection(bundle.concept_values("harmony")),
+        primary.assembler.harmony_descriptor_projection(bundle.concept_values("harmony")),
     )
     torch.testing.assert_close(embedding_tokens[:, 1], bundle.branches["rhythm"].fusion_token)
     torch.testing.assert_close(
@@ -52,34 +52,22 @@ def test_invalid_fusion_input_mode_is_rejected():
         ConceptBottleneckModel(fusion_input_mode="silent-migration")  # type: ignore[arg-type]
 
 
-def test_harmony_pools_probabilities_over_valid_tokens_only():
-    logits = torch.tensor(
-        [[
-            [4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            [0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            [100.0, -100.0, -100.0, -100.0, -100.0, -100.0,
-             -100.0, -100.0, -100.0, -100.0, -100.0, -100.0],
-        ]]
-    )
-    mask = torch.tensor([[True, True, False]])
+def test_harmony_without_descriptor_head_is_rejected():
     raw = SimpleNamespace(
         embedding=torch.randn(1, 32),
-        chroma_logits=logits,
+        chroma_logits=torch.randn(1, 3, 12),
         chord_logits=None,
         availability=torch.tensor([True]),
-        prediction_mask=mask,
+        prediction_mask=torch.tensor([[True, True, False]]),
     )
-    branch = from_temporal_harmony_branch(raw, chroma_target_mask=torch.zeros_like(mask))
-    expected = torch.softmax(logits[:, :2], dim=-1).mean(dim=1)
-    torch.testing.assert_close(branch.concept_values, expected)
-    assert torch.count_nonzero(branch.supervision_mask) == 0
-    assert branch.fusion_mask.item() == 1
+    with pytest.raises(ContractError, match="45 descriptor predictions"):
+        from_temporal_harmony_branch(raw)
 
 
 def test_harmony_descriptor_predictions_replace_chroma_for_primary_fusion():
     mask = torch.tensor([[True, True]])
-    descriptors = torch.randn(1, 12)
-    supervision = torch.ones(1, 12)
+    descriptors = torch.randn(1, 45)
+    supervision = torch.ones(1, 45)
     raw = SimpleNamespace(
         embedding=torch.randn(1, 32),
         chroma_logits=torch.randn(1, 2, 12),
@@ -101,6 +89,7 @@ def test_all_masked_harmony_is_zero_and_unavailable():
     raw = SimpleNamespace(
         embedding=torch.zeros(2, 32),
         chroma_logits=logits,
+        descriptor_values=torch.zeros(2, 45),
         chord_logits=None,
         availability=torch.zeros(2, dtype=torch.bool),
         prediction_mask=mask,
@@ -138,7 +127,7 @@ def _live_bundle(batch: int = 2):
     rhythm = from_rhythm_branch(rhythm_raw, supervision_mask=torch.zeros(batch, 10))
 
     tokens_per_window = encoded.encoded_sequence.shape[1] // 2
-    harmony_model = TemporalHarmonyBranch(128, dropout=0)
+    harmony_model = ChromaGroundedHarmonyBranch(128, dropout=0)
     harmony_raw = harmony_model(
         encoded.encoded_sequence,
         encoded.sequence_mask,
@@ -148,7 +137,7 @@ def _live_bundle(batch: int = 2):
     )
     harmony = from_temporal_harmony_branch(
         harmony_raw,
-        chroma_target_mask=torch.zeros_like(encoded.sequence_mask),
+        descriptor_supervision_mask=torch.zeros(batch, 45),
     )
 
     fixture = make_bundle(batch, seed=14, fusion_keep=1.0)
@@ -174,8 +163,9 @@ def test_genre_loss_reaches_prediction_heads_and_shared_encoder_in_primary_mode(
 
     assert rhythm.regression_head.weight.grad is not None
     assert rhythm.regression_head.weight.grad.abs().sum() > 0
-    assert harmony.chroma_head.weight.grad is not None
-    assert harmony.chroma_head.weight.grad.abs().sum() > 0
+    # Exact chroma/Tonnetz means carry the genre gradient into the chroma head.
+    assert harmony.chroma_head[-1].weight.grad is not None
+    assert harmony.chroma_head[-1].weight.grad.abs().sum() > 0
     assert encoder.cnn[0].weight.grad is not None
     assert encoder.cnn[0].weight.grad.abs().sum() > 0
 
@@ -190,6 +180,6 @@ def test_embedding_fusion_ablation_bypasses_prediction_heads_for_genre():
     logits, _ = model.from_bundle(bundle, apply_dropout=False)
     logits.sum().backward()
     assert rhythm.regression_head.weight.grad is None
-    assert harmony.chroma_head.weight.grad is None
+    assert harmony.chroma_head[-1].weight.grad is None
     assert rhythm.embedding_head[0].weight.grad is not None
-    assert harmony.embedding_projection.weight.grad is not None
+    assert harmony.summary[0].weight.grad is not None

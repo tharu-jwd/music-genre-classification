@@ -21,7 +21,7 @@ from concept_fusion.model import ConceptBottleneckModel
 from concept_fusion.rhythm_adapter import from_rhythm_branch
 from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.types import BranchBundle
-from harmony_branch.model import TemporalHarmonyBranch
+from harmony_branch.model import ChromaGroundedHarmonyBranch
 from rhythm_branch.model import RhythmBranch, RhythmBranchConfig
 from shared_encoder import SharedAudioEncoder
 from timbre_branch.model import TimbreBranch
@@ -53,7 +53,7 @@ def _live_stack():
     instrument_head = _InstrumentHead()
     timbre_head = TimbreBranch()
     rhythm_head = RhythmBranch(RhythmBranchConfig(dropout=0))
-    harmony_head = TemporalHarmonyBranch(
+    harmony_head = ChromaGroundedHarmonyBranch(
         128,
         embedding_dim=32,
         hidden_dim=32,
@@ -92,7 +92,7 @@ def _live_stack():
         "timbre": from_timbre_branch(timbre_raw),
         "harmony": from_temporal_harmony_branch(
             harmony_raw,
-            chroma_target_mask=encoded.sequence_mask,
+            descriptor_supervision_mask=torch.ones_like(harmony_raw.descriptor_values),
         ),
     }
     bundle = BranchBundle(branches=branches, counts=ConceptCounts())
@@ -119,6 +119,7 @@ def test_one_encoder_output_satisfies_all_four_branch_interfaces():
     assert rhythm.predictions.shape == (2, 10)
     assert harmony.embedding.shape == (2, 32)
     assert harmony.chroma_logits.shape == (2, 10, 12)
+    assert harmony.descriptor_values.shape == (2, 45)
     bundle.validate()
 
 
@@ -134,9 +135,8 @@ def test_each_branch_loss_path_reaches_shared_cnn():
         elif branch_name == "rhythm":
             loss = F.smooth_l1_loss(rhythm.predictions, torch.randn_like(rhythm.predictions))
         else:
-            valid_logits = harmony.chroma_logits[harmony.prediction_mask]
-            targets = torch.softmax(torch.randn_like(valid_logits), dim=-1)
-            loss = -(targets * F.log_softmax(valid_logits, dim=-1)).sum(dim=-1).mean()
+            descriptors = harmony.descriptor_values
+            loss = F.smooth_l1_loss(descriptors, torch.randn_like(descriptors))
         _assert_encoder_gradient(loss, encoder)
 
 

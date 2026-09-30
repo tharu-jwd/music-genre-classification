@@ -35,7 +35,13 @@ def _json_vector(values: np.ndarray) -> str:
     return json.dumps(values.tolist(), separators=(",", ":"), allow_nan=False)
 
 
-def build_vector_dataset(source: Path, output: Path, *, overwrite: bool = False) -> dict[str, object]:
+def build_vector_dataset(
+    source: Path,
+    output: Path,
+    *,
+    harmony_csv: Path | None = ROOT / "data/harmony_df.csv",
+    overwrite: bool = False,
+) -> dict[str, object]:
     source, output = Path(source), Path(output)
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -43,6 +49,14 @@ def build_vector_dataset(source: Path, output: Path, *, overwrite: bool = False)
         raise FileExistsError(f"{output} already exists; pass --overwrite to replace it")
 
     frame = pd.read_csv(source, dtype={"TRACK_ID": str})
+    if harmony_csv is not None and Path(harmony_csv).is_file():
+        # full_dataset.csv carries only 12 of the 45 harmony descriptors.
+        harmony = pd.read_csv(harmony_csv, dtype={"TRACK_ID": str})
+        overlap = sorted(set(HARMONY_FEATURES) & set(frame.columns))
+        frame = frame.drop(columns=overlap).merge(
+            harmony[["TRACK_ID", *HARMONY_FEATURES]], on="TRACK_ID", how="left",
+            validate="one_to_one",
+        )
     required = {"TRACK_ID", "logmel_path"}
     for _, columns in VECTOR_GROUPS:
         required.update(columns)
@@ -82,9 +96,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=ROOT / "data/full_dataset.csv")
     parser.add_argument("--output", type=Path, default=ROOT / "data/dataset.csv")
+    parser.add_argument("--harmony-csv", type=Path, default=ROOT / "data/harmony_df.csv",
+                        help="TRACK_ID + 45 harmony descriptors merged into harmony_vector")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(build_vector_dataset(args.source, args.output, overwrite=args.overwrite), indent=2))
+    print(json.dumps(build_vector_dataset(
+        args.source, args.output, harmony_csv=args.harmony_csv, overwrite=args.overwrite
+    ), indent=2))
     return 0
 
 

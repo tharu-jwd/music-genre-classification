@@ -1,4 +1,4 @@
-"""End-to-end contract tests for temporal harmony and concept fusion."""
+"""End-to-end contract tests for the v4 harmony branch and concept fusion."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from concept_fusion.harmony_adapter import from_temporal_harmony_branch
 from concept_fusion.joint_loss import HarmonyTargets, JointLossOrchestrator
 from concept_fusion.model import ConceptBottleneckModel
 from concept_fusion.types import BranchBundle
-from harmony_branch.model import TemporalHarmonyBranch
+from harmony_branch.model import ChromaGroundedHarmonyBranch
 
 
 def _inputs(batch: int = 4, *, available: bool = True):
@@ -33,7 +33,7 @@ def _real_harmony_bundle(
     target_mask: torch.Tensor | None = None,
     embedding_dim: int = 32,
 ):
-    branch_model = TemporalHarmonyBranch(
+    branch_model = ChromaGroundedHarmonyBranch(
         6,
         embedding_dim=embedding_dim,
         hidden_dim=12,
@@ -50,7 +50,11 @@ def _real_harmony_bundle(
     )
     if target_mask is None:
         target_mask = mask.clone()
-    harmony = from_temporal_harmony_branch(raw, chroma_target_mask=target_mask)
+    harmony = from_temporal_harmony_branch(
+        raw,
+        chroma_target_mask=target_mask,
+        descriptor_supervision_mask=target_mask.any(dim=1, keepdim=True).float().expand(-1, 45),
+    )
     fixture = make_bundle(batch, seed=11, fusion_keep=1.0)
     branches = dict(fixture.branches)
     branches["harmony"] = harmony
@@ -108,10 +112,10 @@ def test_missing_supervision_does_not_remove_available_harmony_from_fusion():
 
 
 def test_unavailable_harmony_is_masked_and_projects_to_exact_zero():
-    branch_model = TemporalHarmonyBranch(6, embedding_dim=32, hidden_dim=12, dropout=0)
+    branch_model = ChromaGroundedHarmonyBranch(6, embedding_dim=32, hidden_dim=12, dropout=0)
     sequence, mask, window_index = _inputs(3, available=False)
     raw = branch_model(sequence, mask, window_index, windows=2, tokens_per_window=4)
-    harmony = from_temporal_harmony_branch(raw)
+    harmony = from_temporal_harmony_branch(raw, descriptor_supervision_mask=torch.zeros(3, 45))
     fixture = make_bundle(3, seed=4, fusion_keep=1.0)
     branches = dict(fixture.branches)
     branches["harmony"] = harmony
@@ -138,20 +142,20 @@ def test_temporal_losses_and_genre_loss_backpropagate_through_harmony():
     breakdown.total.backward()
     assert breakdown.n_observed["harmony_chroma_frames"] == int(mask.sum())
     assert breakdown.n_observed["harmony_chord_frames"] == int(mask.sum())
-    assert branch_model.embedding_projection.weight.grad is not None
-    assert branch_model.chroma_head.weight.grad is not None
-    assert model.assembler.harmony_chroma_projection.weight.grad is not None
+    assert branch_model.summary[0].weight.grad is not None
+    assert branch_model.chroma_head[-1].weight.grad is not None
+    assert model.assembler.harmony_descriptor_projection.weight.grad is not None
 
 
 def test_checkpoint_restore_and_harmony_removal(tmp_path):
-    branch_model = TemporalHarmonyBranch(
+    branch_model = ChromaGroundedHarmonyBranch(
         6, embedding_dim=32, hidden_dim=12, chord_classes=N_HARMONY_CHORDS, dropout=0
     )
     sequence, mask, window_index = _inputs(4)
     raw = branch_model(sequence, mask, window_index, windows=2, tokens_per_window=4)
     fixture = make_bundle(4, seed=11, fusion_keep=1.0)
     branches = dict(fixture.branches)
-    branches["harmony"] = from_temporal_harmony_branch(raw, chroma_target_mask=mask)
+    branches["harmony"] = from_temporal_harmony_branch(raw, chroma_target_mask=mask, descriptor_supervision_mask=torch.ones(4, 45))
     bundle = BranchBundle(branches, fixture.counts)
     model = ConceptBottleneckModel("gated")
     branch_model.eval()
@@ -161,7 +165,7 @@ def test_checkpoint_restore_and_harmony_removal(tmp_path):
     checkpoint = tmp_path / "harmony_fusion.pt"
     torch.save({"branch": branch_model.state_dict(), "fusion": model.state_dict()}, checkpoint)
 
-    restored_branch = TemporalHarmonyBranch(
+    restored_branch = ChromaGroundedHarmonyBranch(
         6, embedding_dim=32, hidden_dim=12, chord_classes=N_HARMONY_CHORDS, dropout=0
     )
     restored_model = ConceptBottleneckModel("gated")
@@ -177,7 +181,7 @@ def test_checkpoint_restore_and_harmony_removal(tmp_path):
         torch.testing.assert_close(restored_raw.embedding, raw.embedding)
         restored_branches = dict(fixture.branches)
         restored_branches["harmony"] = from_temporal_harmony_branch(
-            restored_raw, chroma_target_mask=mask
+            restored_raw, chroma_target_mask=mask, descriptor_supervision_mask=torch.ones(4, 45)
         )
         restored_bundle = BranchBundle(restored_branches, fixture.counts)
         actual, _ = restored_model.from_bundle(restored_bundle, apply_dropout=False)

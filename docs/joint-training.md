@@ -3,12 +3,15 @@
 `scripts/train_joint.py` trains the shared encoder, all four concept branches,
 and fusion for the current six genres and 41 instrument labels.
 
-Harmony is predicted from the shared audio sequence. A song-level descriptor head
-maps the masked temporal embedding to the 12 values in `harmony_vector`. The
-targets are standardized using training-split statistics and optimized with masked
-Smooth L1 loss. Predicted descriptors—not targets—enter fusion, so validation and
-test inference remain leakage-free. The temporal chroma and optional chord heads
-remain available for future aligned targets but are not supervised by this run.
+Harmony (v4, `ChromaGroundedHarmonyBranch`) is predicted from the shared audio
+sequence and covers all **45** descriptors of `data/harmony_df.csv`, joined by
+`TRACK_ID` through `--harmony-csv` (default `DATA_DIR/harmony_df.csv`). The 12
+chroma means and 6 Tonnetz means are derived exactly from per-token chroma
+predictions; the other 27 come from a statistics-pooled regression head. Targets
+get named log/log1m transforms and a training-split-only z-score, and are
+optimized with masked Smooth L1 loss. Predicted descriptors, not targets, enter
+fusion through `Linear(45,64)`, so validation and test inference stay leakage-free.
+See the [v4 snapshot](../harmony_branch/docs/architecture-versions/v4/README.md).
 
 ## Local audio setup
 

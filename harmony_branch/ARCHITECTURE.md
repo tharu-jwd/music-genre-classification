@@ -1,28 +1,31 @@
 # Harmony branch architecture — current contract
 
-The implemented architecture is **Harmony v3**. Its complete, versioned account
-(including tensor shapes, diagrams, evidence, and known limits) is the
-[v3 architecture snapshot](docs/architecture-versions/v3/README.md). The
-[version register](docs/architecture-versions/README.md) records other versions
-and proposals. This page is a short entry point, not a second specification.
+The implemented architecture is **Harmony v4** (`ChromaGroundedHarmonyBranch`, git
+branch `harmony-v2`). Its complete account is the
+[v4 architecture snapshot](docs/architecture-versions/v4/README.md). The
+[version register](docs/architecture-versions/README.md) records v3 and older
+versions. This page is a short entry point, not a second specification.
 
 ```text
 Shared encoder ordered features (B,T,128) + validity/window masks
-  → harmony temporal network → masked song embedding (B,32)
-  → descriptor head → 12 standardized song-level predictions (B,12)
-  → fusion-owned Linear(12,64) → gated genre classifier
+  → 4 gap-safe dilated residual Conv1d blocks (B,T,96)
+  → per-token chroma head → q_t (B,T,12)
+      → exact: 12 chroma means = masked mean(q_t); 6 Tonnetz means = Φ·chroma mean
+      → 26 token-chroma statistics (std, entropy, max-bin, L2 flux, Tonnetz movement)
+  → attention + mean + std pooling → song embedding (B,64)
+  → regression head [embedding, statistics] → 27 remaining descriptors
+  → 45 transformed, standardized predictions (B,45)
+  → fusion-owned Linear(45,64) → gated genre classifier
 ```
 
-The 12 prediction targets are selected from the [45 automatically extracted
-track descriptors](docs/feature-contract.md). The joint trainer fits target
-standardization on training rows and uses masked Smooth L1 supervision.
-Fusion consumes **predictions**, not target values or chroma probabilities.
-Temporal chroma logits exist in the branch but are not supervised in the
-audited run; the optional chord head is disabled. The 32D embedding is an
-ablation input, not the primary fusion input.
+All [45 automatically extracted track descriptors](docs/feature-contract.md) are
+targets. Targets get named log/log1m transforms and a training-only z-score; the
+fitted parameters live in the model as buffers. Fusion consumes **predictions**,
+not target values. The chord head is optional and disabled by default. The 64D
+embedding is the embedding-fusion ablation input.
 
 For exact target order, report metrics, checkpoint checks, and unresolved
 evidence, read the [integration handoff](docs/integration-handoff.md). The
 [temporal chroma/chord proposal](TEMPORAL_CHROMA_PROPOSAL.md) and its
 [research plan](docs/temporal-chroma-research-plan.md) are historical/proposed
-experiments, **not** instructions for the current v3 training run.
+experiments, **not** instructions for the current v4 training run.

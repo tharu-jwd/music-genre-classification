@@ -21,7 +21,7 @@ track_id,path,instrument_vector,rhythm_vector,timbre_vector,harmony_vector,genre
 | `instrument_vector` | 41 | supervision for the instrument branch |
 | `rhythm_vector` | 10 | supervision for the rhythm branch |
 | `timbre_vector` | 35 | supervision for the timbre branch |
-| `harmony_vector` | 12 | tonal descriptor vector from the source dataset |
+| `harmony_vector` | 12 (legacy) or 45 | ignored when 12 wide; the trainer joins all 45 raw descriptors from `harmony_df.csv` |
 | `genre` | 6 | final multi-label target after concept fusion |
 
 Each vector cell is a compact JSON array such as `[0,1,0]`. The exact vector
@@ -42,10 +42,11 @@ Regenerate the compact dataset deterministically with:
 python scripts/build_vector_dataset.py --overwrite
 ```
 
-The generated harmony vector contains the 12 tonal summary descriptors present in
-`full_dataset.csv`; it is not a chroma distribution. The joint trainer fits a
-training-split-only standardizer and supervises a song-level descriptor head with
-masked Smooth L1 loss. Its predicted descriptor vector enters fusion.
+The builder now merges all 45 harmony descriptors from `data/harmony_df.csv`.
+Tables built earlier carry a min-max-scaled 12-descriptor subset. The trainer
+ignores that subset and joins the 45 raw values from `harmony_df.csv`, which the
+Modal image ships and passes as `--harmony-csv` (a `dataset/harmony_df.csv` on the
+Volume takes precedence). Its predicted 45-descriptor vector enters fusion.
 
 The log-mel arrays are not stored in Git. The runner mounts two input Volumes:
 
