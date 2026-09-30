@@ -131,6 +131,23 @@ modal run --detach modal_app.py \
   --gpu A10
 ```
 
+For the 30-epoch I1 integration-adapter experiment, submit a unique run with:
+
+```bash
+modal run --detach modal_app.py \
+  --background \
+  --experiment i1 \
+  --run-name i1-adapter-30epoch \
+  --epochs 30 \
+  --batch-size 1 \
+  --gpu A10
+```
+
+The optional matched Full Architecture V1 control uses `--experiment
+i1-control` and a different run name. I1 modes reject any epoch budget other
+than 30. The Modal image includes `integration_adapters.py`, and the remote
+runner forwards the selected mode to `scripts/train_joint.py`.
+
 The GPU can be changed at submission time, for example `--gpu L40S` or
 `--gpu A100-40GB`. Start with batch size 1 because the model processes up to 12
 long windows per track; raise it only after observing GPU memory use.

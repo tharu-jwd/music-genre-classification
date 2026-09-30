@@ -47,6 +47,7 @@ image = (
     .add_local_dir("timbre_branch/src/timbre_branch", str(PROJECT_DIR / "timbre_branch/src/timbre_branch"))
     .add_local_dir("harmony_branch/src/harmony_branch", str(PROJECT_DIR / "harmony_branch/src/harmony_branch"))
     .add_local_dir("instrument_branch/docs", str(PROJECT_DIR / "instrument_branch/docs"))
+    .add_local_file("integration_adapters.py", str(PROJECT_DIR / "integration_adapters.py"))
     .add_local_file("scripts/train_cnn.py", str(PROJECT_DIR / "scripts/train_cnn.py"))
     .add_local_file("scripts/train_joint.py", str(PROJECT_DIR / "scripts/train_joint.py"))
     .add_local_file("scripts/mtg_data_contract.py", str(PROJECT_DIR / "scripts/mtg_data_contract.py"))
@@ -79,6 +80,7 @@ def train_remote(
     quick: bool,
     skip_test: bool,
     model: str = "joint",
+    experiment: str = "current",
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -119,6 +121,12 @@ def train_remote(
         command.append("--quick")
     if skip_test:
         command.append("--skip-test")
+    if experiment == "i1":
+        command.append("--experiment-i1")
+    elif experiment == "i1-control":
+        command.append("--experiment-i1-control")
+    elif experiment != "current":
+        raise ValueError("experiment must be current, i1, or i1-control")
 
     print("Starting:", " ".join(command), flush=True)
     subprocess.run(command, cwd=PROJECT_DIR, check=True)
@@ -151,10 +159,19 @@ def main(
     skip_test: bool = False,
     background: bool = False,
     model: str = "joint",
+    experiment: str = "current",
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
         raise ValueError("model must be joint or cnn")
+    if experiment not in ("current", "i1", "i1-control"):
+        raise ValueError("experiment must be current, i1, or i1-control")
+    if experiment != "current" and model != "joint":
+        raise ValueError("I1 modes are available only for the joint model")
+    if experiment != "current" and epochs != 30:
+        raise ValueError("I1 and its matched control require exactly 30 epochs")
+    if experiment != "current" and quick:
+        raise ValueError("I1 is a strict 30-epoch experiment and cannot use --quick")
     if model == "cnn" and run_name == "joint-full-v1":
         run_name = "cnn-full-v1"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_name):
@@ -172,6 +189,7 @@ def main(
         quick,
         skip_test,
         model,
+        experiment,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:
