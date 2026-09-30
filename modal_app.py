@@ -81,6 +81,8 @@ def train_remote(
     quick: bool,
     skip_test: bool,
     model: str = "joint",
+    harmony_grouped_descriptor_heads: bool = False,
+    harmony_feature_balanced_loss: bool = False,
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -125,6 +127,10 @@ def train_remote(
         command.append("--quick")
     if skip_test:
         command.append("--skip-test")
+    if harmony_grouped_descriptor_heads:
+        command.append("--harmony-grouped-descriptor-heads")
+    if harmony_feature_balanced_loss:
+        command.append("--harmony-feature-balanced-loss")
 
     print("Starting:", " ".join(command), flush=True)
     subprocess.run(command, cwd=PROJECT_DIR, check=True)
@@ -151,12 +157,14 @@ def main(
     batch_size: int = 1,
     learning_rate: float = 3e-4,
     num_workers: int = 2,
-    max_windows: int = 12,
+    max_windows: int = 16,
     gpu: str = "A10",
     quick: bool = False,
     skip_test: bool = False,
     background: bool = False,
     model: str = "joint",
+    harmony_grouped_descriptor_heads: bool = False,
+    harmony_feature_balanced_loss: bool = False,
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
@@ -178,6 +186,8 @@ def main(
         quick,
         skip_test,
         model,
+        harmony_grouped_descriptor_heads,
+        harmony_feature_balanced_loss,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

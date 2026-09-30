@@ -12,6 +12,7 @@ from torch.nn import functional as F
 from .constants import (
     CHROMA_MEAN_FEATURES,
     CHROMA_STD_FEATURES,
+    DESCRIPTOR_GROUPS,
     HARMONY_DESCRIPTORS,
     N_HARMONY_DESCRIPTORS,
     TONNETZ_MEAN_FEATURES,
@@ -203,6 +204,12 @@ _INDEX = {name: i for i, name in enumerate(HARMONY_DESCRIPTORS)}
 # Descriptors the extractor defines as exact functions of per-frame chroma means.
 _EXACT = (*CHROMA_MEAN_FEATURES, *TONNETZ_MEAN_FEATURES)
 _LEARNED = tuple(name for name in HARMONY_DESCRIPTORS if name not in _EXACT)
+_LEARNED_GROUPS = {
+    group: tuple(name for name in names if name in _LEARNED)
+    for group, names in DESCRIPTOR_GROUPS.items()
+    if any(name in _LEARNED for name in names)
+}
+assert tuple(name for names in _LEARNED_GROUPS.values() for name in names) == _LEARNED
 # Token-chroma statistics computed with the extractor's own formulas. Each one
 # is the model-resolution analogue of the learned descriptor of the same name.
 CHROMA_STATISTICS: tuple[str, ...] = (
@@ -278,6 +285,7 @@ class ChromaGroundedHarmonyBranch(nn.Module):
         kernel_size: int = 3,
         chord_classes: int | None = None,
         dropout: float = 0.1,
+        grouped_descriptor_heads: bool = False,
     ):
         super().__init__()
         for value, name in (
@@ -297,6 +305,7 @@ class ChromaGroundedHarmonyBranch(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.embedding_dim = embedding_dim
+        self.grouped_descriptor_heads = bool(grouped_descriptor_heads)
 
         self.input_projection = nn.Sequential(
             nn.Linear(input_dim, hidden_dim), nn.LayerNorm(hidden_dim), nn.GELU()
@@ -314,13 +323,27 @@ class ChromaGroundedHarmonyBranch(nn.Module):
             nn.Linear(3 * hidden_dim, embedding_dim), nn.LayerNorm(embedding_dim), nn.GELU()
         )
         head_in = embedding_dim + N_CHROMA_STATISTICS
-        self.descriptor_head = nn.Sequential(
-            nn.LayerNorm(head_in),
-            nn.Linear(head_in, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, len(_LEARNED)),
-        )
+        def descriptor_head(output_dim: int) -> nn.Sequential:
+            return nn.Sequential(
+                nn.LayerNorm(head_in),
+                nn.Linear(head_in, hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, output_dim),
+            )
+
+        # The 18 chroma/Tonnetz means remain exact deterministic outputs.  This
+        # optional experiment only separates the 27 learned descriptors into
+        # semantically coherent internal heads; the public output stays [B,45].
+        if self.grouped_descriptor_heads:
+            self.descriptor_head = None
+            self.descriptor_heads = nn.ModuleDict({
+                group: descriptor_head(len(names))
+                for group, names in _LEARNED_GROUPS.items()
+            })
+        else:
+            self.descriptor_head = descriptor_head(len(_LEARNED))
+            self.descriptor_heads = nn.ModuleDict()
         self.statistic_gain = nn.Parameter(torch.zeros(len(_LEARNED)))
 
         self.register_buffer("tonnetz_phi", torch.tensor(tonnetz_phi(), dtype=torch.float32))
@@ -415,7 +438,15 @@ class ChromaGroundedHarmonyBranch(nn.Module):
 
         # Learned descriptors: pooled context + chroma statistics, plus a direct
         # gain from each descriptor's matching statistic.
-        learned_values = self.descriptor_head(torch.cat((embedding, log_statistics), dim=-1))
+        head_input = torch.cat((embedding, log_statistics), dim=-1)
+        if self.grouped_descriptor_heads:
+            learned_values = torch.cat(
+                [self.descriptor_heads[group](head_input) for group in _LEARNED_GROUPS],
+                dim=-1,
+            )
+        else:
+            assert self.descriptor_head is not None
+            learned_values = self.descriptor_head(head_input)
         aligned = self.aligned_statistic
         has_statistic = aligned >= 0
         matched = log_statistics[:, aligned.clamp_min(0)] * has_statistic.to(log_statistics.dtype)

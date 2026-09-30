@@ -139,7 +139,7 @@ class MultiTargetDataset(Dataset):
         harmony_targets: np.ndarray,     # (N, 45) float32 transformed + standardized
         harmony_mask: np.ndarray | None = None,  # (N, 45) bool
         window_frames: int = 1366,
-        max_windows: int = 12,
+        max_windows: int = 16,
         mel_config: dict | None = None,
         durations: dict[str, float] | None = None,
     ) -> None:
@@ -407,7 +407,7 @@ def build_datasets(
     quick: bool = False,
     logmel_root: Path | None = None,
     window_frames: int = 1366,
-    max_windows: int = 12,
+    max_windows: int = 16,
 ) -> tuple[
     MultiTargetDataset, MultiTargetDataset, MultiTargetDataset,
     TimbreStandardizer, RhythmStandardizer, HarmonyStandardizer,
@@ -775,12 +775,14 @@ def evaluate(
     fusion_model: ConceptBottleneckModel,
     loader: DataLoader,
     device: torch.device,
+    harmony_feature_groups: tuple[tuple[str, ...], ...] | None = None,
 ) -> dict[str, Any]:
     for m in (encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model):
         m.eval()
 
     genre_loss_fn = JointLossOrchestrator(
-        weights=LossWeights(instrument=0, rhythm=0, timbre=0, harmony=0)
+        weights=LossWeights(instrument=0, rhythm=0, timbre=0, harmony=0),
+        harmony_feature_groups=harmony_feature_groups,
     ).to(device)
 
     all_probs: list[Tensor] = []
@@ -907,7 +909,11 @@ def train(cfg: "TrainConfig") -> None:
     instrument_head = InstrumentHead().to(device)
     timbre_head    = TimbreBranch().to(device)
     rhythm_head    = RhythmBranch().to(device)
-    harmony_head = ChromaGroundedHarmonyBranch(128, chord_classes=None)
+    harmony_head = ChromaGroundedHarmonyBranch(
+        128,
+        chord_classes=None,
+        grouped_descriptor_heads=cfg.harmony_grouped_descriptor_heads,
+    )
     # Exact chroma/Tonnetz outputs are standardized inside the model.
     harmony_head.set_target_transform(harmony_std)
     harmony_head = harmony_head.to(device)
@@ -930,6 +936,10 @@ def train(cfg: "TrainConfig") -> None:
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=cfg.epochs, eta_min=cfg.lr * 0.05
     )
+    harmony_feature_groups = (
+        tuple(tuple(names) for names in DESCRIPTOR_GROUPS.values())
+        if cfg.harmony_feature_balanced_loss else None
+    )
     loss_fn = JointLossOrchestrator(
         weights=LossWeights(
             genre=1.0,
@@ -937,7 +947,8 @@ def train(cfg: "TrainConfig") -> None:
             rhythm=cfg.lambda_rhythm,
             timbre=cfg.lambda_timbre,
             harmony=cfg.lambda_harmony,
-        )
+        ),
+        harmony_feature_groups=harmony_feature_groups,
     ).to(device)
 
     out_dir = ROOT / cfg.out_dir
@@ -995,7 +1006,7 @@ def train(cfg: "TrainConfig") -> None:
         print("Evaluating validation split...", flush=True)
         val_metrics = evaluate(
             encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
-            fusion_model, val_loader, device,
+            fusion_model, val_loader, device, harmony_feature_groups,
         )
         val_ap = val_metrics["macro_ap"]
 
@@ -1058,6 +1069,9 @@ def train(cfg: "TrainConfig") -> None:
                 "harmony_strategy":  "chroma_grounded_45_descriptor_regression",
                 "harmony_schema_version": HARMONY_SCHEMA_VERSION,
                 "harmony_architecture": "harmony_v4_chroma_grounded",
+                "harmony_grouped_descriptor_heads": cfg.harmony_grouped_descriptor_heads,
+                "harmony_feature_balanced_loss": cfg.harmony_feature_balanced_loss,
+                "harmony_loss_groups": None if harmony_feature_groups is None else [list(group) for group in harmony_feature_groups],
                 "harmony_supervised": bool(train_ds.harmony_mask.any()),
             }
             torch.save(ckpt, out_dir / "best.pt")
@@ -1080,7 +1094,7 @@ def train(cfg: "TrainConfig") -> None:
 
         test_metrics = evaluate(
             encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
-            fusion_model, test_loader, device,
+            fusion_model, test_loader, device, harmony_feature_groups,
         )
         print(
             f"\nTest: macro_ap={test_metrics['macro_ap']:.4f}  "
@@ -1134,9 +1148,11 @@ class TrainConfig:
     split_csv:          Path | None = None
     harmony_csv:        Path | None = None
     require_harmony_targets: bool = False
+    harmony_grouped_descriptor_heads: bool = False
+    harmony_feature_balanced_loss: bool = False
     logmel_root:        Path | None = None
     window_frames:     int = 1366
-    max_windows:       int = 12
+    max_windows:       int = 16
 
 
 def main() -> None:
@@ -1157,7 +1173,7 @@ def main() -> None:
                    help="32-track subsets, 3 epochs — smoke test only")
     p.add_argument("--logmel-root", type=Path, help="Local logmel_songs directory; replaces the Colab prefix")
     p.add_argument("--window-frames", type=int, default=1366)
-    p.add_argument("--max-windows", type=int, default=12)
+    p.add_argument("--max-windows", type=int, default=16)
     p.add_argument("--skip-test", action="store_true", help="Reserve the test split for final evaluation")
     p.add_argument("--data-dir", type=Path, default=ROOT / "data",
                    help="Directory containing metadata/config files")
@@ -1170,6 +1186,10 @@ def main() -> None:
     p.add_argument("--harmony-csv", type=Path,
                    help="TRACK_ID + 45 raw harmony descriptors joined into a combined dataset; "
                         "defaults to DATA_DIR/harmony_df.csv")
+    p.add_argument("--harmony-grouped-descriptor-heads", action="store_true",
+                   help="Use separate learned heads for chroma-std, Tonnetz-std, and tonal-dynamics descriptors")
+    p.add_argument("--harmony-feature-balanced-loss", action="store_true",
+                   help="Average harmony Smooth-L1 equally across five semantic descriptor groups")
     p.add_argument("--print-dataset-schema", action="store_true",
                    help="Print the canonical dataset.csv vector groups and exit")
     args = p.parse_args()
@@ -1198,6 +1218,8 @@ def main() -> None:
         split_csv         = args.split_csv,
         harmony_csv       = args.harmony_csv,
         require_harmony_targets = args.require_harmony_targets,
+        harmony_grouped_descriptor_heads = args.harmony_grouped_descriptor_heads,
+        harmony_feature_balanced_loss = args.harmony_feature_balanced_loss,
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,
@@ -1217,6 +1239,7 @@ def main() -> None:
     print(f"  Timbre     : {N_TIMBRE_CONCEPTS} descriptors")
     print(f"  Rhythm     : {N_RHYTHM_CONCEPTS} AcousticBrainz fields")
     print(f"  Harmony    : {N_HARMONY_DESCRIPTORS} descriptors, chroma-grounded v4 branch")
+    print(f"  Harmony V3: grouped_heads={cfg.harmony_grouped_descriptor_heads}  balanced_loss={cfg.harmony_feature_balanced_loss}")
     print(f"  Epochs     : {cfg.epochs}   Batch: {cfg.batch_size}   LR: {cfg.lr}")
     print(f"  Device     : {cfg.device}")
     print("=" * 60)

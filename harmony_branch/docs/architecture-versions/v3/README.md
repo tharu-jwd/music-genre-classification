@@ -123,7 +123,7 @@ default values.
 }}}%%
 flowchart LR
   CACHE["<span style='color:#7CC4FF'>Log-Mel cache</span><br/><br/>16 kHz, hop 512, 128 mel<br/>15 s cache metadata, center true"]
-  THREE["<span style='color:#7CC4FF'>3D stacked-cache path</span><br/><br/>windows x 128 x actual F<br/>select up to 12 ordered windows"]
+  THREE["<span style='color:#7CC4FF'>3D stacked-cache path</span><br/><br/>windows x 128 x actual F<br/>select up to 16 ordered windows"]
   TWO["<span style='color:#7CC4FF'>2D fallback path</span><br/><br/>128 x total frames<br/>chunk by saved window_frames=1366"]
   META["<span style='color:#7CC4FF'>Window metadata</span><br/><br/>valid frame counts, start times<br/>invalid tail zeroed"]
   BATCH["<span style='color:#7CC4FF'>Collated model input</span><br/><br/>mel (B,W,1,128,F)<br/>window mask (B,W)"]

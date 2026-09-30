@@ -1,0 +1,19 @@
+# Harmony V3 grouped-heads and feature-balanced-loss experiment
+
+This experiment retains the public Harmony V2/V4 contract:
+
+```text
+encoded_sequence [B,T,128] -> harmony descriptors [B,45] -> fusion
+```
+
+It changes two internal training choices only.
+
+1. The existing 18 exact outputs remain deterministic: 12 chroma means and 6 Tonnetz means.
+2. The remaining 27 learned outputs are emitted by three independent heads:
+   `chroma_std` (12), `tonnetz_std` (6), and `tonal_dynamics` (9).
+3. Harmony Smooth L1 is averaged within, then equally across, five groups:
+   chroma mean, chroma std, Tonnetz mean, Tonnetz std, and tonal dynamics.
+
+The feature names, order, 45-dimensional output, fusion ownership, target transforms,
+and shared-CNN interface are unchanged. Run this as a separately named 10-epoch
+screen before considering a 30-epoch comparison.

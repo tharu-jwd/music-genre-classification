@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Sequence
 
 import torch
 import torch.nn.functional as F
@@ -66,6 +67,25 @@ def _masked_mean(loss_elem: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Ten
     return (loss_elem * m).sum() / m.sum(), n
 
 
+def _group_balanced_masked_mean(
+    loss_elem: torch.Tensor,
+    mask: torch.Tensor,
+    groups: Sequence[Sequence[int]],
+) -> tuple[torch.Tensor, int]:
+    """Average observed Smooth-L1 losses within groups, then across groups."""
+    group_losses: list[torch.Tensor] = []
+    observed = 0
+    for indices in groups:
+        index = torch.as_tensor(indices, dtype=torch.long, device=loss_elem.device)
+        group_loss, group_observed = _masked_mean(loss_elem.index_select(1, index), mask.index_select(1, index))
+        observed += group_observed
+        if group_observed:
+            group_losses.append(group_loss)
+    if not group_losses:
+        return loss_elem.sum() * 0.0, 0
+    return torch.stack(group_losses).mean(), observed
+
+
 class JointLossOrchestrator(torch.nn.Module):
     """L = L_genre + Σ λ_k L_k, each L_k averaged over observed elements only.
 
@@ -76,10 +96,24 @@ class JointLossOrchestrator(torch.nn.Module):
     NaN targets are allowed only where supervision_mask is 0.
     """
 
-    def __init__(self, counts: ConceptCounts | None = None, weights: LossWeights | None = None):
+    def __init__(
+        self,
+        counts: ConceptCounts | None = None,
+        weights: LossWeights | None = None,
+        harmony_feature_groups: Sequence[Sequence[str]] | None = None,
+    ):
         super().__init__()
         self.counts = counts or ConceptCounts()
         self.weights = weights or LossWeights()
+        self.harmony_feature_groups: tuple[tuple[int, ...], ...] | None = None
+        if harmony_feature_groups is not None:
+            from concept_fusion.contract import HARMONY_FEATURES
+            feature_index = {name: index for index, name in enumerate(HARMONY_FEATURES)}
+            groups = tuple(tuple(feature_index[name] for name in group) for group in harmony_feature_groups)
+            flattened = tuple(index for group in groups for index in group)
+            if not groups or len(set(flattened)) != len(flattened) or set(flattened) != set(range(len(HARMONY_FEATURES))):
+                raise ValueError("harmony feature groups must partition every published harmony feature exactly once")
+            self.harmony_feature_groups = groups
         if self.weights.use_kendall:
             self.log_vars = torch.nn.Parameter(torch.zeros(5))
         else:
@@ -122,7 +156,12 @@ class JointLossOrchestrator(torch.nn.Module):
                     pred_f = torch.where(obs, pred, torch.zeros_like(pred))
                     tgt_f = torch.where(obs, tgt, torch.zeros_like(tgt))
                     raw = F.smooth_l1_loss(pred_f, tgt_f, reduction="none")
-                    terms[name], n_obs[name] = _masked_mean(raw, mask)
+                    if self.harmony_feature_groups is None:
+                        terms[name], n_obs[name] = _masked_mean(raw, mask)
+                    else:
+                        terms[name], n_obs[name] = _group_balanced_masked_mean(
+                            raw, mask, self.harmony_feature_groups
+                        )
                     continue
                 if isinstance(harmony_targets, SongHarmonyTargets):
                     target = harmony_targets.chroma

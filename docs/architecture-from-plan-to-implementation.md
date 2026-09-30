@@ -19,7 +19,7 @@ Target: explainable multi-label genre classification on MTG-Jamendo official spl
 Planned flow (`docs/proposed-architecture.md`):
 
 ```text
-up to 12 log-mel windows → shared CNN → song representation
+up to 16 log-mel windows → shared CNN → song representation
     → four concept branches (instrument / rhythm / timbre / harmony)
     → gated fusion → 128-D → 87 genre logits
 ```

@@ -19,12 +19,12 @@ matched comparison, not a parameter-count-matched experiment.
 From the repository root, for a 10-epoch, batch-4 L4 run:
 
 ```powershell
-modal run --detach modal_app.py --model cnn --gpu L4 --epochs 10 --batch-size 4 --learning-rate 0.0003 --max-windows 12 --run-name cnn-l4-b4-10ep-v1
+modal run --detach modal_app.py --model cnn --gpu L4 --epochs 10 --batch-size 4 --learning-rate 0.0003 --max-windows 16 --run-name cnn-l4-b4-10ep-v1
 ```
 
 Use the **actual** max-windows, initial learning rate, dataset CSV, split manifest,
 and audio extraction configuration of joint-l4-b4-10ep-v2. The console excerpt
-alone does not establish all those settings; 12 windows is the runner default,
+alone does not establish all those settings; 16 windows is the runner default,
 not a verified property of that run. Do not change the data Volume between runs.
 The existing joint checkpoint records max_windows, window_frames, and mel_config.
 Use the original launch arguments for the remaining training settings.
@@ -32,7 +32,7 @@ Use the original launch arguments for the remaining training settings.
 Local equivalent (add the same data path options used for joint training):
 
 ```powershell
-python scripts/train_joint.py --model cnn --epochs 10 --batch-size 4 --lr 0.0003 --max-windows 12 --out-dir results/cnn
+python scripts/train_joint.py --model cnn --epochs 10 --batch-size 4 --lr 0.0003 --max-windows 16 --out-dir results/cnn
 ```
 
 Use --quick for a three-epoch, 32-track-per-split smoke test only; --skip-test
