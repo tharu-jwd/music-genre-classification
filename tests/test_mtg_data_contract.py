@@ -98,6 +98,18 @@ class MtgDataContractTest(unittest.TestCase):
         self.assertEqual(float(windows[1, :, 1:].sum()), 0.0)
         self.assertEqual(float(windows[2:].sum()), 0.0)
 
+    def test_zero_window_limit_uses_every_chunk(self):
+        contract = load_contract(Path("unused"))
+        raw = np.arange(20, dtype=np.float32).reshape(2, 10)
+        windows, mask, valid, starts = contract["segment_logmel_with_metadata"](
+            raw, n_mels=2, n_frames=3, max_windows=0
+        )
+        self.assertEqual(windows.shape, (4, 2, 3))
+        np.testing.assert_array_equal(mask, np.ones(4))
+        np.testing.assert_array_equal(valid, [3, 3, 3, 1])
+        np.testing.assert_array_equal(windows[2], raw[:, 6:9])
+        self.assertEqual(len(starts), 4)
+
     def test_temporal_metadata_preserves_partial_lengths_and_selected_start_times(self):
         contract = load_contract(Path("unused"))
         raw = np.ones((96, 1366 * 5 + 7), dtype=np.float32)
