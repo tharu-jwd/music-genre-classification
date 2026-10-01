@@ -340,6 +340,16 @@ def extract(workers: int = 4, harmonic_only: bool = True) -> dict[str, Any]:
                     error_count = int((checkpoint["status"] != "ok").sum())
                     elapsed_minutes = (time.monotonic() - started) / 60.0
                     print(f"Checkpoint: completed={completed:,}/{len(pending):,}; ok={ok_count:,}; errors={error_count:,}; elapsed_min={elapsed_minutes:.1f}", flush=True)
+                    if error_count:
+                        sample = checkpoint.loc[
+                            checkpoint["status"] != "ok", ["TRACK_ID", "error"]
+                        ].head(3)
+                        for _, failed in sample.iterrows():
+                            print(
+                                f"  error sample: TRACK_ID={failed['TRACK_ID']}; "
+                                f"{failed['error']}",
+                                flush=True,
+                            )
 
     checkpoint = _save_outputs(records, selected, work_root)
     data_volume.commit()
