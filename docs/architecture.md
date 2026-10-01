@@ -26,7 +26,7 @@ sampled log-Mel windows: (B, W, 1, 96, F)
        ┌────┴────┐                  ┌───┴────┐
        ▼         ▼                  ▼        ▼
  instrument   timbre             rhythm   harmony
- 40 probs     35 values        10 values  12 pooled probs
+ 41 probs     35 values        10 values  12 pooled probs
        │         │               │          │
        └────┬────┴───────────────┬──────────┘
             ▼                    ▼
@@ -51,7 +51,7 @@ layout metadata.
 | Component | Input | Output used downstream | Parameters |
 |---|---|---|---:|
 | Shared CNN | `(B,W,1,96,F)` | sequence `(B,T,128)`, song `(B,128)` | 86,913 |
-| Instrument | song `(B,128)` | 40 probabilities | 21,672 |
+| Instrument | song `(B,128)` | 41 probabilities | 21,801 |
 | Rhythm | sequence `(B,T,128)` | 10 standardized predictions | 87,883 |
 | Timbre | song `(B,128)` | 35 standardized predictions | 27,299 |
 | Harmony | sequence `(B,T,128)` | 12 standardized song-level descriptor predictions | implementation-dependent |
@@ -65,8 +65,9 @@ Counts use current defaults and exclude optional components unless stated.
 
 ### 2.1 Dataset split and labels
 
-The project uses the official MTG-Jamendo split-0 train, validation, and test
-partitions. Split membership must not be recomputed randomly. Extractors,
+The project uses the frozen 7,324-track assignments in
+`data/track_split_assignments.csv`: 5,127 train, 1,099 validation, and 1,098 test.
+Split membership must not be recomputed randomly. Extractors,
 normalizers, class weights, early stopping, threshold calibration, and final
 evaluation must respect this partition.
 
@@ -176,19 +177,24 @@ Detailed document:
 ```text
 pooled_song (B,128)
   → Linear(128,128) → ReLU → Dropout(0.10)
-  → Linear(128,40) → logits → sigmoid → probabilities
+  → Linear(128,41) → logits → sigmoid → probabilities
 ```
 
-The 40 probabilities form the primary concept bottleneck. Fusion owns
-`Linear(40,64)`. The detached 128D hidden state is diagnostic and is allowed only
+The 41 probabilities form the primary concept bottleneck. Fusion owns
+`Linear(41,64)`. The detached 128D hidden state is diagnostic and is allowed only
 in the named `F-Hidden` ablation. A supplied `(B,W,128)` tensor is validated by the
 standalone implementation but is not used in its current prediction path.
 
 ### 4.2 Targets, loss, and metrics
 
-Targets are the official 40 MTG-Jamendo instrument tags in the frozen alphabetical
+Targets are the official 41 MTG-Jamendo instrument tags in the frozen alphabetical
 order stored in
 [`instrument-vocabulary.json`](../instrument_branch/docs/instrument-vocabulary.json).
+
+Official split-0 TSVs cover 40 tags and omit ukulele, but they are not used for
+training. The standalone notebook requires the local 41-column instrument CSV and
+the frozen 7,324-track assignments. Ukulele therefore receives label supervision
+along with the other instruments. Missing annotation rows remain masked.
 
 They are **weak human/uploader annotations**, not exhaustive acoustic-presence
 labels. On a row known to have instrument annotation, an omitted tag is treated as
@@ -389,7 +395,7 @@ The frozen order is `[instrument, rhythm, timbre, harmony]`:
 
 | Branch value | Fusion-owned adapter | Token |
 |---|---|---|
-| 40 instrument probabilities | `Linear(40,64)` | `(B,64)` |
+| 41 instrument probabilities | `Linear(41,64)` | `(B,64)` |
 | 10 standardized rhythm predictions | `Linear(10,64)` | `(B,64)` |
 | 35 standardized timbre predictions | `Linear(35,64)` | `(B,64)` |
 | 12 masked-pooled chroma probabilities | `Linear(12,64)` | `(B,64)` |
@@ -455,7 +461,7 @@ metrics use validation-selected thresholds only.
 | Output | Shape/granularity | Source | Status | Loss |
 |---|---|---|---|---|
 | Genre | 87/song | official genre tags | weak human/uploader annotation | BCE with logits |
-| Instrument | 40/song | official instrument tags | weak human/uploader annotation | masked BCE with logits |
+| Instrument | 41/song | official instrument tags | weak human/uploader annotation | masked BCE with logits |
 | Rhythm | 10/song | AcousticBrainz/Essentia | extracted target | masked Smooth L1 |
 | Timbre | 35/song | deterministic audio extractor | extracted target | masked Smooth L1 |
 | Harmony descriptors | 12/song | deterministic tonal summaries | extracted target | masked Smooth L1 |
@@ -493,7 +499,7 @@ same CNN. The encoder is optimized by all unmasked active objectives unless froz
 
 ### Stage 0 — contracts and artifacts
 
-1. Use official split-0 IDs and fixed 87-genre/40-instrument orders.
+1. Use the frozen 7,324-track split and fixed 87-genre/41-instrument orders.
 2. Produce log-Mel windows and complete window metadata.
 3. Join targets by normalized track ID without changing splits.
 4. Generate availability masks; never silently impute missing targets.

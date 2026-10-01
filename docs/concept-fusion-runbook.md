@@ -8,11 +8,11 @@
 
 These numbers are **not** paper results until real branch tokens replace the fixture generator.
 
-**Instrument v2 (on `main`):** no 64-D token. Fusion owns `Linear(40, 64)` over 40 probabilities.
+**Instrument v2 (on `main`):** no 64-D token. Fusion owns `Linear(41, 64)` over 41 probabilities.
 
 **Timbre v2 (on `main`):** no 64-D token and no `h_audio` shortcut. Fusion owns `Linear(35, 64)` over Senindu's standardized `z_timbre`. Feature order is `timbre_branch/src/timbre_branch/constants.py` (`FEATURE_COLUMNS`, 35 names).
 
-**Predicted-concept fusion v1:** instrument 40→64, rhythm 10→64, timbre 35→64,
+**Predicted-concept fusion v1:** instrument 41→64, rhythm 10→64, timbre 35→64,
 and masked-pooled predicted chroma 12→64 are fusion-owned projections. Temporal
 chroma logits and optional 25-class chords retain their masked auxiliary losses.
 The former rhythm/harmony embedding route is `F-Embedding`.
@@ -99,7 +99,7 @@ B0 (legacy notebook CNN) is not in this runner.
 ## After real branches land
 
 1. Ratify the v0.3 predicted-concept contract and temporal masks.
-2. Supply real `BranchBundle` rows on official split-0 IDs instead of `make_cohort`.
+2. Supply real `BranchBundle` rows on the frozen 7,324-track project split instead of `make_cohort`.
 3. Supply accepted temporal harmony targets and ordered encoder features.
 4. Replace B1 with Dehan's CNN. Keep the same `run_all` entry point.
 5. Do not disable dropout on F-Gated if you will report occlusion.

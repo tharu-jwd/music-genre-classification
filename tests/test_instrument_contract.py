@@ -11,6 +11,74 @@ from concept_fusion.validation import ContractError
 import pytest
 
 
+@pytest.fixture(scope="module")
+def notebook_scope():
+    from instrument_branch.scripts.validate_instrument_branch_notebook import notebook_scope
+
+    scope, _ = notebook_scope()
+    return scope
+
+
+def test_standalone_branch_matches_fusion_vocabulary(notebook_scope):
+    assert tuple(notebook_scope["VOCAB"]) == INSTRUMENT_TAGS
+    model = notebook_scope["InstrumentBranch"]().eval()
+    bundle = make_bundle(2, seed=4)
+    bundle.branches["instrument"] = from_instrument_branch(model(torch.randn(2, 128)))
+    bundle.validate()
+    assert TokenAssembler()(bundle).shape == (2, 4, 64)
+
+
+def test_ukulele_target_and_filtered_split_mask(notebook_scope):
+    arrays = notebook_scope["annotation_arrays"]
+    index = INSTRUMENT_TAGS.index("ukulele")
+    targets, mask = arrays(["1"], {"1": {"tags": {"instrument---ukulele"}}})
+    assert targets.shape == mask.shape == (1, 41)
+    assert targets[0, index] == mask[0, index] == 1
+    _, filtered_mask = arrays(
+        ["1"], {"1": {"tags": {"instrument---guitar"}}},
+        observed_tags=notebook_scope["OFFICIAL_SPLIT_TAGS"],
+    )
+    assert filtered_mask.sum() == 40
+    assert filtered_mask[0, index] == 0
+
+
+def test_local_annotations_preserve_ukulele_and_custom_splits(notebook_scope, tmp_path):
+    import pandas as pd
+    import numpy as np
+
+    labels = pd.DataFrame(np.zeros((3, 41), dtype=int), columns=INSTRUMENT_TAGS)
+    labels.insert(0, "TRACK_ID", ["track_1", "track_2", "track_3"])
+    labels.loc[0, "ukulele"] = 1
+    labels.loc[1, "guitar"] = 1
+    # Deliberately shuffle both rows and columns: IDs and vocabulary determine order.
+    labels.iloc[::-1, ::-1].to_csv(tmp_path / "labels.csv", index=False)
+    pd.DataFrame({"track_id": ["track_2", "track_1", "track_3", "track_4"],
+                  "split": ["test", "train", "validation", "train"]}).to_csv(tmp_path / "splits.csv", index=False)
+    config = dict(notebook_scope["CFG"], instrument_csv=str(tmp_path / "labels.csv"),
+                  manifest=str(tmp_path / "splits.csv"), output=str(tmp_path / "audit"))
+    manifest, targets, mask, _ = notebook_scope["audit_dataset"](config)
+    j = INSTRUMENT_TAGS.index("ukulele")
+    assert manifest.split.tolist() == ["test", "train", "validation", "train"]
+    assert targets[:, j].tolist() == [0, 1, 0, 0]
+    assert mask[:, j].tolist() == [1, 1, 0, 0]
+    logits = torch.zeros(4, 41, requires_grad=True)
+    notebook_scope["masked_bce"](logits, torch.from_numpy(targets), torch.from_numpy(mask)).backward()
+    assert logits.grad[1, j] < 0  # Ukulele positives contribute a learning signal.
+    assert logits.grad[0, j] > 0
+    assert logits.grad[2:, j].count_nonzero() == 0
+    labels.loc[0, "ukulele"] = 2
+    labels.to_csv(tmp_path / "labels.csv", index=False)
+    with pytest.raises(ValueError, match="binary"):
+        notebook_scope["audit_dataset"](config)
+
+
+def test_training_rejects_missing_project_cohort_labels(notebook_scope, tmp_path):
+    config = dict(notebook_scope["CFG"], instrument_csv=None,
+                  manifest=str(tmp_path / "splits.csv"), output=str(tmp_path / "audit"))
+    with pytest.raises(ValueError, match="7,324-track project split"):
+        notebook_scope["audit_dataset"](config)
+
+
 def test_official_instrument_vocabulary():
     assert len(INSTRUMENT_TAGS) == N_INSTRUMENT_TAGS == 41
     assert INSTRUMENT_TAGS == tuple(sorted(INSTRUMENT_TAGS))

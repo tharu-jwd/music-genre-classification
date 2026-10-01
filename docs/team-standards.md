@@ -13,14 +13,15 @@ cross-team rules and development workflow.
 ### Song identity and splits
 
 - Normalize every song ID to the same seven-digit string format.
-- Use the official MTG-Jamendo `split-0` train, validation, and test partitions.
+- Use the frozen 7,324-track assignments in `data/track_split_assignments.csv`
+  (5,127 train, 1,099 validation, 1,098 test).
 - Reject duplicate song IDs and conflicting split assignments.
 - Join artifacts by `song_id`, never by row position alone.
 - Keep the exact song IDs used by every experiment.
 
 ### Label vocabularies
 
-- Use the split-specific genre and instrument vocabularies.
+- Use the fixed six-genre and 41-instrument project vocabularies.
 - Define one fixed column order for each multi-label target.
 - Store that order with target artifacts, predictions, and checkpoints.
 - Do not treat a song without instrument annotations as an all-negative example.
@@ -308,7 +309,7 @@ cap, or test policy requires a new run ID and review.
 
 ## 7. Evaluation contract
 
-All compared genre models must use the same official split, label order, and
+All compared genre models must use the same frozen 7,324-track split, label order, and
 evaluated song cohort. Save predictions and exact evaluated song IDs so this can be
 verified.
 

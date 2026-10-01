@@ -63,20 +63,19 @@ not an arbitrary hashed note. Cohorts are created by
 songs and labels.
 
 - parse the official variable-width annotation files correctly;
-- build one canonical manifest with normalized song IDs and official `split-0`;
-- use split-specific genre and instrument vocabularies in a fixed order;
+- use the canonical 7,324-track manifest with normalized song IDs and frozen
+  train/validation/test assignments;
+- use the fixed six-genre and 41-instrument vocabularies in a fixed order;
 - segment full-song log-Mels into real windows;
 - validate window masks, padding, and truncation;
 - add a tiny shared fixture and data-pipeline smoke test.
 
 No model score should be treated as a baseline result until this phase is complete.
 
-Current CPU evidence: the shared parser preserves variable-width tag columns,
-rejects split vocabulary mismatches, and was checked against the six official
-split-0 files. It recovered 55,094 genre songs with 87 labels and 24,976 instrument
-songs with 40 labels. Synthetic tests cover song-ID normalization, missing-label
-masks, ordered window selection, short-song padding, and window masks. A clean
-hosted manifest run is still required, so Phase 1 is not yet marked ready.
+Current CPU evidence: the canonical project manifest has 7,324 unique tracks:
+5,127 train, 1,099 validation, and 1,098 test. Its instrument table has 41 labels,
+including 199 ukulele-positive tracks. Synthetic tests cover song-ID normalization,
+missing-label masks, ordered window selection, short-song padding, and window masks.
 
 ### Phase 2 — Produce trustworthy concept supervision
 
@@ -201,7 +200,7 @@ supported by concept removal and prediction-change analysis for the selected mod
 | Area | Ownership scope | Required hand-off |
 |---|---|---|
 | Data pipeline | Manifest, labels, splits, windowing | Canonical song batches and masks |
-| Instrument | Official instrument targets and 40-concept head | Probabilities/logits, masks, and fixed tag order; fusion owns the 40-to-common-width projection |
+| Instrument | Official instrument targets and 41-concept head | Probabilities/logits, masks, and fixed tag order; fusion owns the 41-to-common-width projection |
 | Rhythm | Rhythm schema, extraction, 32D branch | Targets, masks, metrics, embedding |
 | Timbre | 35-descriptor schema, extraction, and learned bottleneck | Standardized concepts, masks, metrics, and fixed feature order; fusion owns the 35-to-common-width projection |
 | Harmony | Temporal schema, teacher evaluation, pseudo-labels, configurable-width branch | Targets, confidence masks, metrics, embedding |
@@ -226,7 +225,7 @@ interface; one already-pooled song vector is insufficient for chord progressions
 ## Definition of project completion
 
 - a clean smoke run passes from manifest creation through evaluation;
-- all model variants use the same official split, vocabulary, and comparison cohort;
+- all model variants use the same frozen 7,324-track split, vocabulary, and comparison cohort;
 - best checkpoints are selected using validation data only;
 - target schemas, masks, normalization, configurations, seeds, and tag order are
   stored with results;

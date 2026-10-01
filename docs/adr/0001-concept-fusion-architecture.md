@@ -20,7 +20,7 @@ This record freezes the 11 decisions in the ownership brief §8. Branch owners s
 | 2 | Primary fusion | **Masked gated fusion** over LayerNorm tokens. Score is a scalar linear `w⊤ h_k`. Softmax only over enabled branches. Disabled gates are **exactly 0**. | Heterogeneous branches need an explicit availability mask; gating is the proposed contribution. |
 | 3 | Self-attention | Keep as named ablation **F-Attn**, not primary. | Attention weights are not explanations ([Jain & Wallace 2019](https://aclanthology.org/N19-1357/)). |
 | 4 | Gate type | **Global per-track gates** in the primary model. Genre-conditioned 87×4 gates are a named ablation only. | 87×4 gates on a few thousand tracks will overfit; interpretation gets worse. |
-| 5 | Bottleneck units | **Instrument v2:** 40 probabilities + logits; fusion owns `Linear(40,64)`. **Rhythm v1:** mel-derived temporal encoder supplies a learned `(B,64)` token plus ten standardized AcousticBrainz predictions used only for auxiliary loss. **Timbre v2:** 35 standardized descriptors; fusion owns `Linear(35,64)`. **Harmony v1:** temporal chroma `(B,T,12)`, optional chords `(B,T,25)`, and configurable song embedding; fusion owns `Linear(D_harmony,64)`. | Published branch contracts plus the CPU-tested temporal adapters. |
+| 5 | Bottleneck units | **Instrument v2:** 41 probabilities + logits; fusion owns `Linear(41,64)`. **Rhythm v1:** mel-derived temporal encoder supplies a learned `(B,64)` token plus ten standardized AcousticBrainz predictions used only for auxiliary loss. **Timbre v2:** 35 standardized descriptors; fusion owns `Linear(35,64)`. **Harmony v1:** temporal chroma `(B,T,12)`, optional chords `(B,T,25)`, and configurable song embedding; fusion owns `Linear(D_harmony,64)`. | Published branch contracts plus the CPU-tested temporal adapters. |
 | 6 | Token normalization | **LayerNorm each token before fusion. Non-negotiable.** | Instrument embedding vs rhythm scalars are different geometries. |
 | 7 | Concept dropout | **p = 0.15** per branch during **training only**. Never drop all four. All-masked fallback: **learned null token**. | **Hard dependency:** no dropout ⇒ no occlusion faithfulness. Masking at test would be OOD. |
 | 8 | Loss weights | Each concept loss is a **mean over observed elements** (unit scale). Start **λ = 1**. Adjust only for a recorded instability or ineffective gradient; Kendall weighting is a named comparison, not a broad sweep. | Stops large target sets from dominating by count while respecting the compute plan. |
@@ -71,7 +71,7 @@ State this in every results table.
 
 ## Ask each branch owner before real integration
 
-Instrument (published): `concept_values (B,40)`, `logits (B,40)`, masks. **No `fusion_token`.** Vocabulary: `instrument_branch/docs/instrument-vocabulary.json`.
+Instrument (published): `concept_values (B,41)`, `logits (B,41)`, masks. **No `fusion_token`.** Vocabulary: `instrument_branch/docs/instrument-vocabulary.json`.
 
 Timbre (published): `z_timbre` / `d_hat_standardized (B,35)` in `FEATURE_COLUMNS` order. **No `fusion_token`. Never fuse `h_audio`.** Feature list: `timbre_branch/src/timbre_branch/constants.py`.
 
@@ -92,7 +92,7 @@ over the embedding remains an ablation. Auxiliary loss uses temporal logits thro
 ## Status of this branch (Step 1 + Step 2 on mocks)
 
 Implemented and unit-tested against fixtures, aligned to instrument v2
-(`Linear(40,64)`), rhythm v2 (`Linear(10,64)`), timbre v2 (`Linear(35,64)`), and
+(`Linear(41,64)`), rhythm v2 (`Linear(10,64)`), timbre v2 (`Linear(35,64)`), and
 temporal harmony v2 (`Linear(12,64)`). `python scripts/run_all_fusion.py --quick` trains the full
 matrix on fixtures. Harmony's real branch adapter is exercised end to end on
 synthetic ordered encoder inputs; official real-audio artifacts are still required.

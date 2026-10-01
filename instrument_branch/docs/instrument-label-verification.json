@@ -1,0 +1,20 @@
+{
+  "source_url": "https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data/autotagging_instrument.tsv",
+  "sha256": {
+    "official_full_instrument_tsv": "c045c496870a788a03766b1b572f388e716247e43a72410149dfc0feacbdc43a",
+    "data/instrument_df.csv": "99c7663fbc2c0eb754b05deaedaed72e9236f556b81c5e0a9a9ef1766048b6c9",
+    "data/track_split_assignments.csv": "1e0a812199b2e5444c23f757a26b9b81f3717cd70ef79f5d1433a6075e15053f",
+    "data/vector-dataset.csv": "04c5c8778675c233870e3d3d43f5ee7cb549f63df13a95a31b379c9451257df6"
+  },
+  "full_source_rows": 25135,
+  "full_source_ukulele_positive": 386,
+  "local_rows": 7324,
+  "local_full_source_label_mismatches": 0,
+  "local_ukulele_positive": 199,
+  "local_ukulele_positive_by_split": {
+    "train": 140,
+    "validation": 30,
+    "test": 29
+  },
+  "vector_label_mismatches": 0
+}

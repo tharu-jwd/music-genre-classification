@@ -40,10 +40,12 @@ That first contract is what Anupama and Senindu later revised for their own bran
 
 ## 3. Anupama instrument v2 (already on `main`)
 
-`instrument_branch/`: `song_repr (B,128) → Linear(128,128)→ReLU→Dropout→Linear(128,40) → logits / probabilities`.
+`instrument_branch/`: `song_repr (B,128) → Linear(128,128)→ReLU→Dropout→Linear(128,41) → logits / probabilities`.
 
-- **No `fusion_token`.** Fusion owns `Linear(40, 64)`.
-- Official **alphabetical** 40-tag vocabulary.
+- **No `fusion_token`.** Fusion owns `Linear(41, 64)`.
+- Full **alphabetical** 41-tag vocabulary, including ukulele.
+- The local 41-column labels preserve the saved train/validation/test assignments;
+  the filtered official 40-tag split files are used only for historical comparison.
 - Weak-closed-world masks; missing annotation rows stay in genre training.
 - Hidden `(B,128)` detached diagnostics only.
 
@@ -103,7 +105,7 @@ Main also removed the old hosted Colab/Kaggle notebook set in that merge. Propos
 | `h_audio` into fusion | Not specified | **Rejected** (bypasses the bottleneck) |
 | Feature order | Unspecified | `TIMBRE_FEATURES` loaded from Senindu’s `constants.py` |
 
-Instrument handling is unchanged: still fusion-owned `Linear(40,64)`.
+Instrument handling is unchanged: still fusion-owned `Linear(41,64)`.
 
 Rhythm still supplies a provisional 64D token. Harmony now has a published
 integration candidate described below.
@@ -130,7 +132,7 @@ prediction/availability masks.
 
 ```text
 shared encoder
-    ├── pooled song (B,128) → Instrument v2 → 40 probs → Linear(40,64)
+    ├── pooled song (B,128) → Instrument v2 → 41 probs → Linear(41,64)
     ├── ordered features (B,T,128) → Rhythm v1 → token (B,64)
     │                                      └→ 10 AB regression predictions
     ├── pooled song (B,128) → Timbre v2 → 35 values → Linear(35,64)
@@ -157,7 +159,7 @@ python -m pytest tests -q
 python scripts/run_all_fusion.py --quick
 ```
 
-Next live wiring requires official split-0 rows, Dehan's `song_repr` for instrument
+Next live wiring requires the frozen 7,324 project rows, Dehan's `song_repr` for instrument
 and timbre, and ordered encoder features plus accepted pseudo-labels for harmony.
 
 Related: [ADR](adr/0001-concept-fusion-architecture.md), [fusion runbook](concept-fusion-runbook.md), [instrument README](../instrument_branch/README.md), [timbre README](../timbre_branch/README.md).

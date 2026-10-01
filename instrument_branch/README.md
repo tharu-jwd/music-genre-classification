@@ -17,6 +17,7 @@ instrument_branch/
     scripts/validate_instrument_branch_notebook.py
     docs/instrument-vocabulary.json
     docs/instrument-annotation-audit.json
+    docs/instrument-label-verification.json
 ```
 
 The notebook is self-contained. The scripts are development tools, and the JSON
@@ -24,16 +25,19 @@ files record the fixed vocabulary and completed official annotation audit.
 Downloaded data and training artifacts remain outside the mergeable files.
 
 The primary path is `song_repr (B,128) -> Linear(128,128) -> ReLU ->
-Dropout(0.1) -> Linear(128,40) -> sigmoid probabilities (B,40)`.
-The branch has 21,672 trainable parameters and no fusion projection.
+Dropout(0.1) -> Linear(128,41) -> sigmoid probabilities (B,41)`.
+The branch has 21,801 trainable parameters and no fusion projection.
 `window_repr (B,W,128)` is accepted for contract checking but not used by the
 song-level head. A learned temporal-attention extension remains pending approval.
 
 ## Run
 
 1. Run the notebook with its default switches to execute the synthetic contract checks.
-2. Set `CFG['manifest']` to the canonical CSV containing unique normalized
-   `song_id` and official `split` columns. Set `CFG['output']` to a writable artifact
+2. In this repository, the notebook detects `data/instrument_df.csv` and
+   `data/track_split_assignments.csv`. It uses all 41 instrument columns, including
+   ukulele, and preserves those split assignments. For another location, set
+   `CFG['instrument_csv']` and `CFG['manifest']` explicitly. The manifest accepts
+   `song_id`, `track_id`, or `TRACK_ID`, plus `split`. Set `CFG['output']` to a writable artifact
    directory, then rerun the configuration cell so `OUT` agrees. Enable `run_audit`.
 3. Obtain Dehan's `shared_representations.npz`, containing string `song_ids` and
    `song_repr (N,128)`. Optional `window_repr` must be `(N,W,128)`. Supply the
@@ -47,11 +51,22 @@ nor the shared encoder. Old Stage 1 64-D MIL embeddings are not compatible input
 
 ## Annotation Audit
 
-The complete official split-0 files were downloaded and checked. All instrument
-partitions contain the same 40 tags. Sparse TSVs do not define a column order:
+The complete official split-0 files were downloaded only for a historical audit.
+Their instrument partitions contain 40 tags and exclude ukulele. They are never
+used as a training fallback. Training requires the local 7,324-track assignments
+and the corresponding 41-column instrument CSV.
+Sparse TSVs do not define a column order:
 [the saved vocabulary](docs/instrument-vocabulary.json) freezes alphabetical order.
 [The audit](docs/instrument-annotation-audit.json) includes per-tag counts and source
 hashes. This covers the complete official genre manifest, not local audio coverage.
+That saved audit and the table below describe the historical filtered 40-tag
+source. Training audit outputs describe the 7,324-track, 41-tag project cohort.
+
+The local 7,324-row instrument CSV matches the full source exactly and contains
+199 ukulele-positive tracks: 140 train, 30 validation, and 29 test. See
+[the source verification](docs/instrument-label-verification.json) for hashes and counts.
+Missing CSV rows and all-zero annotation rows remain unsupervised. This task
+uses all 41 instruments and is not the official filtered 40-tag benchmark.
 
 | Split | Genre Tracks | Instrument-Annotated Genre Tracks | Unknown Rows |
 |---|---:|---:|---:|
@@ -72,9 +87,9 @@ omitted tag is a verified negative.
 
 ## Integration Status
 
-`concept_values` contains 40 probabilities; `logits` is provided for BCE.
+`concept_values` contains 41 probabilities; `logits` is provided for BCE.
 Diagnostic hidden states are detached. The branch no longer returns `fusion_token`.
-Fusion may concatenate the 40 values directly, or own `Linear(40,64)` to preserve
+Fusion may concatenate the 41 values directly, or own `Linear(41,64)` to preserve
 the instrument, rhythm, timbre, harmony token stack. Fusion applies `fusion_mask`
 after any projection and masks absent attention keys. The branch returns unmasked
 probabilities so concept supervision is independent of instrument removal.
@@ -86,7 +101,7 @@ is trained with the genre objective. Thresholds affect reported binary predictio
 the fusion bottleneck. Undefined per-tag AP/AUC are excluded with explicit
 denominators; macro metrics never silently substitute zero.
 
-Checkpoints record the v2 architecture; old 64-D-token branch checkpoints cannot
+Checkpoints record the 41-output v2 architecture; 40-output checkpoints require retraining; old 64-D-token branch checkpoints cannot
 be loaded into this head. Evaluation disables dropout and preserves exact logits
 on save/load.
 

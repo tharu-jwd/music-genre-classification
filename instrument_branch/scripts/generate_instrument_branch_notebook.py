@@ -5,9 +5,13 @@ import textwrap
 
 ROOT = Path(__file__).resolve().parents[1]
 CELLS = []
+VOCABULARY = json.loads((ROOT / "docs/instrument-vocabulary.json").read_text(encoding="utf-8"))
+assert len(VOCABULARY) == len(set(VOCABULARY)) == 41
+assert VOCABULARY == sorted(VOCABULARY)
 
 
 def cell(kind, source, tag):
+    source = source.replace("__FROZEN_INSTRUMENT_TAGS__", repr(VOCABULARY))
     item = {"cell_type": kind, "id": tag, "metadata": {"tags": [tag]},
             "source": textwrap.dedent(source).strip().splitlines(keepends=True)}
     if kind == "code":
@@ -23,11 +27,11 @@ masked loss, validation, checkpoints and integration. No Essentia dependency.
 
 ```
 song_repr (B,128) -> Linear(128,128) -> ReLU -> Dropout(0.1)
-                 -> Linear(128,40) -> logits (B,40) -> sigmoid
-                 -> concept_values (B,40) -> external fusion
+                 -> Linear(128,41) -> logits (B,41) -> sigmoid
+                 -> concept_values (B,41) -> external fusion
 ```
 
-Fusion consumes the 40 probabilities directly or owns a projection if equal-width
+Fusion consumes the 41 probabilities directly or owns a projection if equal-width
 tokens are needed. This branch no longer returns a 64-D `fusion_token`.
 Train jointly with genre loss plus masked concept losses; separate instrument
 pretraining is optional. Hidden states cannot reach primary fusion. The optional
@@ -52,9 +56,13 @@ from torch.nn import functional as F
 from sklearn.metrics import average_precision_score, roc_auc_score, precision_recall_fscore_support
 
 BASE = Path("/kaggle/working/MTG_Instrument") if Path("/kaggle").exists() else Path.cwd() / "data/instrument_run"
+LOCAL_DATA = next((p / "data" for p in [Path.cwd(), *Path.cwd().parents]
+                   if (p / "data/instrument_df.csv").is_file()
+                   and (p / "data/track_split_assignments.csv").is_file()), None)
 CFG = {
     "output": str(BASE),
-    "manifest": str(BASE / "dataset/song_manifest.csv"),
+    "manifest": str(LOCAL_DATA / "track_split_assignments.csv" if LOCAL_DATA else BASE / "dataset/song_manifest.csv"),
+    "instrument_csv": str(LOCAL_DATA / "instrument_df.csv") if LOCAL_DATA else None,
     "representations": str(BASE / "shared_representations.npz"),
     "encoder_provenance": str(BASE / "shared_encoder_provenance.json"),
     "run_audit": False, "run_training": False,
@@ -65,11 +73,14 @@ CFG = {
 }
 OUT = Path(CFG["output"])
 
-VOCAB = "accordion acousticbassguitar acousticguitar bass beat bell bongo brass cello clarinet classicalguitar computer doublebass drummachine drums electricguitar electricpiano flute guitar harmonica harp horn keyboard oboe orchestra organ pad percussion piano pipeorgan rhodes sampler saxophone strings synthesizer trombone trumpet viola violin voice".split()
-TAGS = ["instrument---" + name for name in VOCAB]
+TAGS = __FROZEN_INSTRUMENT_TAGS__
+VOCAB = [tag.removeprefix("instrument---") for tag in TAGS]
+N_INSTRUMENTS = len(VOCAB)
+OFFICIAL_SPLIT_TAGS = set(TAGS) - {"instrument---ukulele"}
 SPLITS = ("train", "validation", "test")
 ANN_URL = "https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data/splits/split-0/"
-assert len(VOCAB) == len(set(VOCAB)) == 40
+FULL_ANN_URL = "https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/master/data/autotagging_instrument.tsv"
+assert len(VOCAB) == len(set(VOCAB)) == 41
 
 def seed_all(seed):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
@@ -111,13 +122,17 @@ cell("markdown", r'''
 ## Labels and coverage
 
 The official dataset contains uploader tags. The full instrument TSV has 41
-tags; official splits retain 40. Split TSVs are sparse lists, so they do not
-define a column order. We freeze alphabetical instrument order above and verify
-the complete official files have exactly that tag set in every partition.
+tags; official split-0 retains 40, excluding ukulele. The branch predicts all 41
+in the alphabetical order from the saved vocabulary. Split TSVs are sparse lists
+and do not define a column order. Their 40-tag set is verified separately.
+Training requires the local 41-column `instrument_df.csv` and the project's
+7,324-track `track_split_assignments.csv`. It never substitutes split-0 IDs.
+This is a 41-instrument task on the project cohort, not the filtered official
+40-instrument benchmark.
 
 Default policy: on instrument-annotated rows, omitted instruments are **weak
 benchmark negatives**, not verified absence. On missing annotation rows all
-40 supervision entries are zero. `positive_only` is available for auditing,
+41 supervision entries are zero. `positive_only` is available for auditing,
 but alone cannot support discriminative BCE training or full precision/AP
 evaluation. Verified element-wise labels can instead be passed directly to
 the branch and loss with mask 1 for known positives AND known negatives.
@@ -143,24 +158,81 @@ def read_official(path, prefix):
             records[sid] = {"tags": tags, "path": row[3]}
     return records
 
-def annotation_arrays(ids, records, policy="weak_closed_world"):
+def annotation_arrays(ids, records, policy="weak_closed_world", observed_tags=None):
     if policy not in {"weak_closed_world", "positive_only"}:
         raise ValueError("Unknown annotation policy")
-    y = np.zeros((len(ids), 40), np.float32)
+    observed_tags = set(TAGS) if observed_tags is None else set(observed_tags)
+    if not observed_tags <= set(TAGS):
+        raise ValueError("Unexpected observed instrument vocabulary")
+    observed = np.asarray([tag in observed_tags for tag in TAGS], dtype=np.float32)
+    y = np.zeros((len(ids), N_INSTRUMENTS), np.float32)
     mask = np.zeros_like(y)
     for i, sid in enumerate(ids):
         if sid in records:
             tags = records[sid]["tags"]
-            if not tags <= set(TAGS):
+            if not tags <= observed_tags:
                 raise ValueError("Unexpected instrument vocabulary")
             y[i] = [tag in tags for tag in TAGS]
-            mask[i] = 1 if policy == "weak_closed_world" else y[i]
+            mask[i] = observed if policy == "weak_closed_world" else y[i]
     return y, mask
 
-def audit_dataset(config):
+def read_manifest(path):
+    manifest = pd.read_csv(path, dtype=str)
+    id_columns = [c for c in ("song_id", "track_id", "TRACK_ID") if c in manifest]
+    if len(id_columns) != 1 or "split" not in manifest:
+        raise ValueError("Manifest needs one track ID column and split")
+    manifest = manifest.rename(columns={id_columns[0]: "song_id"})
+    manifest["song_id"] = manifest.song_id.map(song_id)
+    if manifest.song_id.duplicated().any() or not set(manifest.split) <= set(SPLITS):
+        raise ValueError("Manifest IDs must be unique with train/validation/test splits")
+    return manifest
+
+
+def audit_local_dataset(config):
+    manifest = read_manifest(config["manifest"])
+    labels = pd.read_csv(config["instrument_csv"], dtype={"TRACK_ID": str})
+    if set(labels.columns) != {"TRACK_ID", *VOCAB}:
+        raise ValueError("Instrument CSV must contain TRACK_ID and exactly the 41 instrument columns")
+    labels["song_id"] = labels.TRACK_ID.map(song_id)
+    if labels.song_id.duplicated().any():
+        raise ValueError("Duplicate instrument track IDs")
+    values = labels[VOCAB].to_numpy(dtype=np.float32)
+    if not np.isfinite(values).all() or not ((values == 0) | (values == 1)).all():
+        raise ValueError("Instrument labels must be finite binary values")
+    # All-zero rows have no positive annotation and remain unsupervised.
+    records = {sid: {"tags": {TAGS[j] for j in np.flatnonzero(row)}}
+               for sid, row in zip(labels.song_id, values) if row.any()}
+    y, mask = annotation_arrays(manifest.song_id.tolist(), records, config["annotation_policy"])
+    out = Path(config["output"])
+    out.mkdir(parents=True, exist_ok=True)
+    coverage, per_tag = [], []
+    for split in SPLITS:
+        selected = manifest.split.to_numpy() == split
+        coverage.append({"split": split, "manifest": int(selected.sum()),
+                         "manifest_annotated": int(mask[selected].any(axis=1).sum())})
+        for j, tag in enumerate(TAGS):
+            per_tag.append({"split": split, "tag": tag,
+                            "manifest_positive": int(y[selected, j].sum()),
+                            "observed": int(mask[selected, j].sum())})
+    pd.DataFrame(coverage).to_csv(out / "coverage.csv", index=False)
+    pd.DataFrame(per_tag).to_csv(out / "coverage_per_tag.csv", index=False)
+    pd.DataFrame({"song_id": manifest.song_id, "split": manifest.split,
+                  "instrument_annotated": mask.any(axis=1)}).to_csv(out / "observed_rows.csv", index=False)
+    write_json(out / "instrument_vocabulary.json", TAGS)
+    write_json(out / "annotation_provenance.json", {
+        "sha256": {"instrument_csv": digest(config["instrument_csv"])},
+        "manifest_sha256": digest(config["manifest"]), "policy": config["annotation_policy"],
+        "source": "local_41_instrument_csv", "observed_tags": TAGS,
+        "order_source": "instrument-vocabulary.json, alphabetical 41-tag output order"})
+    np.savez_compressed(out / "instrument_labels.npz", song_ids=manifest.song_id.to_numpy(dtype=str),
+                        targets=y, supervision_mask=mask)
+    return manifest, y, mask, {}
+
+
+def audit_official_dataset(config):
     out = Path(config["output"])
     official, hashes = {}, {}
-    for category, prefix, count in [("instrument", "instrument---", 40), ("genre", "genre---", 87)]:
+    for category, prefix, count in [("instrument", "instrument---", len(OFFICIAL_SPLIT_TAGS)), ("genre", "genre---", 87)]:
         official[category] = {}
         for split in SPLITS:
             name = f"autotagging_{category}-{split}.tsv"
@@ -171,7 +243,7 @@ def audit_dataset(config):
             vocabulary = set().union(*(r["tags"] for r in records.values()))
             if len(vocabulary) != count:
                 raise ValueError(f"Expected {count} official {category} tags")
-            if category == "instrument" and vocabulary != set(TAGS):
+            if category == "instrument" and vocabulary != OFFICIAL_SPLIT_TAGS:
                 raise ValueError("Official instrument vocabulary differs from frozen order")
         groups = [set(official[category][s]) for s in SPLITS]
         if any(groups[i] & groups[j] for i in range(3) for j in range(i)):
@@ -188,16 +260,15 @@ def audit_dataset(config):
     for split in SPLITS:
         if set().union(*(r["tags"] for r in official["genre"][split].values())) != set(genre_order):
             raise ValueError("Genre tag set varies across partitions")
-    manifest = pd.read_csv(config["manifest"], dtype={"song_id": str})
-    if not {"song_id", "split"} <= set(manifest):
-        raise ValueError("Manifest needs song_id and split columns")
-    manifest["song_id"] = manifest.song_id.map(song_id)
-    if manifest.song_id.duplicated().any() or not set(manifest.split) <= set(SPLITS):
-        raise ValueError("Manifest IDs must be unique with official split names")
+    manifest = read_manifest(config["manifest"])
     for row in manifest.itertuples():
         if row.song_id not in official["genre"][row.split]:
             raise ValueError(f"Manifest disagrees with official genre split: {row.song_id}")
-    all_instruments = {sid: row for split in SPLITS for sid, row in official["instrument"][split].items()}
+    full_path = fetch(FULL_ANN_URL, out / "annotations/autotagging_instrument.tsv")
+    all_instruments = read_official(full_path, "instrument---")
+    if set().union(*(r["tags"] for r in all_instruments.values())) != set(TAGS):
+        raise ValueError("Full instrument annotations must contain all 41 tags")
+    hashes["autotagging_instrument.tsv"] = digest(full_path)
     y, mask = annotation_arrays(manifest.song_id.tolist(), all_instruments, config["annotation_policy"])
     coverage, per_tag = [], []
     for split in SPLITS:
@@ -206,11 +277,11 @@ def audit_dataset(config):
         selected = manifest.loc[manifest.split == split, "song_id"].tolist()
         coverage.append({"split": split, "official_genre": len(genre), "official_instrument": len(inst),
                          "official_overlap": len(set(genre) & set(inst)), "manifest": len(selected),
-                         "manifest_annotated": sum(s in inst for s in selected)})
+                         "manifest_annotated": sum(s in all_instruments for s in selected)})
         for tag in TAGS:
             per_tag.append({"split": split, "tag": tag,
                             "official_positive": sum(tag in r["tags"] for r in inst.values()),
-                            "manifest_positive": sum(tag in inst[s]["tags"] for s in selected if s in inst)})
+                            "manifest_positive": sum(tag in all_instruments[s]["tags"] for s in selected if s in all_instruments)})
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(coverage).to_csv(out / "coverage.csv", index=False)
     pd.DataFrame(per_tag).to_csv(out / "coverage_per_tag.csv", index=False)
@@ -219,9 +290,16 @@ def audit_dataset(config):
     write_json(out / "instrument_vocabulary.json", TAGS)
     write_json(out / "genre_vocabulary.json", genre_order)
     write_json(out / "annotation_provenance.json", {"sha256": hashes, "manifest_sha256": digest(config["manifest"]),
-               "policy": config["annotation_policy"], "order_source": "alphabetical, verified against all complete official split-0 files"})
+               "policy": config["annotation_policy"], "order_source": "instrument-vocabulary.json, alphabetical 41-tag output order",
+               "source": "full_41_instrument_tsv", "observed_tags": TAGS})
     np.savez_compressed(out / "instrument_labels.npz", song_ids=manifest.song_id.to_numpy(dtype=str), targets=y, supervision_mask=mask)
     return manifest, y, mask, official
+
+
+def audit_dataset(config):
+    if not config.get("instrument_csv"):
+        raise ValueError("Training requires the 41-column instrument CSV for the 7,324-track project split")
+    return audit_local_dataset(config)
 
 if CFG["run_audit"]:
     manifest, Y, M, official = audit_dataset(CFG)
@@ -237,13 +315,13 @@ def checked_mask(mask, shape, reference):
         raise ValueError(f"Expected binary mask with shape {shape}")
     return mask
 
-BRANCH_VERSION = "song-128-hidden-128-dropout-0.1-concepts-40-v2"
+BRANCH_VERSION = "song-128-hidden-128-dropout-0.1-concepts-41-v2"
 
 class InstrumentBranch(nn.Module):
     def __init__(self):
         super().__init__()
         self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.1))
-        self.classifier = nn.Linear(128, 40)
+        self.classifier = nn.Linear(128, N_INSTRUMENTS)
 
     def forward(self, song_repr, window_repr=None, supervision_mask=None, fusion_mask=None):
         if song_repr.ndim != 2 or song_repr.shape[1] != 128 or not torch.isfinite(song_repr).all():
@@ -260,7 +338,7 @@ class InstrumentBranch(nn.Module):
         logits = self.classifier(hidden)
         probabilities = logits.sigmoid()
         b = len(song_repr)
-        sm = checked_mask(supervision_mask, (b, 40), probabilities)
+        sm = checked_mask(supervision_mask, (b, 41), probabilities)
         fm = probabilities.new_ones((b, 1)) if fusion_mask is None else checked_mask(fusion_mask, (b, 1), probabilities)
         return {"concept_values": probabilities, "logits": logits,
                 "supervision_mask": sm, "fusion_mask": fm,
@@ -292,13 +370,13 @@ def instrument_objective(output, targets, pos_weight=None):
 cell("code", r'''
 def metric_report(targets, probabilities, mask, thresholds=None):
     targets, probabilities, mask = map(np.asarray, (targets, probabilities, mask))
-    if targets.shape != probabilities.shape or targets.shape != mask.shape or targets.ndim != 2 or targets.shape[1] != 40:
-        raise ValueError("Metric inputs must be matching (N,40) arrays")
+    if targets.shape != probabilities.shape or targets.shape != mask.shape or targets.ndim != 2 or targets.shape[1] != 41:
+        raise ValueError("Metric inputs must be matching (N,41) arrays")
     if not np.isfinite(probabilities).all() or (probabilities < 0).any() or (probabilities > 1).any() or not np.isin(mask, [0, 1]).all():
         raise ValueError("Invalid metric probabilities or mask")
-    thresholds = np.full(40, 0.5) if thresholds is None else np.asarray(thresholds)
-    if thresholds.shape != (40,) or not np.isfinite(thresholds).all() or (thresholds < 0).any() or (thresholds > 1).any():
-        raise ValueError("Expected 40 thresholds")
+    thresholds = np.full(41, 0.5) if thresholds is None else np.asarray(thresholds)
+    if thresholds.shape != (41,) or not np.isfinite(thresholds).all() or (thresholds < 0).any() or (thresholds > 1).any():
+        raise ValueError("Expected 41 thresholds")
     rows = []
     for j, tag in enumerate(TAGS):
         valid = mask[:, j].astype(bool)
@@ -314,7 +392,7 @@ def metric_report(targets, probabilities, mask, thresholds=None):
                      "AP": float(average_precision_score(y, p)) if both else None,
                      "ROC_AUC": float(roc_auc_score(y, p)) if both else None,
                      "precision": precision, "recall": recall, "F1": f1})
-    macro = {"total_tags": 40, "undefined_policy": "AP/AUC require both classes; P/R/F1 use zero_division=0 on observed tags"}
+    macro = {"total_tags": 41, "undefined_policy": "AP/AUC require both classes; P/R/F1 use zero_division=0 on observed tags"}
     for name in ("AP", "ROC_AUC", "precision", "recall", "F1"):
         values = [float(r[name]) for r in rows if r[name] is not None]
         macro[name] = float(np.mean(values)) if values else None
@@ -324,8 +402,8 @@ def metric_report(targets, probabilities, mask, thresholds=None):
 def calibrate_thresholds(targets, probabilities, mask, split):
     if split != "validation":
         raise ValueError("Thresholds must be selected on validation only")
-    thresholds = np.full(40, 0.5, np.float32)
-    for j in range(40):
+    thresholds = np.full(41, 0.5, np.float32)
+    for j in range(41):
         valid = mask[:, j].astype(bool)
         y, p = targets[valid, j], probabilities[valid, j]
         if len(np.unique(y)) != 2:
@@ -479,7 +557,9 @@ def evaluate_locked_test(config, checkpoint_path):
     manifest, y, mask, _ = audit_dataset(config)
     current_annotation = json.loads((Path(config["output"]) / "annotation_provenance.json").read_text())
     if checkpoint["annotation"]["sha256"] != current_annotation["sha256"]:
-        raise ValueError("Official annotation files differ from checkpoint")
+        raise ValueError("Annotation files differ from checkpoint")
+    if checkpoint["annotation"]["manifest_sha256"] != current_annotation["manifest_sha256"]:
+        raise ValueError("Manifest split assignments differ from checkpoint")
     x = aligned_npz(config["representations"], manifest.song_id.tolist(), "song_repr", (128,))
     test = np.flatnonzero(manifest.split.to_numpy() == "test")
     if not len(test):
@@ -504,10 +584,10 @@ def run_contract_tests():
     model = InstrumentBranch().eval()
     x, windows = torch.randn(4, 128), torch.randn(4, 2, 128)
     result = model(x, windows)
-    for key, shape in [("concept_values", (4,40)), ("logits", (4,40)), ("supervision_mask", (4,40)), ("fusion_mask", (4,1))]:
+    for key, shape in [("concept_values", (4,41)), ("logits", (4,41)), ("supervision_mask", (4,41)), ("fusion_mask", (4,1))]:
         assert result[key].shape == shape and torch.isfinite(result[key]).all()
     assert "fusion_token" not in result
-    assert sum(p.numel() for p in model.parameters()) == 21672
+    assert sum(p.numel() for p in model.parameters()) == 21801
     assert torch.equal(result["concept_values"], result["logits"].sigmoid())
     removed = model(x, fusion_mask=torch.zeros(4,1))
     assert torch.equal(removed["concept_values"], result["concept_values"])
@@ -517,26 +597,26 @@ def run_contract_tests():
     model.train()
     assert not torch.equal(model(x)["logits"], model(x)["logits"])
     model.eval()
-    missing_logits = torch.randn(2, 40, requires_grad=True)
-    zero_loss = masked_bce(missing_logits, torch.full((2,40), float("nan")), torch.zeros(2,40))
+    missing_logits = torch.randn(2, 41, requires_grad=True)
+    zero_loss = masked_bce(missing_logits, torch.full((2,41), float("nan")), torch.zeros(2,41))
     zero_loss.backward()
     assert zero_loss.item() == 0 and missing_logits.grad.count_nonzero() == 0
-    known_logits = torch.zeros(1, 40, requires_grad=True)
-    mask = torch.zeros(1, 40); mask[0, 0] = 1
+    known_logits = torch.zeros(1, 41, requires_grad=True)
+    mask = torch.zeros(1, 41); mask[0, 0] = 1
     masked_bce(known_logits, torch.zeros_like(mask), mask).backward()
     assert known_logits.grad[0, 0] > 0 and known_logits.grad[0, 1] == 0
     y, m = annotation_arrays(["0000001", "0000002"], {"0000001": {"tags": {TAGS[0]}}})
-    assert m[0].sum() == 40 and m[1].sum() == 0 and y[0,0] == 1
-    masked = masked_bce(torch.zeros(2,40), torch.from_numpy(y), torch.from_numpy(m))
-    annotated = masked_bce(torch.zeros(1,40), torch.from_numpy(y[:1]), torch.from_numpy(m[:1]))
+    assert m[0].sum() == 41 and m[1].sum() == 0 and y[0,0] == 1
+    masked = masked_bce(torch.zeros(2,41), torch.from_numpy(y), torch.from_numpy(m))
+    annotated = masked_bce(torch.zeros(1,41), torch.from_numpy(y[:1]), torch.from_numpy(m[:1]))
     assert torch.equal(masked, annotated)
     weights = training_weights(torch.tensor([[1., 0.], [0., 0.], [0., 1.]]), torch.tensor([[1., 1.], [1., 1.], [0., 0.]]))
     assert torch.equal(weights, torch.ones(2))
-    mixed_y = np.zeros((3,40)); mixed_y[0,0] = 1; mixed_y[:,1] = 1
-    mixed_report = metric_report(mixed_y, np.full((3,40), 0.5), np.ones((3,40)))
+    mixed_y = np.zeros((3,41)); mixed_y[0,0] = 1; mixed_y[:,1] = 1
+    mixed_report = metric_report(mixed_y, np.full((3,41), 0.5), np.ones((3,41)))
     assert mixed_report["macro"]["AP_defined_tags"] == 1
-    assert len(mixed_report["per_tag"]) == 40
-    report = metric_report(np.zeros((3,40)), np.full((3,40), 0.5), np.ones((3,40)))
+    assert len(mixed_report["per_tag"]) == 41
+    report = metric_report(np.zeros((3,41)), np.full((3,41), 0.5), np.ones((3,41)))
     assert report["macro"]["AP"] is None and report["macro"]["AP_defined_tags"] == 0
     try:
         calibrate_thresholds(y, y, m, "test")
@@ -551,7 +631,7 @@ def run_contract_tests():
     assert torch.equal(model(x)["logits"], clone(x)["logits"])
     tiny = InstrumentBranch()
     optimizer = torch.optim.Adam(tiny.parameters(), lr=0.03)
-    targets = (torch.randn(4,40) > 0).float()
+    targets = (torch.randn(4,41) > 0).float()
     for _ in range(100):
         optimizer.zero_grad()
         loss = masked_bce(tiny(x)["logits"], targets, torch.ones_like(targets))
@@ -561,7 +641,7 @@ def run_contract_tests():
     assert final_loss.item() < 0.02, final_loss.item()
     # A synthetic downstream head verifies genre gradients without instrument labels.
     tiny.zero_grad()
-    genre_head = nn.Linear(40, 87)
+    genre_head = nn.Linear(41, 87)
     live_repr = x.clone().requires_grad_()
     concepts = tiny(live_repr)
     assert concepts["supervision_mask"].count_nonzero() == 0
@@ -578,7 +658,7 @@ run_contract_tests()
 cell("markdown", r'''
 ## Integration and outstanding experiments
 
-Thevindu receives 40 probabilities in `concept_values` and raw `logits` for stable
+Thevindu receives 41 probabilities in `concept_values` and raw `logits` for stable
 BCE. There is no `fusion_token` or learned projection in the branch. This is a
 revised interface, incompatible with code expecting the original 64-D token.
 Default supervision is unknown (all zero); fusion defaults to present (all one).
@@ -589,14 +669,14 @@ absent attention keys when using attention.
 ```python
 window_repr, song_repr = shared_encoder(two_halves)  # team's actual return API may differ
 instrument = branch(song_repr, window_repr, supervision_mask=instrument_mask)
-# If equal-width tokens are needed, instrument_projection is an nn.Linear(40,64)
+# If equal-width tokens are needed, instrument_projection is an nn.Linear(41,64)
 # owned by the fusion module and created once in its __init__.
 instrument_token = fusion.instrument_projection(instrument['concept_values'])
 instrument_token = instrument_token * instrument['fusion_mask']
 tokens = torch.stack([instrument_token, rhythm['fusion_token'],
                       timbre['fusion_token'], harmony['fusion_token']], dim=1)
 # tokens: (B,4,64); genre_logits: (B,87); genre loss uses BCEWithLogitsLoss.
-# Concatenation-based fusion can instead use the masked 40 values directly.
+# Concatenation-based fusion can instead use the masked 41 values directly.
 # With the actual joint model's predictions:
 # loss = genre_loss + lambda_instrument * instrument_objective(instrument, targets)
 #        + other_concept_losses
@@ -604,7 +684,7 @@ tokens = torch.stack([instrument_token, rhythm['fusion_token'],
 ```
 
 Any fusion-owned projection must join the genre optimizer. Never detach or
-threshold the 40 probabilities during joint training.
+threshold the 41 probabilities during joint training.
 For instrument removal, supply a zero fusion mask and mask its fusion key.
 For an instrument-only model, train a genre head on its projected token.
 
@@ -639,7 +719,7 @@ def explain_example(model, song_repr, window_repr, thresholds=None):
     with torch.no_grad():
         p = model(song_repr)["concept_values"][0].cpu().numpy()
         w = model(window_repr[0])["concept_values"].cpu().numpy()
-    threshold = np.full(40, 0.5) if thresholds is None else np.asarray(thresholds)
+    threshold = np.full(41, 0.5) if thresholds is None else np.asarray(thresholds)
     return pd.DataFrame({"instrument": VOCAB, "probability": p, "predicted": p >= threshold,
                          "first_half_probe": w[0], "second_half_probe": w[1],
                          "higher_scoring_probe": np.argmax(w, axis=0) + 1}).sort_values("probability", ascending=False)
@@ -659,14 +739,14 @@ repository supplies the checked dataset details below.
 
 | Source | Labels/input/architecture | Loss and missing labels | Evaluation and decision |
 |---|---|---|---|
-| [MTG-Jamendo dataset](https://github.com/MTG/mtg-jamendo-dataset) and [paper](https://mtg.upf.edu/node/3957) | Uploader tags; audio/precomputed mels; official baseline workflow | Unlisted tags are not human-verified negatives; split subsets drop rows without category tags. Paper-specific loss needs full-text verification. | Fixed 40 instruments/87 genres from official split; audit coverage before training. |
+| [MTG-Jamendo dataset](https://github.com/MTG/mtg-jamendo-dataset) and [paper](https://mtg.upf.edu/node/3957) | Uploader tags; audio/precomputed mels; official baseline workflow | Unlisted tags are not human-verified negatives; split subsets drop rows without category tags. Paper-specific loss needs full-text verification. | 41 instrument outputs; official splits supervise 40 instruments/87 genres; audit coverage before training. |
 | [OpenMIC-2018](https://brianmcfee.net/papers/ismir2018_openmic.pdf) | 10-second audio; 20 partially annotated classes with confirmed presence/absence. Baseline: independent random forests on mean/std VGGish features. | Baseline is a forest classifier, not neural BCE. Only annotated examples enter each instrument task; unknown labels are not negative examples. | Per-instrument accuracy over 100 sampled splits, with cross-validation for forest settings. Use explicit masks here; Jamendo lacks those confirmed negatives. |
 | [Attention for instrument recognition](https://arxiv.org/pdf/1907.04294) | OpenMIC weak/partial labels; each clip is a bag of ten 128-D feature vectors; instance classifiers with label-specific weighted pooling. | Partial BCE excludes missing labels and rescales by observation fraction. | Precision/recall/F1 macro-average both polarities and instruments at 0.5, across ten seeds. Supports testing temporal attention, but does not establish benefit with just two Jamendo windows. |
 | [Automatic tagging with CNNs](https://arxiv.org/pdf/1606.00298) | Multi-label MTAT/MSD tags; 29.1-second clips, 96-by-1366 log-mels; convolution/pooling stacks ending in independent sigmoids. | Binary cross-entropy with Adam. Binary tag vectors are used; an element-wise missing-annotation mask is not described in its training section. | ROC-AUC; mel/architecture comparisons. Supports mel-CNN representations and sigmoid/BCE; keep the encoder outside this branch. |
 | [Concept Bottleneck Models](https://proceedings.mlr.press/v119/koh20a/koh20a.pdf) | Image concepts and downstream labels in knee radiographs and bird images; explicit concept layer followed by task predictor. | Independent, sequential and joint training; joint objective weights concept and task losses. Requires concept annotations; does not supply a Jamendo missing-label policy. | Task/concept accuracy and interventions. Fusion sees instrument probabilities; compare downstream accuracy and concept fidelity, and retain supervision during joint training. |
 
 Starting configuration: 128-D hidden layer with ReLU and dropout 0.1, unweighted
-masked BCE and 40 sigmoid probabilities. Fusion owns any projection. Final loss/aggregation selection
+masked BCE and 41 sigmoid probabilities. Fusion owns any projection. Final loss/aggregation selection
 remains validation-dependent. Retain the observed-label caveat in reports.
 ''', "literature")
 

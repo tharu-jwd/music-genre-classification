@@ -29,7 +29,8 @@ def synthetic_test(scope):
         root = Path(temporary)
         config = dict(scope["CFG"], output=str(root), manifest=str(root / "manifest.csv"),
                       representations=str(root / "repr.npz"), encoder_provenance=str(root / "encoder.json"),
-                      epochs=2, seeds=[17, 42, 73], batch_size=20)
+                      epochs=2, seeds=[17, 42, 73], batch_size=20,
+                      instrument_csv=str(root / "instrument.csv"))
         annotation_dir = root / "annotations"
         annotation_dir.mkdir()
         manifest = []
@@ -41,12 +42,27 @@ def synthetic_test(scope):
                     writer.writerow(["TRACK_ID", "ARTIST_ID", "ALBUM_ID", "PATH", "DURATION", "TAGS"])
                     for j in range(count):
                         sid = str(split_index * 1000 + j + 1).zfill(7)
-                        tag = scope["TAGS"][j] if category == "instrument" else f"genre---synthetic{j:02d}"
+                        tag = sorted(scope["OFFICIAL_SPLIT_TAGS"])[j] if category == "instrument" else f"genre---synthetic{j:02d}"
                         writer.writerow(["track_" + sid, "artist_1", "album_1", f"00/{int(sid)}.mp3", "30", tag])
                         if category == "genre":
                             manifest.append({"song_id": sid, "split": split})
+        with (annotation_dir / "autotagging_instrument.tsv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(["TRACK_ID", "ARTIST_ID", "ALBUM_ID", "PATH", "DURATION", "TAGS"])
+            for split_index in range(3):
+                for j, tag in enumerate(scope["TAGS"]):
+                    sid = str(split_index * 1000 + j + 1).zfill(7)
+                    writer.writerow(["track_" + sid, "artist_1", "album_1", "00/test.mp3", "30", tag])
         frame = pd.DataFrame(manifest)
         frame.to_csv(config["manifest"], index=False)
+        labels = np.zeros((len(frame), 41), dtype=np.float32)
+        for split_index, split in enumerate(scope["SPLITS"]):
+            for j in range(41):
+                sid = str(split_index * 1000 + j + 1).zfill(7)
+                labels[frame.song_id.to_numpy() == sid, j] = 1
+        label_frame = pd.DataFrame(labels, columns=scope["VOCAB"])
+        label_frame.insert(0, "TRACK_ID", ["track_" + sid for sid in frame.song_id])
+        label_frame.to_csv(config["instrument_csv"], index=False)
         rng = np.random.default_rng(42)
         np.savez(config["representations"], song_ids=frame.song_id.to_numpy(dtype=str),
                  song_repr=rng.normal(size=(len(frame), 128)).astype(np.float32),
@@ -54,15 +70,20 @@ def synthetic_test(scope):
         scope["write_json"](config["encoder_provenance"], {
             "encoder_sha256": "synthetic-test-only", "normalization_fit_split": "train", "training_split": "train"})
         _, y, mask, _ = scope["audit_dataset"](config)
-        assert mask[:40].all() and not mask[40:87].any()
+        ukulele = scope["VOCAB"].index("ukulele")
+        assert y.shape == mask.shape == (261, 41)
+        assert mask[:41].all() and not mask[41:87].any()
+        assert y[:, ukulele].sum() == 3 and mask[:, ukulele].sum() == 123
         summaries = scope["run_training"](config)
         assert len(summaries) == 3
         model, checkpoint = scope["load_branch"](root / "seed_17/instrument.pt")
         assert checkpoint["fusion_projection_owner"] == "fusion"
         assert checkpoint["branch_version"] == scope["BRANCH_VERSION"]
         assert not any("projection" in key for key in checkpoint["state_dict"])
-        assert checkpoint["observed_train_counts"] == [40] * 40
-        assert checkpoint["target_prevalence"] == [float(np.float32(1 / 40))] * 40
+        assert checkpoint["observed_train_counts"] == [41] * 41
+        assert checkpoint["target_prevalence"] == [float(np.float32(1 / 41))] * 41
+        assert model(torch.zeros(2, 128))["concept_values"].shape == (2, 41)
+        assert len(checkpoint["thresholds"]) == 41
         scope["evaluate_locked_test"](config, root / "seed_17/instrument.pt")
         # Changing test inputs/targets must not alter fitted weights or thresholds.
         with np.load(config["representations"]) as data:
@@ -83,14 +104,14 @@ def synthetic_test(scope):
             pass
         else:
             raise AssertionError("Duplicate manifest IDs accepted")
-        frame.loc[0, "split"] = "test"
+        frame.loc[0, "split"] = "split-0"
         frame.to_csv(config["manifest"], index=False)
         try:
             scope["audit_dataset"](config)
         except ValueError:
             pass
         else:
-            raise AssertionError("Wrong split accepted")
+            raise AssertionError("Unsupported split name accepted")
     print("Synthetic workflow passed; synthetic metrics/checkpoints were discarded.")
 
 
@@ -104,8 +125,8 @@ def official_audit(scope):
         records.extend({"song_id": sid, "split": split} for sid in rows)
     manifest = root / "official_genre_manifest.csv"
     pd.DataFrame(records).to_csv(manifest, index=False)
-    config = dict(scope["CFG"], output=str(root), manifest=str(manifest))
-    scope["audit_dataset"](config)
+    config = dict(scope["CFG"], output=str(root), manifest=str(manifest), instrument_csv=None)
+    scope["audit_official_dataset"](config)
     report = {
         "scope": "Complete official split-0 genre manifest, not local downloaded audio coverage",
         "coverage": pd.read_csv(root / "coverage.csv").to_dict("records"),
