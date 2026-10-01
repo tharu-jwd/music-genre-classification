@@ -146,6 +146,7 @@ def dataset_schema() -> dict[str, Any]:
 _data_contract = {"np": np, "Path": Path}
 exec(NOTEBOOK_DATA_CONTRACT, _data_contract)
 segment_logmel_with_metadata = _data_contract["segment_logmel_with_metadata"]
+LOGMEL_MAX_WINDOWS = _data_contract["LOGMEL_MAX_WINDOWS"]
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +180,7 @@ class MultiTargetDataset(Dataset):
         harmony_targets: np.ndarray,     # (N, 12) float32 standardized descriptors
         harmony_mask: np.ndarray | None = None,  # (N, 12) bool
         window_frames: int = 1366,
-        max_windows: int = 12,
+        max_windows: int = LOGMEL_MAX_WINDOWS,
         mel_config: dict | None = None,
         durations: dict[str, float] | None = None,
     ) -> None:
@@ -410,7 +411,7 @@ def build_datasets(
     quick: bool = False,
     logmel_root: Path | None = None,
     window_frames: int = 1366,
-    max_windows: int = 12,
+    max_windows: int = LOGMEL_MAX_WINDOWS,
 ) -> tuple[
     MultiTargetDataset, MultiTargetDataset, MultiTargetDataset,
     TimbreStandardizer, RhythmStandardizer, HarmonyStandardizer,
@@ -1110,7 +1111,7 @@ class TrainConfig:
     require_harmony_targets: bool = False
     logmel_root:        Path | None = None
     window_frames:     int = 1366
-    max_windows:       int = 12
+    max_windows:       int = LOGMEL_MAX_WINDOWS
 
 
 def main() -> None:
@@ -1131,7 +1132,8 @@ def main() -> None:
                    help="32-track subsets, 3 epochs — smoke test only")
     p.add_argument("--logmel-root", type=Path, help="Local logmel_songs directory; replaces the Colab prefix")
     p.add_argument("--window-frames", type=int, default=1366)
-    p.add_argument("--max-windows", type=int, default=12)
+    p.add_argument("--max-windows", type=int, default=LOGMEL_MAX_WINDOWS,
+                   help="Maximum 15-second windows per track (default: 16 for four minutes)")
     p.add_argument("--skip-test", action="store_true", help="Reserve the test split for final evaluation")
     p.add_argument("--data-dir", type=Path, default=ROOT / "data",
                    help="Directory containing metadata/config files")

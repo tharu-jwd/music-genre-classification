@@ -18,6 +18,8 @@ CSV paths are relocated at load time; the CSV itself is unchanged.
 
 The current cache stores `(windows, 128, 469)` arrays. Stored windows stay separate;
 up to `--max-windows` windows are selected evenly across the stored sequence.
+The default is 16, covering every non-overlapping 15-second window in the
+four-minute per-track cache.
 `data/logmel_audit.csv` supplies track durations for final-window masking.
 
 Before using this cache for training, create `data/logmel_config.json` with the

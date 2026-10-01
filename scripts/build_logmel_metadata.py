@@ -14,6 +14,8 @@ LOGMEL_CONFIG = {
     "sample_rate": 16000,
     "hop_length": 512,
     "window_seconds": 15.0,
+    "max_track_seconds": 240.0,
+    "max_windows": 16,
     "n_mels": 128,
     "center": True,
 }

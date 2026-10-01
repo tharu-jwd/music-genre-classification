@@ -145,7 +145,7 @@ def main(
     batch_size: int = 1,
     learning_rate: float = 3e-4,
     num_workers: int = 2,
-    max_windows: int = 12,
+    max_windows: int = 16,
     gpu: str = "A10",
     quick: bool = False,
     skip_test: bool = False,

@@ -23,6 +23,12 @@ def write_split(path: Path, rows: list[list[str]]) -> None:
 
 
 class MtgDataContractTest(unittest.TestCase):
+    def test_default_window_limit_covers_four_minutes(self):
+        contract = load_contract(Path("unused"))
+        self.assertEqual(contract["LOGMEL_WINDOW_SECONDS"], 15)
+        self.assertEqual(contract["LOGMEL_MAX_TRACK_SECONDS"], 240)
+        self.assertEqual(contract["LOGMEL_MAX_WINDOWS"], 16)
+
     def test_variable_width_rows_preserve_every_tag(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "labels.tsv"

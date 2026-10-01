@@ -1,5 +1,7 @@
 """Real trainer wiring: learned harmony, target isolation, and checkpoint reload."""
+import ast
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -7,6 +9,21 @@ import pytest
 import torch
 
 from scripts import train_joint as j
+
+
+def test_default_window_limit_uses_all_four_minutes():
+    assert j.LOGMEL_MAX_WINDOWS == 16
+    assert j.TrainConfig().max_windows == 16
+
+
+def test_modal_entrypoint_defaults_to_all_sixteen_windows():
+    tree = ast.parse((Path(__file__).resolve().parents[1] / "modal_app.py").read_text(encoding="utf-8"))
+    entrypoint = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    defaults = dict(zip(
+        [arg.arg for arg in entrypoint.args.args[-len(entrypoint.args.defaults):]],
+        entrypoint.args.defaults,
+    ))
+    assert ast.literal_eval(defaults["max_windows"]) == 16
 
 
 def test_combined_dataset_schema_has_one_vector_per_branch():
