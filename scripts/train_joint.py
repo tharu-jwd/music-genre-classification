@@ -776,6 +776,7 @@ def evaluate(
     loader: DataLoader,
     device: torch.device,
     harmony_feature_groups: tuple[tuple[str, ...], ...] | None = None,
+    harmony_group_balanced_weight: float = 0.0,
 ) -> dict[str, Any]:
     for m in (encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model):
         m.eval()
@@ -783,6 +784,7 @@ def evaluate(
     genre_loss_fn = JointLossOrchestrator(
         weights=LossWeights(instrument=0, rhythm=0, timbre=0, harmony=0),
         harmony_feature_groups=harmony_feature_groups,
+        harmony_group_balanced_weight=harmony_group_balanced_weight,
     ).to(device)
 
     all_probs: list[Tensor] = []
@@ -949,6 +951,9 @@ def train(cfg: "TrainConfig") -> None:
             harmony=cfg.lambda_harmony,
         ),
         harmony_feature_groups=harmony_feature_groups,
+        harmony_group_balanced_weight=(
+            cfg.harmony_group_balanced_weight if harmony_feature_groups is not None else 0.0
+        ),
     ).to(device)
 
     out_dir = ROOT / cfg.out_dir
@@ -1007,6 +1012,7 @@ def train(cfg: "TrainConfig") -> None:
         val_metrics = evaluate(
             encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
             fusion_model, val_loader, device, harmony_feature_groups,
+            cfg.harmony_group_balanced_weight if harmony_feature_groups is not None else 0.0,
         )
         val_ap = val_metrics["macro_ap"]
 
@@ -1071,6 +1077,9 @@ def train(cfg: "TrainConfig") -> None:
                 "harmony_architecture": "harmony_v4_chroma_grounded",
                 "harmony_grouped_descriptor_heads": cfg.harmony_grouped_descriptor_heads,
                 "harmony_feature_balanced_loss": cfg.harmony_feature_balanced_loss,
+                "harmony_group_balanced_weight": (
+                    cfg.harmony_group_balanced_weight if harmony_feature_groups is not None else 0.0
+                ),
                 "harmony_loss_groups": None if harmony_feature_groups is None else [list(group) for group in harmony_feature_groups],
                 "harmony_supervised": bool(train_ds.harmony_mask.any()),
             }
@@ -1150,6 +1159,7 @@ class TrainConfig:
     require_harmony_targets: bool = False
     harmony_grouped_descriptor_heads: bool = False
     harmony_feature_balanced_loss: bool = False
+    harmony_group_balanced_weight: float = 0.25
     logmel_root:        Path | None = None
     window_frames:     int = 1366
     max_windows:       int = 16
@@ -1189,7 +1199,9 @@ def main() -> None:
     p.add_argument("--harmony-grouped-descriptor-heads", action="store_true",
                    help="Use separate learned heads for chroma-std, Tonnetz-std, and tonal-dynamics descriptors")
     p.add_argument("--harmony-feature-balanced-loss", action="store_true",
-                   help="Average harmony Smooth-L1 equally across five semantic descriptor groups")
+                   help="Blend ordinary and group-balanced harmony Smooth-L1 across five semantic groups")
+    p.add_argument("--harmony-group-balanced-weight", type=float, default=0.25,
+                   help="Group-balanced contribution to harmony Smooth-L1 when enabled (default: 0.25)")
     p.add_argument("--print-dataset-schema", action="store_true",
                    help="Print the canonical dataset.csv vector groups and exit")
     args = p.parse_args()
@@ -1198,6 +1210,8 @@ def main() -> None:
         return
     if args.window_frames < 1 or args.max_windows < 1:
         p.error("window-frames and max-windows must be positive")
+    if not 0.0 <= args.harmony_group_balanced_weight <= 1.0:
+        p.error("harmony-group-balanced-weight must be in [0, 1]")
 
     cfg = TrainConfig(
         epochs            = 3 if args.quick else args.epochs,
@@ -1220,6 +1234,7 @@ def main() -> None:
         require_harmony_targets = args.require_harmony_targets,
         harmony_grouped_descriptor_heads = args.harmony_grouped_descriptor_heads,
         harmony_feature_balanced_loss = args.harmony_feature_balanced_loss,
+        harmony_group_balanced_weight = args.harmony_group_balanced_weight,
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,
@@ -1239,7 +1254,12 @@ def main() -> None:
     print(f"  Timbre     : {N_TIMBRE_CONCEPTS} descriptors")
     print(f"  Rhythm     : {N_RHYTHM_CONCEPTS} AcousticBrainz fields")
     print(f"  Harmony    : {N_HARMONY_DESCRIPTORS} descriptors, chroma-grounded v4 branch")
-    print(f"  Harmony V3: grouped_heads={cfg.harmony_grouped_descriptor_heads}  balanced_loss={cfg.harmony_feature_balanced_loss}")
+    print(
+        "  Harmony V3: "
+        f"grouped_heads={cfg.harmony_grouped_descriptor_heads}  "
+        f"group_balanced_weight="
+        f"{cfg.harmony_group_balanced_weight if cfg.harmony_feature_balanced_loss else 0.0:.2f}"
+    )
     print(f"  Epochs     : {cfg.epochs}   Batch: {cfg.batch_size}   LR: {cfg.lr}")
     print(f"  Device     : {cfg.device}")
     print("=" * 60)

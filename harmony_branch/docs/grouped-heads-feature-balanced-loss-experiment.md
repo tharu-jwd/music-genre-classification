@@ -11,9 +11,12 @@ It changes two internal training choices only.
 1. The existing 18 exact outputs remain deterministic: 12 chroma means and 6 Tonnetz means.
 2. The remaining 27 learned outputs are emitted by three independent heads:
    `chroma_std` (12), `tonnetz_std` (6), and `tonal_dynamics` (9).
-3. Harmony Smooth L1 is averaged within, then equally across, five groups:
-   chroma mean, chroma std, Tonnetz mean, Tonnetz std, and tonal dynamics.
+3. Harmony loss is a fixed blend: 75% ordinary masked Smooth L1 across all
+   45 descriptors plus 25% group-balanced Smooth L1. The latter is averaged
+   within, then equally across, five groups: chroma mean, chroma std, Tonnetz
+   mean, Tonnetz std, and tonal dynamics.
 
 The feature names, order, 45-dimensional output, fusion ownership, target transforms,
-and shared-CNN interface are unchanged. Run this as a separately named 10-epoch
-screen before considering a 30-epoch comparison.
+and shared-CNN interface are unchanged. The 0.25 group-balanced contribution is
+recorded in each checkpoint; it can be set explicitly with
+``--harmony-group-balanced-weight``.

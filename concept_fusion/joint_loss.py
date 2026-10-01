@@ -86,6 +86,29 @@ def _group_balanced_masked_mean(
     return torch.stack(group_losses).mean(), observed
 
 
+def _mixed_harmony_masked_mean(
+    loss_elem: torch.Tensor,
+    mask: torch.Tensor,
+    groups: Sequence[Sequence[int]] | None,
+    group_balanced_weight: float,
+) -> tuple[torch.Tensor, int]:
+    """Blend ordinary and group-balanced descriptor losses.
+
+    ``group_balanced_weight=0`` is ordinary per-element Smooth L1, while
+    ``group_balanced_weight=1`` gives each semantic descriptor group equal
+    weight.  Intermediate values retain both signals.
+    """
+    ordinary, observed = _masked_mean(loss_elem, mask)
+    if groups is None or group_balanced_weight <= 0.0:
+        return ordinary, observed
+    balanced, _ = _group_balanced_masked_mean(loss_elem, mask, groups)
+    return (
+        (1.0 - group_balanced_weight) * ordinary
+        + group_balanced_weight * balanced,
+        observed,
+    )
+
+
 class JointLossOrchestrator(torch.nn.Module):
     """L = L_genre + Σ λ_k L_k, each L_k averaged over observed elements only.
 
@@ -101,10 +124,14 @@ class JointLossOrchestrator(torch.nn.Module):
         counts: ConceptCounts | None = None,
         weights: LossWeights | None = None,
         harmony_feature_groups: Sequence[Sequence[str]] | None = None,
+        harmony_group_balanced_weight: float = 1.0,
     ):
         super().__init__()
         self.counts = counts or ConceptCounts()
         self.weights = weights or LossWeights()
+        if not 0.0 <= harmony_group_balanced_weight <= 1.0:
+            raise ValueError("harmony_group_balanced_weight must be in [0, 1]")
+        self.harmony_group_balanced_weight = float(harmony_group_balanced_weight)
         self.harmony_feature_groups: tuple[tuple[int, ...], ...] | None = None
         if harmony_feature_groups is not None:
             from concept_fusion.contract import HARMONY_FEATURES
@@ -156,12 +183,12 @@ class JointLossOrchestrator(torch.nn.Module):
                     pred_f = torch.where(obs, pred, torch.zeros_like(pred))
                     tgt_f = torch.where(obs, tgt, torch.zeros_like(tgt))
                     raw = F.smooth_l1_loss(pred_f, tgt_f, reduction="none")
-                    if self.harmony_feature_groups is None:
-                        terms[name], n_obs[name] = _masked_mean(raw, mask)
-                    else:
-                        terms[name], n_obs[name] = _group_balanced_masked_mean(
-                            raw, mask, self.harmony_feature_groups
-                        )
+                    terms[name], n_obs[name] = _mixed_harmony_masked_mean(
+                        raw,
+                        mask,
+                        self.harmony_feature_groups,
+                        self.harmony_group_balanced_weight,
+                    )
                     continue
                 if isinstance(harmony_targets, SongHarmonyTargets):
                     target = harmony_targets.chroma

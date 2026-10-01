@@ -83,6 +83,7 @@ def train_remote(
     model: str = "joint",
     harmony_grouped_descriptor_heads: bool = False,
     harmony_feature_balanced_loss: bool = False,
+    harmony_group_balanced_weight: float = 0.25,
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -131,6 +132,7 @@ def train_remote(
         command.append("--harmony-grouped-descriptor-heads")
     if harmony_feature_balanced_loss:
         command.append("--harmony-feature-balanced-loss")
+        command.extend(["--harmony-group-balanced-weight", str(harmony_group_balanced_weight)])
 
     print("Starting:", " ".join(command), flush=True)
     subprocess.run(command, cwd=PROJECT_DIR, check=True)
@@ -165,6 +167,7 @@ def main(
     model: str = "joint",
     harmony_grouped_descriptor_heads: bool = False,
     harmony_feature_balanced_loss: bool = False,
+    harmony_group_balanced_weight: float = 0.25,
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
@@ -188,6 +191,7 @@ def main(
         model,
         harmony_grouped_descriptor_heads,
         harmony_feature_balanced_loss,
+        harmony_group_balanced_weight,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from concept_fusion.joint_loss import _group_balanced_masked_mean
+from concept_fusion.joint_loss import _group_balanced_masked_mean, _mixed_harmony_masked_mean
 from harmony_branch.constants import DESCRIPTOR_GROUPS, HARMONY_DESCRIPTORS
 from harmony_branch.descriptors import HarmonyTargetTransform
 from harmony_branch.model import ChromaGroundedHarmonyBranch
@@ -51,3 +51,19 @@ def test_feature_balanced_loss_weights_each_semantic_group_equally():
     assert observed == 45
     loss.backward()
     assert torch.isfinite(residuals.grad).all()
+
+
+def test_mixed_loss_uses_the_requested_75_25_blend():
+    # Group-balanced loss is 2.5. Ordinary per-feature loss is lower because
+    # the two 12-feature chroma groups have greater representation.
+    raw = torch.tensor([[0.5] * 12 + [1.5] * 12 + [2.5] * 6 + [3.5] * 6 + [4.5] * 9])
+    groups = tuple(tuple(names) for names in DESCRIPTOR_GROUPS.values())
+    index = {name: i for i, name in enumerate(HARMONY_DESCRIPTORS)}
+    indices = tuple(tuple(index[name] for name in names) for names in groups)
+    mask = torch.ones_like(raw)
+    ordinary = raw.mean()
+    balanced, _ = _group_balanced_masked_mean(raw, mask, indices)
+    mixed, observed = _mixed_harmony_masked_mean(raw, mask, indices, 0.25)
+
+    torch.testing.assert_close(mixed, 0.75 * ordinary + 0.25 * balanced)
+    assert observed == 45
