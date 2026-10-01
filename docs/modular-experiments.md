@@ -28,26 +28,35 @@ each seed or repeat to avoid overwriting that run.
 
 ```mermaid
 flowchart LR
-    A[Audio] --> E[Shared CNN]
+    A[Log-Mel spectrogram windows] --> E[Shared CNN]
     E --> P[128D song representation]
     P --> C[CNN-only MLP genre head]
     E --> B[Selected concept heads]
-    B --> T[Predicted concepts projected to 64D]
-    T --> F[Masked gated fusion]
+    B --> T[Native predictions: instrument 41, rhythm 10, timbre 35, harmony 12]
+    T --> F[Masked concatenation then MLP to 128D]
     F --> G[Genre head]
 ```
 
 CNN-only uses the existing 128→128→6 MLP after song pooling, with genre BCE only.
 Concept runs send predicted concepts to the genre classifier without a raw CNN
-bypass. A one-branch run retains the same projection and fusion output layer as
-multi-branch runs: its gate weight is 1 whenever the branch is available. Adding
-a second branch introduces learned weighting between the two. This keeps the
-concept-run classifier structure consistent across the ladder.
+bypass. The default `--fusion native_concat` concatenates selected predictions
+directly, then applies `Linear(total_width,128) -> ReLU -> Dropout(0.1)` and the
+genre head. Instrument, timbre, rhythm and harmony retain widths 41, 35, 10 and 12.
+The ladder's input widths are 41, 76, 86 and 98; CNN-only is unchanged. There are
+no per-branch projections or learned scalar gates in this mode. Harmony uses its
+12 predicted descriptors, not its internal embedding.
+
+Use `--fusion gated` to compare against the previous architecture with per-branch
+64D projections and masked gates. Native concatenation is a simple way to preserve
+the requested values; validation results determine which fusion performs better.
+Use different output directories for fusion comparisons. Checkpoints record the
+fusion name, contract version, concept widths and native fusion input dimension;
+old gated checkpoints are not compatible with the new fusion weights.
 
 Disabled heads are not instantiated or executed. Their slots in the existing
 four-slot fusion contract contain zero values and zero availability/supervision
-masks. Their projection parameters are frozen and excluded from the optimizer;
-they contribute zero auxiliary loss and no branch metrics. Concept dropout can
+masks. Native concatenation omits their columns entirely; gated mode freezes their
+projection parameters. They contribute zero auxiliary loss and no branch metrics. Concept dropout can
 only remove enabled branches and retains at least one available branch.
 
 Enabled heads retain their auxiliary supervision and loss weights:
@@ -79,12 +88,13 @@ comparisons. A checkpoint must be reconstructed with its recorded branch selecti
 
 ## Modal
 
-The Modal wrapper forwards branch selection and seed. Its string argument accepts
+The Modal wrapper forwards branch selection, fusion mode and seed. Its branch string accepts
 commas or spaces:
 
 ```powershell
 modal run modal_app.py --branches instrument,timbre --seed 42 --skip-test --run-name instrument-timbre-seed42
 modal run modal_app.py --branches none --seed 42 --skip-test --run-name cnn-seed42
+modal run modal_app.py --branches instrument,timbre --fusion native_concat --seed 42 --skip-test --run-name native-instrument-timbre-seed42
 ```
 
 These commands submit GPU runs; local unit tests do not launch Modal training.

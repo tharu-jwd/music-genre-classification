@@ -55,6 +55,9 @@ def test_selected_stages_train_reload_and_export_without_disabled_targets(tmp_pa
         assert predictions['probabilities'].shape == (2, 6)
         assert np.isfinite(predictions['probabilities']).all()
     if branches:
+        assert result['fusion'] == 'native_concat'
+        assert checkpoint['fusion_input_dim'] == sum(j.ConceptCounts().for_name(n) for n in branches)
+        assert checkpoint['fusion_model']['fusion.0.weight'].shape[1] == checkpoint['fusion_input_dim']
         assert set(result['test_branch_metrics']) == set(branches)
         for name in j.CONCEPT_ORDER:
             assert (checkpoint[f'{name}_head'] is not None) == (name in branches)
@@ -92,7 +95,7 @@ def test_only_selected_heads_receive_genre_gradients(branches):
                   rhythm_msk=torch.ones(2, 10), harmony_tgt=torch.zeros(2, 12),
                   harmony_msk=torch.ones(2, 12), device=torch.device('cpu'))
     bundle, _ = j._build_bundle(encoded, *heads, **kwargs)
-    fusion = j.ConceptBottleneckModel().eval()
+    fusion = j.NativeConceptFusionModel(branches).eval()
     logits, output = fusion.from_bundle(bundle, apply_dropout=False)
     for i, name in enumerate(j.CONCEPT_ORDER):
         if name not in branches:

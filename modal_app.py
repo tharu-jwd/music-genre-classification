@@ -81,6 +81,7 @@ def train_remote(
     model: str = "joint",
     branches: str = "",
     seed: int = 42,
+    fusion: str = "native_concat",
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -117,6 +118,7 @@ def train_remote(
         "--num-workers", str(num_workers),
         "--max-windows", str(max_windows),
         "--seed", str(seed),
+        "--fusion", fusion,
     ]
     if branches:
         command.extend(["--branches", *branches.replace(",", " ").split()])
@@ -158,10 +160,13 @@ def main(
     model: str = "joint",
     branches: str = "",
     seed: int = 42,
+    fusion: str = "native_concat",
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
         raise ValueError("model must be joint or cnn")
+    if fusion not in ("native_concat", "gated"):
+        raise ValueError("fusion must be native_concat or gated")
     selected = branches.replace(",", " ").split()
     allowed = {"instrument", "rhythm", "timbre", "harmony"}
     if selected and selected != ["none"]:
@@ -190,6 +195,7 @@ def main(
         model,
         branches,
         seed,
+        fusion,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

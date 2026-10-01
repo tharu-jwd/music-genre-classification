@@ -66,6 +66,7 @@ from concept_fusion.harmony_adapter import from_temporal_harmony_branch
 from concept_fusion.instrument_adapter import from_instrument_branch
 from concept_fusion.joint_loss import JointLossOrchestrator, LossWeights
 from concept_fusion.model import ConceptBottleneckModel
+from concept_fusion.native import NativeConceptFusionModel
 from concept_fusion.rhythm_adapter import from_rhythm_branch
 from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.types import BranchBundle, BranchOutput
@@ -814,7 +815,7 @@ def evaluate(
     timbre_head: TimbreBranch | None,
     rhythm_head: RhythmBranch | None,
     harmony_head: TemporalHarmonyBranch | None,
-    fusion_model: ConceptBottleneckModel,
+    fusion_model: ConceptBottleneckModel | NativeConceptFusionModel,
     loader: DataLoader,
     device: torch.device,
     prediction_path: Path | None = None,
@@ -909,6 +910,8 @@ def evaluate(
 
 def train(cfg: "TrainConfig") -> None:
     cfg.branches = normalize_branches(cfg.branches)
+    if cfg.fusion not in ("native_concat", "gated"):
+        raise ValueError("fusion must be native_concat or gated")
     if cfg.epochs < 1 or cfg.batch_size < 1 or cfg.lr <= 0 or cfg.num_workers < 0:
         raise ValueError("epochs, batch size and learning rate must be positive; workers nonnegative")
     if not cfg.branches:
@@ -955,26 +958,27 @@ def train(cfg: "TrainConfig") -> None:
     harmony_head = TemporalHarmonyBranch(
         128, chord_classes=None, descriptor_dim=N_HARMONY_DESCRIPTORS
     ).to(device) if "harmony" in cfg.branches else None
-    fusion_model   = ConceptBottleneckModel(
-        fusion="gated",
-        dropout_p=0.15,
-        harmony_embedding_dim=32,
-    ).to(device)
-
-    # Disabled projections stay out of the optimizer as well.
-    projection_names = {"instrument": "instrument_projection", "rhythm": "rhythm_projection",
-                        "timbre": "timbre_projection", "harmony": "harmony_chroma_projection"}
-    for name, module_name in projection_names.items():
-        getattr(fusion_model.assembler, module_name).requires_grad_(name in cfg.branches)
-    fusion_model.assembler.instrument_hidden_projection.requires_grad_(False)
-    fusion_model.assembler.harmony_projection.requires_grad_(False)
+    if cfg.fusion == "native_concat":
+        fusion_model = NativeConceptFusionModel(cfg.branches).to(device)
+    else:
+        fusion_model = ConceptBottleneckModel(fusion="gated", harmony_embedding_dim=32).to(device)
+        # Disabled projections stay out of the optimizer in the legacy comparison.
+        projection_names = {"instrument": "instrument_projection", "rhythm": "rhythm_projection",
+                            "timbre": "timbre_projection", "harmony": "harmony_chroma_projection"}
+        for name, module_name in projection_names.items():
+            getattr(fusion_model.assembler, module_name).requires_grad_(name in cfg.branches)
+        fusion_model.assembler.instrument_hidden_projection.requires_grad_(False)
+        fusion_model.assembler.harmony_projection.requires_grad_(False)
     modules = dict(encoder=encoder, instrument_head=instrument_head, timbre_head=timbre_head,
                    rhythm_head=rhythm_head, harmony_head=harmony_head, fusion_model=fusion_model)
     all_params = [p for module in modules.values() if module is not None
                   for p in module.parameters() if p.requires_grad]
     metadata = {
         "model": "concept_bottleneck", "branches": list(cfg.branches), "seed": cfg.seed,
-        "fusion": "gated", "parameter_count": sum(p.numel() for p in all_params),
+        "fusion": cfg.fusion, "parameter_count": sum(p.numel() for p in all_params),
+        "fusion_contract_version": fusion_model.fusion_contract_version,
+        "concept_widths": {name: ConceptCounts().for_name(name) for name in cfg.branches},
+        "fusion_input_dim": fusion_model.input_dim if cfg.fusion == "native_concat" else None,
         "config": {k: str(v) if isinstance(v, Path) else v for k, v in asdict(cfg).items()},
         "split_track_ids": {name: ds.track_ids for name, ds in
                             zip(("train", "validation", "test"), (train_ds, val_ds, test_ds))},
@@ -1160,6 +1164,7 @@ def train(cfg: "TrainConfig") -> None:
 @dataclass
 class TrainConfig:
     branches: tuple[str, ...] = CONCEPT_ORDER
+    fusion: str = "native_concat"
     seed: int = 42
     epochs:             int   = 30
     batch_size:         int   = 1
@@ -1189,6 +1194,8 @@ def main() -> None:
     p.add_argument("--branches", nargs="+", default=None,
                    help="Enabled concepts: instrument timbre rhythm harmony; 'none' for CNN-only")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--fusion", choices=("native_concat", "gated"), default="native_concat",
+                   help="Native-width concatenation (default), or legacy projected gated fusion")
     p.add_argument("--epochs",            type=int,   default=30)
     p.add_argument("--batch-size",        type=int,   default=1)
     p.add_argument("--lr",                type=float, default=3e-4)
@@ -1239,6 +1246,7 @@ def main() -> None:
         args.out_dir = "results/cnn" if not branches else "results/" + "-".join(branches)
     cfg = TrainConfig(
         branches=branches,
+        fusion=args.fusion,
         seed=args.seed,
         epochs            = 3 if args.quick else args.epochs,
         batch_size        = args.batch_size,
