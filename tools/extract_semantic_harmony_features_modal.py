@@ -216,7 +216,9 @@ def _extract_one(record: dict[str, str], harmonic_only: bool) -> dict[str, Any]:
         key_stability = float(sum(key == global_key for key in local_keys) / len(local_keys))
 
         tonnetz = librosa.feature.tonnetz(chroma=cens)
-        radius = np.linalg.vector_norm(tonnetz[:, valid], axis=0)
+        # ``vector_norm`` is only available in newer NumPy releases.  Keep the
+        # pinned NumPy 1.26 image compatible while computing the same L2 radius.
+        radius = np.linalg.norm(tonnetz[:, valid], axis=0)
         if radius.size == 0:
             raise ValueError("no valid Tonnetz frames")
 
