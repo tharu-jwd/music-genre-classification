@@ -1255,7 +1255,8 @@ class TrainConfig:
     require_harmony_targets: bool = False
     logmel_root:        Path | None = None
     window_frames:     int = 1366
-    max_windows:       int = 12
+    max_windows:       int = 0
+    instrument_architecture: str = "baseline"
     experiment_i1:     bool = False
     experiment_i1_control: bool = False
 
@@ -1335,6 +1336,7 @@ def main() -> None:
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,
+        instrument_architecture = args.instrument_architecture,
         experiment_i1     = args.experiment_i1,
         experiment_i1_control = args.experiment_i1_control,
     )
