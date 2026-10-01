@@ -68,12 +68,13 @@ def evaluate(model, loader, device, prediction_path=None):
 def train(cfg: j.TrainConfig):
     if cfg.epochs < 1 or cfg.batch_size < 1 or cfg.lr <= 0 or cfg.num_workers < 0:
         raise ValueError("epochs, batch size and learning rate must be positive; workers nonnegative")
+    j.seed_run(cfg.seed)
     device = torch.device(cfg.device)
     datasets = j.build_datasets(
         cfg.data_dir or j.ROOT / "data", dataset_csv=cfg.dataset_csv,
         split_csv=cfg.split_csv, require_harmony_targets=cfg.require_harmony_targets,
         quick=cfg.quick, logmel_root=cfg.logmel_root,
-        window_frames=cfg.window_frames, max_windows=cfg.max_windows,
+        window_frames=cfg.window_frames, max_windows=cfg.max_windows, branches=(),
     )[:3]
     for ds in datasets:
         if not len(ds):
@@ -83,6 +84,7 @@ def train(cfg: j.TrainConfig):
                 raise FileNotFoundError(path)
     loaders = [DataLoader(ds, batch_size=cfg.batch_size, shuffle=(i == 0),
                           collate_fn=j.collate_fn, num_workers=cfg.num_workers,
+                          generator=torch.Generator().manual_seed(cfg.seed) if i == 0 else None,
                           pin_memory=(device.type == "cuda" and i == 0))
                for i, ds in enumerate(datasets)]
     model = GenreCNN().to(device)
@@ -94,7 +96,7 @@ def train(cfg: j.TrainConfig):
     config = {key: str(value) if isinstance(value, Path) else value
               for key, value in asdict(cfg).items()}
     metadata = {
-        "model": "direct_cnn", "config": config,
+        "model": "direct_cnn", "config": {**config, "branches": []}, "branches": [], "seed": cfg.seed,
         "genre_tags": list(j.GENRE_TAGS), "mel_config": datasets[0].mel_config,
         "parameter_count": sum(p.numel() for p in model.parameters()),
         "split_track_ids": {name: ds.track_ids for name, ds in

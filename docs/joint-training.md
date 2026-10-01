@@ -3,6 +3,10 @@
 `scripts/train_joint.py` trains the shared encoder, all four concept branches,
 and fusion for the current six genres and 41 instrument labels.
 
+Select any concept subset with `--branches instrument timbre` or run the direct
+CNN baseline with `--branches none`. See [modular experiments](modular-experiments.md)
+for the five-stage ladder, checkpoint metadata, and Modal commands.
+
 Harmony is predicted from the shared audio sequence. A song-level descriptor head
 maps the masked temporal embedding to the 12 values in `harmony_vector`. The
 targets are standardized using training-split statistics and optimized with masked

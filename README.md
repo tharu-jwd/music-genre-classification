@@ -12,6 +12,10 @@ shared audio representation:
 It learns how much each concept contributes, combines the four representations, and
 predicts every genre that applies to a song.
 
+For CNN-only and selectable concept-branch training, see the
+[modular experiment commands](docs/modular-experiments.md). Use `--branches none`,
+`--branches instrument`, or any subset of `instrument timbre rhythm harmony`.
+
 <p align="center">
   <img src="docs/diagrams/proposed-concept-guided-architecture.svg" alt="Proposed concept-guided architecture" width="1100">
 </p>

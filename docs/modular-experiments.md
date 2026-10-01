@@ -1,0 +1,90 @@
+# Modular concept experiments
+
+Run from the repository root. `--branches` selects which learned concept heads
+exist in the joint run. Omit the option to retain all four branches. Use `none`
+for the existing direct CNN baseline (`--model cnn` is also supported).
+
+```powershell
+python scripts/train_joint.py --branches none --seed 42 --skip-test --out-dir results/01-cnn
+python scripts/train_joint.py --branches instrument --seed 42 --skip-test --out-dir results/02-instrument
+python scripts/train_joint.py --branches instrument timbre --seed 42 --skip-test --out-dir results/03-instrument-timbre
+python scripts/train_joint.py --branches instrument timbre rhythm --seed 42 --skip-test --out-dir results/04-instrument-timbre-rhythm
+python scripts/train_joint.py --branches instrument timbre rhythm harmony --seed 42 --skip-test --out-dir results/05-all
+```
+
+Add the same data and training arguments to each command, for example
+`--dataset-csv data/full_dataset.csv --epochs 30 --batch-size 1 --max-windows 16`.
+`--quick` runs three epochs on up to 32 tracks per split for a smoke test.
+Each command trains a fresh model. It does not continue the preceding stage.
+
+Any subset is supported, including `--branches rhythm`, `--branches timbre harmony`,
+or all branches except harmony. Names are space-separated and duplicates/unknown
+names fail before training. The fusion order remains instrument, rhythm, timbre,
+harmony regardless of argument order. When no output directory is supplied, the
+CLI uses `results/cnn` or `results/<selected-branches>`; choose a new directory for
+each seed or repeat to avoid overwriting that run.
+
+## Prediction paths
+
+```mermaid
+flowchart LR
+    A[Audio] --> E[Shared CNN]
+    E --> P[128D song representation]
+    P --> C[CNN-only MLP genre head]
+    E --> B[Selected concept heads]
+    B --> T[Predicted concepts projected to 64D]
+    T --> F[Masked gated fusion]
+    F --> G[Genre head]
+```
+
+CNN-only uses the existing 128→128→6 MLP after song pooling, with genre BCE only.
+Concept runs send predicted concepts to the genre classifier without a raw CNN
+bypass. A one-branch run retains the same projection and fusion output layer as
+multi-branch runs: its gate weight is 1 whenever the branch is available. Adding
+a second branch introduces learned weighting between the two. This keeps the
+concept-run classifier structure consistent across the ladder.
+
+Disabled heads are not instantiated or executed. Their slots in the existing
+four-slot fusion contract contain zero values and zero availability/supervision
+masks. Their projection parameters are frozen and excluded from the optimizer;
+they contribute zero auxiliary loss and no branch metrics. Concept dropout can
+only remove enabled branches and retains at least one available branch.
+
+Enabled heads retain their auxiliary supervision and loss weights:
+`--lambda-instrument`, `--lambda-timbre`, `--lambda-rhythm`, `--lambda-harmony`.
+A zero loss weight is different from disabling a branch: the prediction still
+enters genre fusion when the branch is selected.
+
+## Data and comparison protocol
+
+Only selected branches require target columns/vectors or legacy target CSVs.
+Disabled targets are ignored, and no scaler is fitted for them. CNN-only needs
+audio paths, genre labels, split assignments and the usual audio metadata.
+Enabling harmony with `--require-harmony-targets` checks its targets; that flag
+is rejected when harmony is disabled.
+
+Use identical track cohorts, frozen split assignments, audio window settings,
+epoch budgets and seeds. The seed controls initialization and a separate training
+shuffle generator so changing branch count does not alter shuffle order through
+model-initialization RNG consumption. This does not guarantee bitwise deterministic
+GPU kernels. Repeat promising configurations with several seeds.
+
+Select architectures using validation macro AP. `--skip-test` reserves the test
+split; omit it for final evaluation. Results and checkpoints record the selected
+branches, seed, configuration, trainable parameter count, split track IDs and
+active head states. Disabled head/scaler states are null. The selected checkpoint
+also produces `validation_predictions.npz` and, when test is enabled,
+`test_predictions.npz`, with probabilities, targets and track IDs for paired
+comparisons. A checkpoint must be reconstructed with its recorded branch selection.
+
+## Modal
+
+The Modal wrapper forwards branch selection and seed. Its string argument accepts
+commas or spaces:
+
+```powershell
+modal run modal_app.py --branches instrument,timbre --seed 42 --skip-test --run-name instrument-timbre-seed42
+modal run modal_app.py --branches none --seed 42 --skip-test --run-name cnn-seed42
+```
+
+These commands submit GPU runs; local unit tests do not launch Modal training.

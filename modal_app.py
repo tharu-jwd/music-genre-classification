@@ -79,6 +79,8 @@ def train_remote(
     quick: bool,
     skip_test: bool,
     model: str = "joint",
+    branches: str = "",
+    seed: int = 42,
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -114,7 +116,10 @@ def train_remote(
         "--lr", str(learning_rate),
         "--num-workers", str(num_workers),
         "--max-windows", str(max_windows),
+        "--seed", str(seed),
     ]
+    if branches:
+        command.extend(["--branches", *branches.replace(",", " ").split()])
     if quick:
         command.append("--quick")
     if skip_test:
@@ -151,10 +156,21 @@ def main(
     skip_test: bool = False,
     background: bool = False,
     model: str = "joint",
+    branches: str = "",
+    seed: int = 42,
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
         raise ValueError("model must be joint or cnn")
+    selected = branches.replace(",", " ").split()
+    allowed = {"instrument", "rhythm", "timbre", "harmony"}
+    if selected and selected != ["none"]:
+        if set(selected) - allowed or len(set(selected)) != len(selected):
+            raise ValueError("branches must be unique concept names, or none")
+        if model == "cnn":
+            raise ValueError("model cnn cannot enable concept branches")
+    if selected and run_name == "joint-full-v1":
+        run_name = "cnn-full-v1" if selected == ["none"] else "joint-" + "-".join(selected)
     if model == "cnn" and run_name == "joint-full-v1":
         run_name = "cnn-full-v1"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", run_name):
@@ -172,6 +188,8 @@ def main(
         quick,
         skip_test,
         model,
+        branches,
+        seed,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:
