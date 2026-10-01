@@ -925,16 +925,23 @@ def train(cfg: "TrainConfig") -> None:
         harmony_embedding_dim=harmony_head.embedding_dim,
     ).to(device)
 
-    all_params = (
+    base_params = (
         list(encoder.parameters())
         + list(instrument_head.parameters())
         + list(timbre_head.parameters())
         + list(rhythm_head.parameters())
-        + list(harmony_head.parameters())
         + list(fusion_model.parameters())
     )
-
-    optimizer = torch.optim.AdamW(all_params, lr=cfg.lr, weight_decay=cfg.weight_decay)
+    harmony_params = list(harmony_head.parameters())
+    all_params = base_params + harmony_params
+    harmony_lr = cfg.lr if cfg.harmony_lr is None else cfg.harmony_lr
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": base_params, "lr": cfg.lr},
+            {"params": harmony_params, "lr": harmony_lr},
+        ],
+        weight_decay=cfg.weight_decay,
+    )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=cfg.epochs, eta_min=cfg.lr * 0.05
     )
@@ -1022,6 +1029,7 @@ def train(cfg: "TrainConfig") -> None:
             f"val_loss={val_metrics['loss']:.4f}  "
             f"val_macro_ap={val_ap:.4f}  "
             f"lr={scheduler.get_last_lr()[0]:.2e}  "
+            f"harmony_lr={scheduler.get_last_lr()[1]:.2e}  "
             f"({elapsed:.1f}s)"
         )
         val_branches = val_metrics["branches"]
@@ -1080,6 +1088,8 @@ def train(cfg: "TrainConfig") -> None:
                 "harmony_group_balanced_weight": (
                     cfg.harmony_group_balanced_weight if harmony_feature_groups is not None else 0.0
                 ),
+                "base_learning_rate": cfg.lr,
+                "harmony_learning_rate": harmony_lr,
                 "harmony_loss_groups": None if harmony_feature_groups is None else [list(group) for group in harmony_feature_groups],
                 "harmony_supervised": bool(train_ds.harmony_mask.any()),
             }
@@ -1160,6 +1170,7 @@ class TrainConfig:
     harmony_grouped_descriptor_heads: bool = False
     harmony_feature_balanced_loss: bool = False
     harmony_group_balanced_weight: float = 0.25
+    harmony_lr:         float | None = None
     logmel_root:        Path | None = None
     window_frames:     int = 1366
     max_windows:       int = 16
@@ -1202,6 +1213,8 @@ def main() -> None:
                    help="Blend ordinary and group-balanced harmony Smooth-L1 across five semantic groups")
     p.add_argument("--harmony-group-balanced-weight", type=float, default=0.25,
                    help="Group-balanced contribution to harmony Smooth-L1 when enabled (default: 0.25)")
+    p.add_argument("--harmony-lr", type=float,
+                   help="Optional Harmony-trunk/head LR; all other parameters retain --lr")
     p.add_argument("--print-dataset-schema", action="store_true",
                    help="Print the canonical dataset.csv vector groups and exit")
     args = p.parse_args()
@@ -1212,6 +1225,8 @@ def main() -> None:
         p.error("window-frames and max-windows must be positive")
     if not 0.0 <= args.harmony_group_balanced_weight <= 1.0:
         p.error("harmony-group-balanced-weight must be in [0, 1]")
+    if args.harmony_lr is not None and args.harmony_lr <= 0.0:
+        p.error("harmony-lr must be positive")
 
     cfg = TrainConfig(
         epochs            = 3 if args.quick else args.epochs,
@@ -1235,6 +1250,7 @@ def main() -> None:
         harmony_grouped_descriptor_heads = args.harmony_grouped_descriptor_heads,
         harmony_feature_balanced_loss = args.harmony_feature_balanced_loss,
         harmony_group_balanced_weight = args.harmony_group_balanced_weight,
+        harmony_lr        = args.harmony_lr,
         logmel_root       = args.logmel_root,
         window_frames     = args.window_frames,
         max_windows       = args.max_windows,
@@ -1260,7 +1276,10 @@ def main() -> None:
         f"group_balanced_weight="
         f"{cfg.harmony_group_balanced_weight if cfg.harmony_feature_balanced_loss else 0.0:.2f}"
     )
-    print(f"  Epochs     : {cfg.epochs}   Batch: {cfg.batch_size}   LR: {cfg.lr}")
+    print(
+        f"  Epochs     : {cfg.epochs}   Batch: {cfg.batch_size}   "
+        f"LR: {cfg.lr}   Harmony LR: {cfg.harmony_lr if cfg.harmony_lr is not None else cfg.lr}"
+    )
     print(f"  Device     : {cfg.device}")
     print("=" * 60)
 

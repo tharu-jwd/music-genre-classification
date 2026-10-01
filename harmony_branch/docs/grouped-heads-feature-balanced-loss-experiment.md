@@ -20,3 +20,9 @@ The feature names, order, 45-dimensional output, fusion ownership, target transf
 and shared-CNN interface are unchanged. The 0.25 group-balanced contribution is
 recorded in each checkpoint; it can be set explicitly with
 ``--harmony-group-balanced-weight``.
+
+For the 30-epoch optimization run, the training entrypoint also supports a
+Harmony-only optimizer group. For example, ``--lr 3e-4 --harmony-lr 5e-4``
+keeps the shared encoder, the other branches, and fusion at ``3e-4`` while
+training the Harmony trunk and descriptor heads at ``5e-4``. This changes no
+public branch interface.
