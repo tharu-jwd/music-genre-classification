@@ -98,3 +98,30 @@ modal run modal_app.py --branches instrument,timbre --fusion native_concat --see
 ```
 
 These commands submit GPU runs; local unit tests do not launch Modal training.
+
+## Instrument + rhythm comparison
+
+This subset is supported directly, without timbre or harmony targets. Instrument
+contributes 41 probabilities and rhythm contributes 10 standardized predictions.
+Concatenation feeds 51 values to `Linear(51,128) -> ReLU -> Dropout(0.1)`, followed
+by the genre head `Dropout(0.1) -> Linear(128,6)`. Both branches share the same CNN:
+instrument uses its masked pooled song vector, while rhythm uses its temporal
+sequence. The default joint loss is genre BCE + instrument BCE + rhythm Smooth L1.
+
+Run a small Modal smoke test first, keeping the terminal open until completion:
+
+```powershell
+modal run modal_app.py --branches instrument,rhythm --fusion native_concat --quick --batch-size 1 --max-windows 16 --gpu A10 --seed 42 --skip-test --run-name instrument-rhythm-smoke-01
+```
+
+Then submit the 30-epoch run with the same data and hyperparameters as the other
+experiments:
+
+```powershell
+modal run --detach modal_app.py --background --branches instrument,rhythm --fusion native_concat --epochs 30 --batch-size 1 --max-windows 16 --gpu A10 --seed 42 --skip-test --run-name instrument-rhythm-30ep-s42
+```
+
+Wait for submitted status, a function-call ID and the local prompt to return before
+closing the terminal. This starts a fresh model. Compare its validation score with
+instrument-only and instrument+timbre+rhythm to assess the incremental role of each
+branch. Test evaluation is reserved by `--skip-test`.

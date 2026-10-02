@@ -12,7 +12,7 @@ from scripts import train_joint as j
 
 STAGES = [(), ('instrument',), ('instrument', 'timbre'),
           ('instrument', 'timbre', 'rhythm'), j.CONCEPT_ORDER,
-          ('harmony',), ('rhythm', 'timbre')]
+          ('harmony',), ('rhythm', 'timbre'), ('instrument', 'rhythm')]
 
 
 def write_dataset(path, branches, vector=False):
@@ -69,7 +69,7 @@ def test_selected_stages_train_reload_and_export_without_disabled_targets(tmp_pa
         assert all(k.startswith(('encoder.', 'head.')) for k in checkpoint['model_state'])
 
 
-@pytest.mark.parametrize('branches', [('instrument',), ('harmony',), ()])
+@pytest.mark.parametrize('branches', [('instrument',), ('harmony',), (), ('instrument', 'rhythm')])
 def test_partial_vector_datasets_ignore_disabled_vectors(tmp_path, branches):
     data = tmp_path / 'data'
     write_dataset(data, branches, vector=True)
