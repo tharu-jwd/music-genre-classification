@@ -37,10 +37,12 @@ def _sha256_file(path: Path) -> str:
 
 def load_predictions(path: Path) -> dict[str, np.ndarray]:
     with np.load(path, allow_pickle=False) as data:
-        missing = REQUIRED_KEYS - set(data.files)
+        aliases = {"song_ids": "track_ids", "label_names": "genre_tags", "scores": "probabilities"}
+        keys = {key: key if key in data.files else aliases.get(key, key) for key in REQUIRED_KEYS}
+        missing = {key for key, actual in keys.items() if actual not in data.files}
         if missing:
             raise ValueError(f"{path} is missing NPZ keys: {sorted(missing)}")
-        result = {key: np.asarray(data[key]) for key in REQUIRED_KEYS}
+        result = {key: np.asarray(data[actual]) for key, actual in keys.items()}
 
     song_ids = result["song_ids"].astype(str)
     label_names = result["label_names"].astype(str)
@@ -89,7 +91,8 @@ def macro_metric(targets: np.ndarray, scores: np.ndarray, metric: str) -> float:
     values: list[float] = []
     for column in range(targets.shape[1]):
         y_true = targets[:, column]
-        if np.unique(y_true).size < 2:
+        if (metric == "macro_pr_auc" and not y_true.any()) or \
+                (metric == "macro_roc_auc" and np.unique(y_true).size < 2):
             continue
         if metric == "macro_pr_auc":
             value = average_precision_score(y_true, scores[:, column])
@@ -100,7 +103,7 @@ def macro_metric(targets: np.ndarray, scores: np.ndarray, metric: str) -> float:
         if np.isfinite(value):
             values.append(float(value))
     if not values:
-        raise ValueError("No labels have both positive and negative validation examples")
+        raise ValueError("No labels are evaluable for the requested metric")
     return float(np.mean(values))
 
 

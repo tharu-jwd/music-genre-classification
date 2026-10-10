@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from sklearn.metrics import average_precision_score
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 
@@ -73,10 +74,11 @@ from concept_fusion.timbre_adapter import from_timbre_branch
 from concept_fusion.types import BranchBundle, BranchOutput
 from harmony_branch.model import TemporalHarmonyBranch
 from scripts.mtg_data_contract import NOTEBOOK_DATA_CONTRACT
-from rhythm_branch.model import RhythmBranch
+from scripts.paper_artifacts import dataset_fingerprints, code_fingerprints, runtime_metadata
+from rhythm_branch.model import RhythmBranch, RhythmBranchConfig
 from rhythm_branch.preprocessing import RhythmStandardizer
 from shared_encoder import SharedAudioEncoder
-from timbre_branch.model import TimbreBranch
+from timbre_branch.model import TimbreBranch, TimbreBranchConfig
 from timbre_branch.preprocessing import TimbreStandardizer
 from scripts.build_vector_dataset import VECTOR_GROUPS
 
@@ -164,6 +166,20 @@ class HarmonyStandardizer:
             "count": self.count.tolist(),
             "epsilon": self.epsilon,
         }
+
+    @classmethod
+    def from_state_dict(cls, state):
+        if tuple(state["feature_names"]) != HARMONY_FEATURES:
+            raise ValueError("Checkpoint harmony feature order differs")
+        result = cls(epsilon=float(state.get("epsilon", 1e-8)))
+        result.mean = np.asarray(state["mean"], dtype=np.float64)
+        result.scale = np.asarray(state["scale"], dtype=np.float64)
+        result.count = np.asarray(state["count"], dtype=np.int64)
+        if any(value.shape != (len(HARMONY_FEATURES),) for value in
+               (result.mean, result.scale, result.count)) or not np.isfinite(result.mean).all() \
+                or not np.isfinite(result.scale).all() or (result.scale <= 0).any():
+            raise ValueError("Invalid harmony standardizer state")
+        return result
 
 
 def dataset_schema() -> dict[str, Any]:
@@ -597,6 +613,18 @@ def build_datasets(
     test_ds  = _make_ds(master[master["split"] == "test"])
 
     print(f"  train={len(train_ds)}  val={len(val_ds)}  test={len(test_ds)}")
+    references = {}
+    if "instrument" in branches:
+        values = train_ds.instrument.numpy()
+        mask = np.isfinite(values)
+        counts = mask.sum(0)
+        rates = np.where(mask, values, 0).sum(0) / np.maximum(counts, 1)
+        references["instrument"] = np.where(counts > 0, rates, np.nan)
+    for name in ("rhythm", "timbre", "harmony"):
+        if name in branches:
+            references[name] = np.zeros(ConceptCounts().for_name(name), dtype=np.float32)
+    for dataset in (train_ds, val_ds, test_ds):
+        dataset.concept_references = references
     return train_ds, val_ds, test_ds, timbre_std, rhythm_std, harmony_std
 
 
@@ -691,15 +719,10 @@ def _build_bundle(
 
 def _average_precision(scores: Tensor, targets: Tensor) -> float | None:
     """Average precision for one binary target, or None without positives."""
-    positives = targets.sum()
-    if positives <= 0:
+    if targets.numel() == 0 or targets.sum() <= 0:
         return None
-    order = scores.argsort(descending=True)
-    ranked_targets = targets[order].float()
-    precision = ranked_targets.cumsum(0) / torch.arange(
-        1, len(ranked_targets) + 1, dtype=torch.float32
-    )
-    return float((precision * ranked_targets).sum() / positives)
+    return float(average_precision_score(targets.detach().cpu().numpy(),
+                                        scores.detach().cpu().numpy()))
 
 
 def macro_average_precision(probs: Tensor, targets: Tensor) -> float:
@@ -717,10 +740,20 @@ def _multilabel_metrics(
     names: tuple[str, ...] | list[str],
     *,
     threshold: float = 0.5,
+    mask: Tensor | None = None,
 ) -> dict[str, Any]:
     """Return ranking and threshold metrics for multilabel predictions."""
     probabilities = probabilities.float()
     targets = targets.float()
+    if mask is not None and not ((mask == 0) | (mask == 1)).all():
+        raise ValueError("Metric observation mask must be binary")
+    observed = torch.ones_like(targets, dtype=torch.bool) if mask is None else mask.bool()
+    if observed.shape != targets.shape or probabilities.shape != targets.shape or len(names) != targets.shape[1]:
+        raise ValueError("Metric predictions, targets, mask and label names must align")
+    if not torch.isfinite(targets[observed]).all() or not torch.isfinite(probabilities[observed]).all():
+        raise ValueError("Observed metric inputs must be finite")
+    if not ((targets[observed] == 0) | (targets[observed] == 1)).all():
+        raise ValueError("Observed classification targets must be binary")
     predicted = probabilities >= threshold
     truth = targets >= 0.5
 
@@ -728,32 +761,36 @@ def _multilabel_metrics(
     aps: list[float] = []
     f1s: list[float] = []
     for index, name in enumerate(names):
-        ap = _average_precision(probabilities[:, index], targets[:, index])
+        valid = observed[:, index]
+        ap = _average_precision(probabilities[valid, index], targets[valid, index])
         if ap is not None:
             aps.append(ap)
-        tp = int((predicted[:, index] & truth[:, index]).sum())
-        fp = int((predicted[:, index] & ~truth[:, index]).sum())
-        fn = int((~predicted[:, index] & truth[:, index]).sum())
+        tp = int((valid & predicted[:, index] & truth[:, index]).sum())
+        fp = int((valid & predicted[:, index] & ~truth[:, index]).sum())
+        fn = int((valid & ~predicted[:, index] & truth[:, index]).sum())
         denominator = 2 * tp + fp + fn
         f1 = 2 * tp / denominator if denominator else 0.0
-        f1s.append(f1)
+        if valid.any():
+            f1s.append(f1)
         per_tag[str(name)] = {
             "average_precision": ap,
-            "f1": f1,
-            "support": int(truth[:, index].sum()),
+            "f1": f1 if valid.any() else None,
+            "support": int((valid & truth[:, index]).sum()),
+            "n_observed": int(valid.sum()),
         }
 
-    flat_ap = _average_precision(probabilities.flatten(), targets.flatten())
-    tp = int((predicted & truth).sum())
-    fp = int((predicted & ~truth).sum())
-    fn = int((~predicted & truth).sum())
+    flat_ap = _average_precision(probabilities[observed], targets[observed])
+    tp = int((observed & predicted & truth).sum())
+    fp = int((observed & predicted & ~truth).sum())
+    fn = int((observed & ~predicted & truth).sum())
     micro_denominator = 2 * tp + fp + fn
     return {
         "macro_average_precision": sum(aps) / len(aps) if aps else None,
         "micro_average_precision": flat_ap,
         "macro_f1": sum(f1s) / len(f1s) if f1s else None,
-        "micro_f1": 2 * tp / micro_denominator if micro_denominator else 0.0,
-        "binary_accuracy": float((predicted == truth).float().mean()),
+        "micro_f1": (2 * tp / micro_denominator if micro_denominator else 0.0) if observed.any() else None,
+        "binary_accuracy": float((predicted[observed] == truth[observed]).float().mean()) if observed.any() else None,
+        "n_observed": int(observed.sum()),
         "threshold": threshold,
         "valid_ap_tags": len(aps),
         "per_tag": per_tag,
@@ -770,6 +807,11 @@ def _masked_regression_metrics(
     predictions = predictions.float()
     targets = targets.float()
     observed = mask.bool()
+    if predictions.shape != targets.shape or observed.shape != targets.shape or targets.ndim != 2 \
+            or len(names) != targets.shape[1]:
+        raise ValueError("Regression predictions, targets, mask and names must align")
+    if not torch.isfinite(predictions[observed]).all() or not torch.isfinite(targets[observed]).all():
+        raise ValueError("Observed regression metric inputs must be finite")
     per_feature: dict[str, dict[str, float | int | None]] = {}
     total_absolute_error = 0.0
     total_squared_error = 0.0
@@ -875,9 +917,21 @@ def evaluate(
     probs   = torch.cat(all_probs)     # (N, 6)
     targets = torch.cat(all_targets)   # (N, 6)
     if prediction_path is not None:
-        np.savez_compressed(prediction_path, probabilities=probs.numpy(),
-                            targets=targets.numpy(), track_ids=np.asarray(track_ids),
-                            genre_tags=np.asarray(GENRE_TAGS))
+        from scripts.paper_artifacts import export_predictions
+        concepts = {name: {
+            "predictions": torch.cat(concept_predictions[name]).numpy(),
+            "targets": torch.cat(concept_targets_all[name]).numpy(),
+            "mask": torch.cat(concept_masks[name]).numpy().astype(bool),
+            "names": np.asarray(features),
+        } for name, head, features in (
+            ("instrument", instrument_head, INSTRUMENT_TAGS),
+            ("rhythm", rhythm_head, RHYTHM_FEATURES),
+            ("timbre", timbre_head, TIMBRE_FEATURES),
+            ("harmony", harmony_head, HARMONY_FEATURES)) if head is not None}
+        for name, group in concepts.items():
+            reference = loader.dataset.concept_references[name]
+            group["baseline_predictions"] = np.broadcast_to(reference, group["predictions"].shape)
+        export_predictions(prediction_path, probs.numpy(), targets.numpy(), track_ids, GENRE_TAGS, concepts)
 
     genre_metrics = _multilabel_metrics(probs, targets, GENRE_TAGS)
     branch_metrics = {}
@@ -893,7 +947,7 @@ def evaluate(
         truth = torch.cat(concept_targets_all[name])
         masks = torch.cat(concept_masks[name])
         branch_metrics[name] = (
-            _multilabel_metrics(predictions, truth, features) if name == "instrument"
+            _multilabel_metrics(predictions, truth, features, mask=masks) if name == "instrument"
             else _masked_regression_metrics(predictions, truth, masks, features)
         )
     macro_ap = genre_metrics["macro_average_precision"]
@@ -933,12 +987,19 @@ def train(cfg: "TrainConfig") -> None:
         from scripts.train_cnn import train as train_cnn
         train_cnn(cfg)
         return
+    out_dir = ROOT / cfg.out_dir
+    if (out_dir / "best.pt").exists() or (out_dir / "results.json").exists():
+        raise FileExistsError(f"Run already exists: {out_dir}; choose a new --out-dir")
     seed_run(cfg.seed)
     device = torch.device(cfg.device)
     print(f"Device: {device}")
 
     print("Loading data...")
     data_dir = cfg.data_dir or ROOT / "data"
+    cfg.data_dir = Path(data_dir).resolve()
+    for key in ("dataset_csv", "split_csv", "logmel_root"):
+        if getattr(cfg, key) is not None:
+            setattr(cfg, key, Path(getattr(cfg, key)).resolve())
     train_ds, val_ds, test_ds, timbre_std, rhythm_std, harmony_std = build_datasets(
         data_dir, dataset_csv=cfg.dataset_csv, split_csv=cfg.split_csv,
         require_harmony_targets=cfg.require_harmony_targets,
@@ -996,6 +1057,10 @@ def train(cfg: "TrainConfig") -> None:
     all_params = [p for module in modules.values() if module is not None
                   for p in module.parameters() if p.requires_grad]
     metadata = {
+        "metric_version": "sklearn_average_precision_masked_v2",
+        "dataset_fingerprints": dataset_fingerprints(cfg),
+        "code_fingerprints": code_fingerprints(),
+        "environment": runtime_metadata(device),
         "architecture_version": "common_concept_branches_v2",
         "model": "concept_bottleneck", "branches": list(cfg.branches), "seed": cfg.seed,
         "fusion": cfg.fusion, "parameter_count": sum(p.numel() for p in all_params),
@@ -1087,14 +1152,18 @@ def train(cfg: "TrainConfig") -> None:
 
         scheduler.step()
         train_loss = epoch_loss / max(n_batches, 1)
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         elapsed    = time.perf_counter() - t0
 
         print("Evaluating validation split...", flush=True)
+        validation_started = time.perf_counter()
         val_metrics = evaluate(
             encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
             fusion_model, val_loader, device,
         )
         val_ap = val_metrics["macro_ap"]
+        validation_seconds = time.perf_counter() - validation_started
 
         print(
             f"Epoch {epoch:3d}/{cfg.epochs}  "
@@ -1116,6 +1185,7 @@ def train(cfg: "TrainConfig") -> None:
             "val_genre_metrics": val_metrics["genre"],
             "val_branch_metrics": val_metrics["branches"],
             "train_seconds": elapsed,
+            "validation_seconds": validation_seconds,
         })
 
         if val_ap > best_val_ap:
@@ -1147,7 +1217,9 @@ def train(cfg: "TrainConfig") -> None:
                 "max_windows": cfg.max_windows,
                 "harmony_target_columns": list(HARMONY_FEATURES),
                 "harmony_strategy":  "standardized_song_descriptor_regression",
-                "harmony_supervised": bool(train_ds.harmony_mask.any()),
+                "harmony_targets_available": bool(train_ds.harmony_mask.any()),
+                "harmony_supervised": bool(train_ds.harmony_mask.any()) and
+                    (cfg.lambda_aux if cfg.lambda_harmony is None else cfg.lambda_harmony) > 0,
             }
             torch.save(ckpt, out_dir / "best.pt")
             print(f"  -> saved best checkpoint  (val_macro_ap={val_ap:.4f})")
@@ -1159,7 +1231,7 @@ def train(cfg: "TrainConfig") -> None:
     for name, module in modules.items():
         if module is not None:
             module.load_state_dict(best[name])
-    evaluate(encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
+    best_val_metrics = evaluate(encoder, instrument_head, timbre_head, rhythm_head, harmony_head,
              fusion_model, val_loader, device, out_dir / "validation_predictions.npz")
     if cfg.evaluate_test:
         test_metrics = evaluate(
@@ -1177,6 +1249,8 @@ def train(cfg: "TrainConfig") -> None:
         "test_evaluated": cfg.evaluate_test,
         "best_epoch":    int(best["epoch"]),
         "val_macro_ap":  float(best["val_macro_ap"]),
+        "val_genre_metrics": best_val_metrics["genre"],
+        "val_branch_metrics": best_val_metrics["branches"],
         "test_macro_ap": test_metrics["macro_ap"],
         "test_loss":     test_metrics["loss"],
         "test_loss_terms": test_metrics["loss_terms"],
@@ -1186,7 +1260,9 @@ def train(cfg: "TrainConfig") -> None:
         "n_train":       len(train_ds),
         "n_val":         len(val_ds),
         "n_test":        len(test_ds),
-        "harmony_supervised": bool(train_ds.harmony_mask.any()),
+        "harmony_targets_available": bool(train_ds.harmony_mask.any()),
+        "harmony_supervised": bool(train_ds.harmony_mask.any()) and
+            (cfg.lambda_aux if cfg.lambda_harmony is None else cfg.lambda_harmony) > 0,
         "log":           log,
     }
     out_path = out_dir / "results.json"

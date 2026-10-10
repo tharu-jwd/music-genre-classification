@@ -132,7 +132,13 @@ class RhythmBranch(nn.Module):
             if valid_indices.numel():
                 for window in torch.unique(valid_indices).tolist():
                     segment_mask = mask & (sequence_window_index == int(window))
-                    encoded = encoded + self._encode_segment(values, segment_mask)
+                    # Crop the inactive columns instead of convolving the entire
+                    # song once per window. Outside this span all states are zero
+                    # after every block, so convolution padding is equivalent.
+                    columns = segment_mask.any(dim=0).nonzero(as_tuple=False).flatten()
+                    left, right = int(columns[0]), int(columns[-1]) + 1
+                    update = self._encode_segment(values[:, left:right], segment_mask[:, left:right])
+                    encoded[:, left:right] = encoded[:, left:right] + update
             values = encoded
 
         availability = mask.any(dim=1)

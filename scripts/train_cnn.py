@@ -10,10 +10,12 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import time
 from torch import nn
 from torch.utils.data import DataLoader
 
 from scripts import train_joint as j
+from scripts.paper_artifacts import dataset_fingerprints, code_fingerprints, runtime_metadata
 
 
 class GenreCNN(nn.Module):
@@ -51,24 +53,28 @@ def evaluate(model, loader, device, prediction_path=None):
         targets.append(truth.cpu())
         ids.extend(batch[-1])
     probs, truth = torch.cat(probabilities), torch.cat(targets)
-    per_genre = {
-        tag: j.macro_average_precision(probs[:, i:i+1], truth[:, i:i+1])
-        if truth[:, i].sum() > 0 else None
-        for i, tag in enumerate(j.GENRE_TAGS)
-    }
+    metrics = j._multilabel_metrics(probs, truth, j.GENRE_TAGS)
+    per_genre = {name: value["average_precision"] for name, value in metrics["per_tag"].items()}
     if prediction_path is not None:
-        np.savez_compressed(prediction_path, probabilities=probs.numpy(),
-                            targets=truth.numpy(), track_ids=np.asarray(ids),
-                            genre_tags=np.asarray(j.GENRE_TAGS))
+        from scripts.paper_artifacts import export_predictions
+        export_predictions(prediction_path, probs.numpy(), truth.numpy(), ids, j.GENRE_TAGS)
     return {"loss": sum(losses) / len(losses),
             "macro_ap": j.macro_average_precision(probs, truth),
-            "per_genre_ap": per_genre}
+            "per_genre_ap": per_genre, "genre": metrics, "branches": {}}
 
 
 def train(cfg: j.TrainConfig):
     if cfg.epochs < 1 or cfg.batch_size < 1 or cfg.lr <= 0 or cfg.num_workers < 0:
         raise ValueError("epochs, batch size and learning rate must be positive; workers nonnegative")
     j.seed_run(cfg.seed)
+    cfg.branches = ()
+    cfg.data_dir = Path(cfg.data_dir or j.ROOT / "data").resolve()
+    for key in ("dataset_csv", "split_csv", "logmel_root"):
+        if getattr(cfg, key) is not None:
+            setattr(cfg, key, Path(getattr(cfg, key)).resolve())
+    out = j.ROOT / cfg.out_dir
+    if (out / "best.pt").exists() or (out / "results.json").exists():
+        raise FileExistsError(f"Run already exists: {out}; choose a new --out-dir")
     device = torch.device(cfg.device)
     datasets = j.build_datasets(
         cfg.data_dir or j.ROOT / "data", dataset_csv=cfg.dataset_csv,
@@ -96,6 +102,10 @@ def train(cfg: j.TrainConfig):
     config = {key: str(value) if isinstance(value, Path) else value
               for key, value in asdict(cfg).items()}
     metadata = {
+        "metric_version": "sklearn_average_precision_masked_v2",
+        "dataset_fingerprints": dataset_fingerprints(cfg),
+        "code_fingerprints": code_fingerprints(),
+        "environment": runtime_metadata(device),
         "model": "direct_cnn", "config": {**config, "branches": []}, "branches": [], "seed": cfg.seed,
         "genre_tags": list(j.GENRE_TAGS), "mel_config": datasets[0].mel_config,
         "parameter_count": sum(p.numel() for p in model.parameters()),
@@ -107,6 +117,7 @@ def train(cfg: j.TrainConfig):
     best_ap, best_epoch, history = -1., 0, []
     for epoch in range(1, cfg.epochs + 1):
         model.train()
+        start = time.perf_counter()
         losses = []
         for batch in loaders[0]:
             logits, truth = forward_batch(model, batch, datasets[0], device)
@@ -119,9 +130,14 @@ def train(cfg: j.TrainConfig):
             optimizer.step()
             losses.append(loss.item())
         scheduler.step()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        train_seconds = time.perf_counter() - start
+        validation_started = time.perf_counter()
         val = evaluate(model, loaders[1], device)
         row = {"epoch": epoch, "train_loss": sum(losses) / len(losses),
-               "val_loss": val["loss"], "val_macro_ap": val["macro_ap"]}
+               "val_loss": val["loss"], "val_macro_ap": val["macro_ap"], "train_seconds": train_seconds,
+               "validation_seconds": time.perf_counter() - validation_started}
         history.append(row)
         print(json.dumps(row), flush=True)
         if val["macro_ap"] > best_ap:
@@ -136,6 +152,8 @@ def train(cfg: j.TrainConfig):
     results = {**metadata, "best_epoch": best_epoch, "val_macro_ap": best_ap,
                "val_per_genre_ap": val["per_genre_ap"], "test_evaluated": cfg.evaluate_test,
                "test_macro_ap": test.get("macro_ap"), "test_loss": test.get("loss"),
-               "test_per_genre_ap": test.get("per_genre_ap"), "log": history}
+               "test_per_genre_ap": test.get("per_genre_ap"),
+               "val_genre_metrics": val["genre"], "val_branch_metrics": {},
+               "test_genre_metrics": test.get("genre", {}), "test_branch_metrics": {}, "log": history}
     (out / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"Test: {test}\nResults written to {out / 'results.json'}", flush=True)

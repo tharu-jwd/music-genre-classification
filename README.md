@@ -3,6 +3,10 @@
 The current joint architecture and parameter-selection rationale are documented in
 [Common concept architecture v2](docs/common-concept-architecture.md).
 
+For the fixed 21-run Modal study, checkpoint evaluation, and analysis commands, see
+[the simple paper quickstart](docs/paper-quickstart.md) or
+[the detailed workflow](docs/paper-experiment-workflow.md).
+
 This project is developing an inspectable, multi-label music genre classifier for
 the MTG-Jamendo dataset. The proposed model learns four musical concepts from one
 shared audio representation:

@@ -63,6 +63,27 @@ def test_missing_targets_and_all_missing_batch_are_safe():
     loss.backward()
     assert torch.isfinite(predictions.grad).all()
 
+
+def test_cropped_window_convolutions_preserve_full_sequence_reference_and_gradients():
+    torch.manual_seed(11)
+    branch = RhythmBranch(RhythmBranchConfig(dropout=0)).eval()
+    sequence = torch.randn(2, 24, 128, requires_grad=True)
+    mask = torch.ones(2, 24, dtype=torch.bool)
+    mask[1, 19:] = False
+    windows = torch.arange(3).repeat_interleave(8).expand(2, -1).clone()
+    windows[~mask] = -1
+    actual = branch(sequence, mask, windows)
+    projected = branch.input_projection(sequence) * mask.unsqueeze(-1)
+    reference = torch.zeros_like(projected)
+    for window in range(3):
+        reference = reference + branch._encode_segment(projected, mask & (windows == window))
+    weights = mask.float() / mask.sum(1, keepdim=True)
+    expected = branch.regression_head((reference * weights.unsqueeze(-1)).sum(1))
+    torch.testing.assert_close(actual.predictions, expected)
+    actual_grad = torch.autograd.grad(actual.predictions.sum(), sequence, retain_graph=True)[0]
+    reference_grad = torch.autograd.grad(expected.sum(), sequence)[0]
+    torch.testing.assert_close(actual_grad, reference_grad)
+
     predictions = torch.randn(3, 10, requires_grad=True)
     empty = masked_huber_loss(
         predictions,
