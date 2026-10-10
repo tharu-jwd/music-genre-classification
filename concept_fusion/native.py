@@ -7,6 +7,7 @@ from torch import nn
 from concept_fusion.contract import CONCEPT_ORDER, ConceptCounts, N_GENRE_TAGS
 from concept_fusion.dropout import apply_concept_dropout
 from concept_fusion.types import BranchBundle, FusionOutput
+from shared_encoder.architecture import activation
 
 
 class NativeConceptFusionModel(nn.Module):
@@ -22,7 +23,7 @@ class NativeConceptFusionModel(nn.Module):
     fusion_contract_version = "native_concept_concat_v2"
 
     def __init__(self, branches=CONCEPT_ORDER, *, dropout_p=0.0, n_tags=N_GENRE_TAGS,
-                 predictor="linear", hidden_dim=64, hidden_dropout=0.0):
+                 predictor="linear", hidden_dim=64, hidden_dropout=0.0, hidden_activation="gelu"):
         super().__init__()
         branches = tuple(branches)
         if not branches or len(set(branches)) != len(branches) or set(branches) - set(CONCEPT_ORDER):
@@ -41,7 +42,7 @@ class NativeConceptFusionModel(nn.Module):
         self.predictor = predictor
         self.fused_dim = self.input_dim if predictor == "linear" else hidden_dim
         self.fusion = (nn.Sequential(nn.Identity()) if predictor == "linear" else
-                       nn.Sequential(nn.Linear(self.input_dim, hidden_dim), nn.GELU(),
+                       nn.Sequential(nn.Linear(self.input_dim, hidden_dim), activation(hidden_activation),
                                      nn.Dropout(hidden_dropout)))
         self.head = nn.Linear(self.fused_dim, n_tags)
 

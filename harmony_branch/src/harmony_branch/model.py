@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
+from shared_encoder.architecture import activation
 from torch.nn import functional as F
 
 
@@ -38,6 +39,9 @@ class TemporalHarmonyBranch(nn.Module):
         chord_classes: int | None = None,
         descriptor_dim: int | None = None,
         dropout: float = 0.15,
+        kernel_size: int = 3,
+        dilation_base: int = 2,
+        activation_name: str = "gelu",
     ):
         super().__init__()
         for value, name in (
@@ -65,11 +69,15 @@ class TemporalHarmonyBranch(nn.Module):
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
+        if kernel_size < 3 or kernel_size % 2 == 0 or dilation_base < 1:
+            raise ValueError("Temporal kernels must be odd >=3 and dilation_base positive")
+        self.temporal_activation = activation(activation_name)
         self.input_projection = nn.Sequential(nn.Linear(input_dim, hidden_dim),
-                                              nn.LayerNorm(hidden_dim), nn.GELU())
+                                              nn.LayerNorm(hidden_dim), activation(activation_name))
         self.temporal_layers = nn.ModuleList(
-            nn.Conv1d(hidden_dim, hidden_dim, kernel_size=3, padding=2**layer,
-                      dilation=2**layer)
+            nn.Conv1d(hidden_dim, hidden_dim, kernel_size=kernel_size,
+                      padding=dilation_base**layer * (kernel_size - 1) // 2,
+                      dilation=dilation_base**layer)
             for layer in range(temporal_layers)
         )
         self.temporal_norms = nn.ModuleList(nn.LayerNorm(hidden_dim) for _ in range(temporal_layers))
@@ -141,7 +149,7 @@ class TemporalHarmonyBranch(nn.Module):
         context = hidden.reshape(batch * windows, tokens_per_window, self.hidden_dim)
         context = context.transpose(1, 2)
         for convolution, norm in zip(self.temporal_layers, self.temporal_norms):
-            update = F.gelu(convolution(context))
+            update = self.temporal_activation(convolution(context))
             update = self.dropout(update)
             context = norm((context + update).transpose(1, 2)).transpose(1, 2)
             context = context * structured_mask.unsqueeze(1).to(context.dtype)

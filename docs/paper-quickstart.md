@@ -43,6 +43,8 @@ Assign any of the 21 individual runs to your teammates. Each command below start
 exactly one run; it does not launch other configurations or seeds.
 
 Everyone must use the same project version, manifest, input CSVs and audio cache.
+Architecture settings are in [configs/architecture.json](../configs/architecture.json);
+see [editing and validation instructions](architecture-config.md).
 If teammates use different Modal workspaces, each workspace needs access to the
 audio volume and must complete step 1. Volumes in one workspace are not
 automatically available in another. With a shared workspace, upload inputs once.

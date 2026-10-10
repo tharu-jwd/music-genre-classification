@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 import torch
 from torch import Tensor, nn
+from shared_encoder.architecture import activation
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,7 @@ class TimbreBranchConfig:
     hidden_dim: int = 64
     output_dim: int = 35
     dropout: float = 0.15
+    activation: str = "gelu"
 
     def __post_init__(self) -> None:
         for name in ("input_dim", "hidden_dim", "output_dim"):
@@ -46,7 +48,7 @@ class TimbreBranch(nn.Module):
         self.network = nn.Sequential(
             nn.Linear(self.config.input_dim, self.config.hidden_dim),
             nn.LayerNorm(self.config.hidden_dim),
-            nn.GELU(),
+            activation(self.config.activation),
             nn.Dropout(self.config.dropout),
             nn.Linear(self.config.hidden_dim, self.config.output_dim),
         )

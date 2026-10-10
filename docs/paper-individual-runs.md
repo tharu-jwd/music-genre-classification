@@ -88,7 +88,7 @@ and run folders. You may assign any commands to any teammates/workspaces.
 Once all 21 folders are collected, run this from the project folder:
 
 ```powershell
-python scripts/analyze_paper_runs.py --manifest experiments/paper21-modal.json --runs-root results/modal-runs --split test --out-dir results/paper-analysis
+python scripts/analyze_paper_runs.py --manifest experiments/paper21-modal.json --runs-root results/modal-runs --split test --out-dir results/paper-analysis-bootstrap --n-resamples 2000
 ```
 
 No Modal login, GPU or audio cache is required for this step. The local Python

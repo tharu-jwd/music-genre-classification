@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 import torch
 from torch import Tensor, nn
+from shared_encoder.architecture import activation
 
 from .constants import N_RHYTHM_FEATURES, RHYTHM_EMBEDDING_DIM, RHYTHM_INPUT_DIM
 
@@ -20,17 +21,17 @@ class RhythmBranchConfig:
     temporal_layers: int = 2
     kernel_size: int = 3
     dropout: float = 0.15
+    activation: str = "gelu"
+    dilation_base: int = 2
 
     def __post_init__(self) -> None:
-        for name in ("input_dim", "hidden_dim", "embedding_dim", "output_dim", "temporal_layers"):
+        for name in ("input_dim", "hidden_dim", "embedding_dim", "output_dim", "temporal_layers", "dilation_base"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be positive")
         if self.input_dim != RHYTHM_INPUT_DIM:
             raise ValueError(f"shared rhythm input must be {RHYTHM_INPUT_DIM}D")
         if self.embedding_dim != RHYTHM_EMBEDDING_DIM:
             raise ValueError(f"rhythm fusion embedding must be {RHYTHM_EMBEDDING_DIM}D")
-        if self.hidden_dim != self.embedding_dim:
-            raise ValueError("mean-pooling rhythm hidden width must equal embedding width")
         if self.output_dim != N_RHYTHM_FEATURES:
             raise ValueError(f"rhythm regression output must have {N_RHYTHM_FEATURES} fields")
         if self.kernel_size < 3 or self.kernel_size % 2 == 0:
@@ -54,12 +55,12 @@ class RhythmBranchOutput:
 
 
 class _ResidualTemporalBlock(nn.Module):
-    def __init__(self, width: int, kernel_size: int, dilation: int, dropout: float) -> None:
+    def __init__(self, width: int, kernel_size: int, dilation: int, dropout: float, activation_name="gelu") -> None:
         super().__init__()
         padding = dilation * (kernel_size - 1) // 2
         self.network = nn.Sequential(
             nn.Conv1d(width, width, kernel_size, padding=padding, dilation=dilation),
-            nn.GELU(),
+            activation(activation_name),
             nn.Dropout(dropout),
         )
         self.norm = nn.LayerNorm(width)
@@ -84,18 +85,20 @@ class RhythmBranch(nn.Module):
         self.input_projection = nn.Sequential(
             nn.Linear(self.config.input_dim, self.config.hidden_dim),
             nn.LayerNorm(self.config.hidden_dim),
-            nn.GELU(),
+            activation(self.config.activation),
         )
         self.temporal_blocks = nn.ModuleList(
             _ResidualTemporalBlock(
                 self.config.hidden_dim,
                 self.config.kernel_size,
-                dilation=2**layer,
+                dilation=self.config.dilation_base**layer,
                 dropout=self.config.dropout,
+                activation_name=self.config.activation,
             )
             for layer in range(self.config.temporal_layers)
         )
-        self.embedding_head = nn.Identity()
+        self.embedding_head = (nn.Identity() if self.config.hidden_dim == self.config.embedding_dim else
+                               nn.Linear(self.config.hidden_dim, self.config.embedding_dim))
         self.regression_head = nn.Linear(self.config.embedding_dim, self.config.output_dim)
 
     def forward(

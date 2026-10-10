@@ -85,6 +85,7 @@ def test_analysis_aligns_tracks_and_does_not_ensemble_seeds(tmp_path):
     manifest = make_manifest(out_root=str(tmp_path / "runs"), epochs=1)
     path = tmp_path / "manifest.json"
     write_json(path, manifest)
+    manifest = load_manifest(path)
     truth = np.tile([[1, 0, 1, 0, 1, 0], [0, 1, 0, 1, 0, 1]], (4, 1))
     ids = np.asarray([str(index) for index in range(len(truth))])
     for run in manifest["runs"]:

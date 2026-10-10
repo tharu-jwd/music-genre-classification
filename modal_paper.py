@@ -68,6 +68,7 @@ def paper(action: str = "plan", phase: str = "core", seed: int = 0,
                 genre_predictor=cfg["genre_predictor"], genre_hidden_dim=cfg["genre_hidden_dim"],
                 genre_dropout=cfg["genre_dropout"], concept_dropout=cfg["concept_dropout"],
                 lambda_aux=cfg["lambda_aux"], window_frames=cfg["window_frames"], weight_decay=cfg["weight_decay"],
+                architecture=cfg["architecture"],
                 dataset_filename="vector-dataset.csv")
             if action == "run":
                 result = train_and_evaluate_remote.with_options(gpu=gpu).remote(

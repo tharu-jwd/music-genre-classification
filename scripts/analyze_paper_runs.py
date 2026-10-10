@@ -85,6 +85,8 @@ def analyze(manifest_path, *, split="test", out_dir="results/paper-analysis", al
             missing.append(run["run_id"])
             continue
         metadata = json.loads(result_path.read_text(encoding="utf-8"))
+        if metadata["config"].get("architecture") != run["config"].get("architecture"):
+            raise ValueError(f"Run architecture differs from the current study config: {run['run_id']}")
         if source_hashes is None:
             source_hashes = metadata.get("code_fingerprints")
         elif metadata.get("code_fingerprints") != source_hashes:

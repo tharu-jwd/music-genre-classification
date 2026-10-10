@@ -30,6 +30,8 @@ def pilot(*, data_dir, dataset_csv, split_csv=None, logmel_root=None, device="cu
                        split_csv=Path(split_csv) if split_csv else None,
                        logmel_root=Path(logmel_root) if logmel_root else None,
                        batch_size=batch_size, max_windows=max_windows, window_frames=window_frames)
+    from shared_encoder.architecture import configure_training
+    configure_training(cfg)
     datasets = j.build_datasets(cfg.data_dir, dataset_csv=cfg.dataset_csv, split_csv=cfg.split_csv,
         logmel_root=cfg.logmel_root, max_windows=max_windows, window_frames=window_frames)[:3]
     if any(not len(dataset) for dataset in datasets):
@@ -68,19 +70,18 @@ def pilot(*, data_dir, dataset_csv, split_csv=None, logmel_root=None, device="cu
                   window_frames=window_frames, max_windows=max_windows,
                   split_sizes={name: len(ds) for name, ds in zip(("train", "validation", "test"), datasets)},
                   dataset_fingerprints=dataset_fingerprints(cfg), sample_geometry=geometries,
+                  architecture=cfg.architecture,
                   note="Sampled training tracks; extrapolated times exclude full validation, startup and failures.",
                   configurations={})
     for name, weight in (("cnn", 0), ("full", 1), ("no-supervision", 0)):
         j.seed_run(17)
         if name == "cnn":
-            model = c.GenreCNN().to(device)
+            model = c.GenreCNN(cfg.architecture).to(device)
             modules = [model]
         else:
-            encoder = j.SharedAudioEncoder().to(device)
-            heads = [j.InstrumentHead().to(device), j.TimbreBranch().to(device), j.RhythmBranch().to(device),
-                     j.TemporalHarmonyBranch(128, embedding_dim=64, descriptor_dim=12).to(device)]
-            heads[-1].chroma_head.requires_grad_(False)
-            fusion = j.NativeConceptFusionModel().to(device)
+            built = j.build_concept_modules(cfg, device)
+            encoder, fusion = built["encoder"], built["fusion_model"]
+            heads = [built[f"{branch}_head"] for branch in ("instrument", "timbre", "rhythm", "harmony")]
             modules = [encoder, *heads, fusion]
         for module in modules:
             module.train()

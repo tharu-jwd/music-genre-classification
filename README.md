@@ -3,6 +3,9 @@
 The current joint architecture and parameter-selection rationale are documented in
 [Common concept architecture v2](docs/common-concept-architecture.md).
 
+Architecture settings are centralized in [configs/architecture.json](configs/architecture.json).
+See [how to edit and check them](docs/architecture-config.md).
+
 For the fixed 21-run Modal study, checkpoint evaluation, and analysis commands, see
 [the simple paper quickstart](docs/paper-quickstart.md) or
 [the detailed workflow](docs/paper-experiment-workflow.md).

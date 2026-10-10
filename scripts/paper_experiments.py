@@ -48,6 +48,7 @@ def make_manifest(*, out_root="results/paper21", data_dir="data", dataset_csv=No
                 config = {key: value.as_posix() if isinstance(value, Path) else value for key, value in asdict(cfg).items()}
                 runs.append(dict(run_id=run_id, configuration=name, phase=phase, seed=seed, config=config))
     return dict(schema_version="paper_experiments_v2", metric_version=METRIC_VERSION,
+                architecture_config="configs/architecture.json",
                 seeds=list(SEEDS), primary_metric="macro_average_precision",
                 threshold=0.5, runs=runs,
                 analysis_notes=["Branch removals change capacity; they are not pure concept-importance estimates.",
@@ -56,6 +57,18 @@ def make_manifest(*, out_root="results/paper21", data_dir="data", dataset_csv=No
 
 def load_manifest(path):
     manifest = json.loads(Path(path).read_text(encoding="utf-8"))
+    from shared_encoder.architecture import load_architecture
+    architecture_path = Path(manifest.get("architecture_config", "configs/architecture.json"))
+    if not architecture_path.is_absolute():
+        architecture_path = ROOT / architecture_path
+    architecture = load_architecture(architecture_path)
+    genre = architecture["genre_predictor"]
+    for run in manifest["runs"]:
+        cfg = run["config"]
+        cfg["architecture"] = architecture
+        cfg.update(fusion=genre["fusion"], genre_predictor=genre["predictor"],
+                   genre_hidden_dim=genre["hidden_dim"], genre_dropout=genre["hidden_dropout"],
+                   concept_dropout=genre["concept_dropout"])
     if manifest.get("schema_version") != "paper_experiments_v2" or manifest.get("metric_version") != METRIC_VERSION:
         raise ValueError("Unsupported manifest or metric definition")
     if manifest.get("seeds") != list(SEEDS):
@@ -105,6 +118,7 @@ def train_command(run):
     for key in keys:
         if cfg[key] is not None:
             command.extend(["--" + key.replace("_", "-"), str(cfg[key])])
+    command.extend(["--architecture-json", json.dumps(cfg["architecture"])])
     return command
 
 

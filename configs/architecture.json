@@ -1,0 +1,43 @@
+{
+  "schema_version": "architecture_config_v1",
+  "shared_encoder": {
+    "channels": [32, 64, 96],
+    "kernel_size": 3,
+    "conv_bias": false,
+    "group_norm_groups": 8,
+    "activation": "gelu",
+    "pool_sizes": [[2, 2], [2, 1]],
+    "output_dim": 128,
+    "frequency_pooling": "learned_attention",
+    "song_pooling": "masked_mean"
+  },
+  "instrument": {
+    "input_dim": 128, "hidden_dim": 64, "output_dim": 41,
+    "activation": "gelu", "normalization": "layer_norm", "dropout": 0.15
+  },
+  "timbre": {
+    "input_dim": 128, "hidden_dim": 64, "output_dim": 35,
+    "activation": "gelu", "normalization": "layer_norm", "dropout": 0.15
+  },
+  "rhythm": {
+    "input_dim": 128, "hidden_dim": 64, "embedding_dim": 64, "output_dim": 10,
+    "temporal_layers": 2, "kernel_size": 3, "dilation_base": 2,
+    "activation": "gelu", "normalization": "layer_norm", "dropout": 0.15,
+    "pooling": "masked_mean"
+  },
+  "harmony": {
+    "input_dim": 128, "hidden_dim": 64, "embedding_dim": 64, "output_dim": 12,
+    "temporal_layers": 2, "kernel_size": 3, "dilation_base": 2,
+    "activation": "gelu", "normalization": "layer_norm", "dropout": 0.15,
+    "pooling": "masked_mean", "chroma_head_trainable": false, "chord_head_enabled": false
+  },
+  "genre_predictor": {
+    "fusion": "native_concat", "predictor": "linear",
+    "activation": "gelu",
+    "hidden_dim": 64, "hidden_dropout": 0.0, "concept_dropout": 0.0,
+    "output_dim": 6
+  },
+  "direct_cnn": {
+    "hidden_dim": 128, "activation": "relu", "dropout": 0.15, "output_dim": 6
+  }
+}

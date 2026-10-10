@@ -42,7 +42,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -83,7 +84,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -124,7 +126,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -160,7 +163,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -201,7 +205,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -242,7 +247,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -278,7 +284,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -319,7 +326,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -360,7 +368,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -400,7 +409,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -440,7 +450,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -480,7 +491,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -520,7 +532,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -560,7 +573,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -600,7 +614,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -640,7 +655,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -680,7 +696,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -720,7 +737,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -760,7 +778,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -800,7 +819,8 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     },
     {
@@ -840,12 +860,14 @@
         "require_harmony_targets": false,
         "logmel_root": "/mtg/logmel_songs",
         "window_frames": 1366,
-        "max_windows": 16
+        "max_windows": 16,
+        "architecture": null
       }
     }
   ],
   "analysis_notes": [
     "Branch removals change capacity; they are not pure concept-importance estimates.",
     "All test evaluations use validation-selected checkpoints."
-  ]
+  ],
+  "architecture_config": "configs/architecture.json"
 }

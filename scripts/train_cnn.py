@@ -21,12 +21,15 @@ from scripts.paper_artifacts import dataset_fingerprints, code_fingerprints, run
 class GenreCNN(nn.Module):
     """Shared three-block audio CNN -> masked song pooling -> MLP -> six logits."""
 
-    def __init__(self):
+    def __init__(self, architecture=None):
         super().__init__()
-        self.encoder = j.SharedAudioEncoder()
+        from shared_encoder.architecture import load_architecture, activation
+        architecture = load_architecture(architecture)
+        head = architecture["direct_cnn"]
+        self.encoder = j.SharedAudioEncoder(config=architecture["shared_encoder"])
         self.head = nn.Sequential(
-            nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.15),
-            nn.Linear(128, j.N_GENRE_TAGS),
+            nn.Linear(128, head["hidden_dim"]), activation(head["activation"]), nn.Dropout(head["dropout"]),
+            nn.Linear(head["hidden_dim"], j.N_GENRE_TAGS),
         )
 
     def forward(self, mel, mask, valid_frames, starts, *, sample_rate, hop_length):
@@ -64,6 +67,8 @@ def evaluate(model, loader, device, prediction_path=None):
 
 
 def train(cfg: j.TrainConfig):
+    from shared_encoder.architecture import configure_training
+    configure_training(cfg)
     if cfg.epochs < 1 or cfg.batch_size < 1 or cfg.lr <= 0 or cfg.num_workers < 0:
         raise ValueError("epochs, batch size and learning rate must be positive; workers nonnegative")
     j.seed_run(cfg.seed)
@@ -93,7 +98,7 @@ def train(cfg: j.TrainConfig):
                           generator=torch.Generator().manual_seed(cfg.seed) if i == 0 else None,
                           pin_memory=(device.type == "cuda" and i == 0))
                for i, ds in enumerate(datasets)]
-    model = GenreCNN().to(device)
+    model = GenreCNN(cfg.architecture).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=cfg.epochs, eta_min=cfg.lr * 0.05)
@@ -106,6 +111,7 @@ def train(cfg: j.TrainConfig):
         "dataset_fingerprints": dataset_fingerprints(cfg),
         "code_fingerprints": code_fingerprints(),
         "environment": runtime_metadata(device),
+        "architecture": cfg.architecture,
         "model": "direct_cnn", "config": {**config, "branches": []}, "branches": [], "seed": cfg.seed,
         "genre_tags": list(j.GENRE_TAGS), "mel_config": datasets[0].mel_config,
         "parameter_count": sum(p.numel() for p in model.parameters()),

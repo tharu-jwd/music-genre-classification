@@ -35,6 +35,8 @@ def restore(checkpoint, *, device="cpu", data_dir=None, dataset_csv=None,
         value = locals()[key]
         setattr(cfg, key, Path(value) if value is not None else
                 Path(getattr(cfg, key)) if getattr(cfg, key) is not None else None)
+    from shared_encoder.architecture import load_architecture
+    cfg.architecture = load_architecture(payload.get('architecture') or cfg.architecture)
     cfg.branches = j.normalize_branches(payload["branches"])
     cfg.device = device
     if batch_size is not None:
@@ -69,7 +71,7 @@ def restore(checkpoint, *, device="cpu", data_dir=None, dataset_csv=None,
     if datasets[0].mel_config != payload["mel_config"]:
         raise ValueError("Audio geometry differs from checkpoint")
     if not cfg.branches:
-        model = c.GenreCNN().to(device)
+        model = c.GenreCNN(cfg.architecture).to(device)
         model.load_state_dict(payload["model_state"])
         modules = {"cnn": model}
     else:
@@ -77,32 +79,7 @@ def restore(checkpoint, *, device="cpu", data_dir=None, dataset_csv=None,
             raise ValueError("Unsupported concept architecture")
         if payload["genre_tags"] != list(j.GENRE_TAGS):
             raise ValueError("Checkpoint genre vocabulary differs")
-        configs = payload["branch_configs"]
-        factories = {
-            "instrument": j.InstrumentHead,
-            "timbre": lambda: j.TimbreBranch(j.TimbreBranchConfig(**configs["timbre"])),
-            "rhythm": lambda: j.RhythmBranch(j.RhythmBranchConfig(**configs["rhythm"])),
-            "harmony": lambda: j.TemporalHarmonyBranch(
-                128, embedding_dim=64, descriptor_dim=j.N_HARMONY_DESCRIPTORS),
-        }
-        modules = {"encoder": j.SharedAudioEncoder().to(device)}
-        for name, factory in factories.items():
-            modules[f"{name}_head"] = factory().to(device) if name in cfg.branches else None
-        if modules["harmony_head"] is not None:
-            modules["harmony_head"].chroma_head.requires_grad_(False)
-        modules["fusion_model"] = (
-            j.NativeConceptFusionModel(cfg.branches, predictor=cfg.genre_predictor,
-                hidden_dim=cfg.genre_hidden_dim, hidden_dropout=cfg.genre_dropout,
-                dropout_p=cfg.concept_dropout) if cfg.fusion == "native_concat" else
-            j.ConceptBottleneckModel(fusion="gated", harmony_embedding_dim=64)
-        ).to(device)
-        if cfg.fusion == "gated":
-            assembler = modules["fusion_model"].assembler
-            for name, attribute in {"instrument": "instrument_projection", "rhythm": "rhythm_projection",
-                                    "timbre": "timbre_projection", "harmony": "harmony_chroma_projection"}.items():
-                getattr(assembler, attribute).requires_grad_(name in cfg.branches)
-            assembler.instrument_hidden_projection.requires_grad_(False)
-            assembler.harmony_projection.requires_grad_(False)
+        modules = j.build_concept_modules(cfg, device)
         for name, module in modules.items():
             if module is not None:
                 module.load_state_dict(payload[name])

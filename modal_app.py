@@ -44,6 +44,7 @@ image = (
     )
     .add_local_dir("concept_fusion", str(PROJECT_DIR / "concept_fusion"))
     .add_local_dir("shared_encoder", str(PROJECT_DIR / "shared_encoder"))
+    .add_local_dir("configs", str(PROJECT_DIR / "configs"))
     .add_local_dir("rhythm_branch/src/rhythm_branch", str(PROJECT_DIR / "rhythm_branch/src/rhythm_branch"))
     .add_local_dir("timbre_branch/src/timbre_branch", str(PROJECT_DIR / "timbre_branch/src/timbre_branch"))
     .add_local_dir("harmony_branch/src/harmony_branch", str(PROJECT_DIR / "harmony_branch/src/harmony_branch"))
@@ -95,6 +96,7 @@ def train_remote(
     window_frames: int = 1366,
     weight_decay: float = 1e-4,
     dataset_filename: str = DATASET_FILENAME,
+    architecture: dict | None = None,
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -150,6 +152,8 @@ def train_remote(
         command.append("--quick")
     if skip_test:
         command.append("--skip-test")
+    if architecture is not None:
+        command.extend(["--architecture-json", json.dumps(architecture)])
 
     print("Starting:", " ".join(command), flush=True)
     subprocess.run(command, cwd=PROJECT_DIR, check=True)

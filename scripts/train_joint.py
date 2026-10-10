@@ -362,11 +362,12 @@ def collate_fn(batch):
 class InstrumentHead(nn.Module):
     """pooled_song (B, 128) -> 41 probabilities + logits."""
 
-    def __init__(self) -> None:
+    def __init__(self, hidden_dim=64, dropout=0.15, activation_name="gelu") -> None:
         super().__init__()
-        self.hidden = nn.Sequential(nn.Linear(128, 64), nn.LayerNorm(64),
-                                    nn.GELU(), nn.Dropout(0.15))
-        self.classifier = nn.Linear(64, N_INSTRUMENT_TAGS)
+        from shared_encoder.architecture import activation
+        self.hidden = nn.Sequential(nn.Linear(128, hidden_dim), nn.LayerNorm(hidden_dim),
+                                    activation(activation_name), nn.Dropout(dropout))
+        self.classifier = nn.Linear(hidden_dim, N_INSTRUMENT_TAGS)
 
     def forward(self, pooled_song: Tensor) -> dict:
         h = self.hidden(pooled_song)
@@ -376,7 +377,7 @@ class InstrumentHead(nn.Module):
             "logits": logits,
             "supervision_mask": torch.ones_like(logits),
             "fusion_mask": torch.ones(len(logits), 1, device=logits.device),
-            "diagnostics": {"hidden": h.detach()},
+            "diagnostics": {"hidden": h.detach() if h.shape[-1] == 64 else None},
         }
 
 
@@ -964,7 +965,44 @@ def evaluate(
 # Main training loop
 # ---------------------------------------------------------------------------
 
+def build_concept_modules(cfg, device):
+    """Construct both fresh and restored models from the same saved architecture."""
+    arch = cfg.architecture
+    encoder = SharedAudioEncoder(config=arch["shared_encoder"]).to(device)
+    instrument = arch["instrument"]
+    instrument_head = InstrumentHead(instrument["hidden_dim"], instrument["dropout"], instrument["activation"]).to(device) \
+        if "instrument" in cfg.branches else None
+    timbre = {key: value for key, value in arch["timbre"].items() if key != "normalization"}
+    timbre_head = TimbreBranch(TimbreBranchConfig(**timbre)).to(device) if "timbre" in cfg.branches else None
+    rhythm = {key: value for key, value in arch["rhythm"].items() if key not in ("normalization", "pooling")}
+    rhythm_head = RhythmBranch(RhythmBranchConfig(**rhythm)).to(device) if "rhythm" in cfg.branches else None
+    harmony = arch["harmony"]
+    harmony_head = TemporalHarmonyBranch(128, hidden_dim=harmony["hidden_dim"],
+        embedding_dim=harmony["embedding_dim"], descriptor_dim=N_HARMONY_DESCRIPTORS,
+        temporal_layers=harmony["temporal_layers"], kernel_size=harmony["kernel_size"],
+        dilation_base=harmony["dilation_base"], dropout=harmony["dropout"],
+        activation_name=harmony["activation"]).to(device) if "harmony" in cfg.branches else None
+    if harmony_head is not None:
+        harmony_head.chroma_head.requires_grad_(False)
+    if cfg.fusion == "native_concat":
+        fusion_model = NativeConceptFusionModel(cfg.branches, predictor=cfg.genre_predictor,
+            hidden_dim=cfg.genre_hidden_dim, hidden_dropout=cfg.genre_dropout,
+            hidden_activation=arch["genre_predictor"]["activation"],
+            dropout_p=cfg.concept_dropout).to(device)
+    else:
+        fusion_model = ConceptBottleneckModel(fusion="gated", harmony_embedding_dim=harmony["embedding_dim"]).to(device)
+        for name, module_name in {"instrument": "instrument_projection", "rhythm": "rhythm_projection",
+                                 "timbre": "timbre_projection", "harmony": "harmony_chroma_projection"}.items():
+            getattr(fusion_model.assembler, module_name).requires_grad_(name in cfg.branches)
+        fusion_model.assembler.instrument_hidden_projection.requires_grad_(False)
+        fusion_model.assembler.harmony_projection.requires_grad_(False)
+    return dict(encoder=encoder, instrument_head=instrument_head, timbre_head=timbre_head,
+                rhythm_head=rhythm_head, harmony_head=harmony_head, fusion_model=fusion_model)
+
+
 def train(cfg: "TrainConfig") -> None:
+    from shared_encoder.architecture import configure_training
+    configure_training(cfg)
     cfg.branches = normalize_branches(cfg.branches)
     if cfg.fusion not in ("native_concat", "gated"):
         raise ValueError("fusion must be native_concat or gated")
@@ -1026,34 +1064,11 @@ def train(cfg: "TrainConfig") -> None:
         collate_fn=collate_fn, num_workers=cfg.num_workers,
     )
 
-    # Models
-    encoder        = SharedAudioEncoder().to(device)
-    instrument_head = InstrumentHead().to(device) if "instrument" in cfg.branches else None
-    timbre_head = TimbreBranch().to(device) if "timbre" in cfg.branches else None
-    rhythm_head = RhythmBranch().to(device) if "rhythm" in cfg.branches else None
-    harmony_head = TemporalHarmonyBranch(
-        128, embedding_dim=64, chord_classes=None, descriptor_dim=N_HARMONY_DESCRIPTORS
-    ).to(device) if "harmony" in cfg.branches else None
-    if harmony_head is not None:
-        # The descriptor dataset supplies no temporal chroma labels. Keep the
-        # compatibility output, but exclude its unused head from trainable capacity.
-        harmony_head.chroma_head.requires_grad_(False)
-    if cfg.fusion == "native_concat":
-        fusion_model = NativeConceptFusionModel(
-            cfg.branches, predictor=cfg.genre_predictor, hidden_dim=cfg.genre_hidden_dim,
-            hidden_dropout=cfg.genre_dropout, dropout_p=cfg.concept_dropout,
-        ).to(device)
-    else:
-        fusion_model = ConceptBottleneckModel(fusion="gated", harmony_embedding_dim=64).to(device)
-        # Disabled projections stay out of the optimizer in the legacy comparison.
-        projection_names = {"instrument": "instrument_projection", "rhythm": "rhythm_projection",
-                            "timbre": "timbre_projection", "harmony": "harmony_chroma_projection"}
-        for name, module_name in projection_names.items():
-            getattr(fusion_model.assembler, module_name).requires_grad_(name in cfg.branches)
-        fusion_model.assembler.instrument_hidden_projection.requires_grad_(False)
-        fusion_model.assembler.harmony_projection.requires_grad_(False)
-    modules = dict(encoder=encoder, instrument_head=instrument_head, timbre_head=timbre_head,
-                   rhythm_head=rhythm_head, harmony_head=harmony_head, fusion_model=fusion_model)
+    # Both training and checkpoint evaluation use this constructor.
+    modules = build_concept_modules(cfg, device)
+    encoder, instrument_head, timbre_head, rhythm_head, harmony_head, fusion_model = (
+        modules[name] for name in ('encoder', 'instrument_head', 'timbre_head',
+                                  'rhythm_head', 'harmony_head', 'fusion_model'))
     all_params = [p for module in modules.values() if module is not None
                   for p in module.parameters() if p.requires_grad]
     metadata = {
@@ -1062,6 +1077,7 @@ def train(cfg: "TrainConfig") -> None:
         "code_fingerprints": code_fingerprints(),
         "environment": runtime_metadata(device),
         "architecture_version": "common_concept_branches_v2",
+        "architecture": cfg.architecture,
         "model": "concept_bottleneck", "branches": list(cfg.branches), "seed": cfg.seed,
         "fusion": cfg.fusion, "parameter_count": sum(p.numel() for p in all_params),
         "fusion_contract_version": fusion_model.fusion_contract_version,
@@ -1074,14 +1090,10 @@ def train(cfg: "TrainConfig") -> None:
             name: cfg.lambda_aux if getattr(cfg, f"lambda_{name}") is None
             else getattr(cfg, f"lambda_{name}") for name in cfg.branches},
         "branch_configs": {
-            "instrument": {"input_dim": 128, "hidden_dim": 64, "output_dim": N_INSTRUMENT_TAGS,
-                           "dropout": 0.15} if instrument_head is not None else None,
+            "instrument": cfg.architecture['instrument'] if instrument_head is not None else None,
             "timbre": timbre_head.config.to_dict() if timbre_head is not None else None,
             "rhythm": rhythm_head.config.to_dict() if rhythm_head is not None else None,
-            "harmony": {"input_dim": 128, "hidden_dim": 64, "embedding_dim": 64,
-                        "temporal_layers": 2, "kernel_size": 3, "dilations": [1, 2],
-                        "dropout": 0.15, "output_dim": N_HARMONY_DESCRIPTORS}
-                       if harmony_head is not None else None,
+            "harmony": cfg.architecture['harmony'] if harmony_head is not None else None,
         },
         "split_track_ids": {name: ds.track_ids for name, ds in
                             zip(("train", "validation", "test"), (train_ds, val_ds, test_ds))},
@@ -1277,6 +1289,7 @@ def train(cfg: "TrainConfig") -> None:
 
 @dataclass
 class TrainConfig:
+    architecture: dict | None = None
     branches: tuple[str, ...] = CONCEPT_ORDER
     fusion: str = "native_concat"
     genre_predictor: str = "linear"
@@ -1313,6 +1326,10 @@ def main() -> None:
     p.add_argument("--branches", nargs="+", default=None,
                    help="Enabled concepts: instrument timbre rhythm harmony; 'none' for CNN-only")
     p.add_argument("--seed", type=int, default=42)
+    architecture_options = p.add_mutually_exclusive_group()
+    architecture_options.add_argument("--architecture-config", type=Path,
+                   help="Architecture JSON; defaults to configs/architecture.json")
+    architecture_options.add_argument("--architecture-json", help=argparse.SUPPRESS)
     p.add_argument("--fusion", choices=("native_concat", "gated"), default="native_concat",
                    help="Native-width concatenation (default), or legacy projected gated fusion")
     p.add_argument("--epochs",            type=int,   default=30)
@@ -1369,7 +1386,17 @@ def main() -> None:
         p.error("epochs, batch-size and lr must be positive; num-workers nonnegative")
     if args.out_dir is None:
         args.out_dir = "results/cnn" if not branches else "results/" + "-".join(branches)
+    from shared_encoder.architecture import load_architecture
+    architecture = load_architecture(json.loads(args.architecture_json) if args.architecture_json else args.architecture_config)
+    for flag, field, attribute in (("--fusion", "fusion", "fusion"),
+                                  ("--genre-predictor", "predictor", "genre_predictor"),
+                                  ("--genre-hidden-dim", "hidden_dim", "genre_hidden_dim"),
+                                  ("--genre-dropout", "hidden_dropout", "genre_dropout"),
+                                  ("--concept-dropout", "concept_dropout", "concept_dropout")):
+        if any(argument == flag or argument.startswith(flag + "=") for argument in sys.argv[1:]):
+            architecture["genre_predictor"][field] = getattr(args, attribute)
     cfg = TrainConfig(
+        architecture=architecture,
         branches=branches,
         fusion=args.fusion,
         genre_predictor=args.genre_predictor,
