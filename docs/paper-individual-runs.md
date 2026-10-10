@@ -14,17 +14,11 @@ Every workspace must use the same project snapshot and manifest, the same
 Follow steps 1–2 of [the setup guide](paper-quickstart.md) before training.
 Volumes are specific to their workspace; identical names do not share data.
 
-## Seed 17
-
-```powershell
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-cnn-s17 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-full-s17 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-no-supervision-s17 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-instrument-s17 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-timbre-s17 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-rhythm-s17 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-harmony-s17 --execute
-```
+The three preselected seeds are 42, 123 and 456. Report all three scores and their
+mean and sample standard deviation. Three repetitions provide a limited estimate
+of training variability; they do not establish robustness across data splits or
+strong statistical evidence for small differences. Keep the same seeds for all
+configurations and avoid selecting seeds or extending experiments based on test scores.
 
 ## Seed 42
 
@@ -38,16 +32,28 @@ modal run --detach modal_paper.py::paper --action run --phase all --run-name pap
 modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-harmony-s42 --execute
 ```
 
-## Seed 73
+## Seed 123
 
 ```powershell
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-cnn-s73 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-full-s73 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-no-supervision-s73 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-instrument-s73 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-timbre-s73 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-rhythm-s73 --execute
-modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-harmony-s73 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-cnn-s123 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-full-s123 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-no-supervision-s123 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-instrument-s123 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-timbre-s123 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-rhythm-s123 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-harmony-s123 --execute
+```
+
+## Seed 456
+
+```powershell
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-cnn-s456 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-full-s456 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-no-supervision-s456 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-instrument-s456 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-timbre-s456 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-rhythm-s456 --execute
+modal run --detach modal_paper.py::paper --action run --phase all --run-name paper-v2-without-harmony-s456 --execute
 ```
 
 ## Manually collect results from every workspace
@@ -58,11 +64,11 @@ where you will analyze results. Preserve their names. For example:
 
 ```text
 results/modal-runs/
-  paper-v2-cnn-s17/
+  paper-v2-cnn-s42/
     results.json
     evaluation_test.json
     test_predictions.npz
-  paper-v2-full-s17/
+  paper-v2-full-s42/
     results.json
     evaluation_test.json
     test_predictions.npz

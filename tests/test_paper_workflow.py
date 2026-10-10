@@ -72,7 +72,7 @@ def test_fixed_manifest_has_21_unique_runs_and_equal_protocol(tmp_path):
     loaded = load_manifest(path)
     assert len(loaded["runs"]) == 21
     assert len(selected_runs(loaded, phase="core")) == 9
-    assert len(selected_runs(loaded, phase="ablation", seed=17)) == 4
+    assert len(selected_runs(loaded, phase="ablation", seed=42)) == 4
     assert loaded["runs"][0]["config"]["out_dir"].startswith("/runs/")
     loaded["runs"][0]["config"]["epochs"] = 99
     write_json(path, loaded)
@@ -91,7 +91,7 @@ def test_analysis_aligns_tracks_and_does_not_ensemble_seeds(tmp_path):
         folder = Path(run["config"]["out_dir"])
         folder.mkdir(parents=True)
         # Permuted exports must be aligned by ID, including across seeds.
-        order = np.arange(len(truth))[::-1] if run["seed"] == 42 else np.arange(len(truth))
+        order = np.arange(len(truth))[::-1] if run["seed"] == 123 else np.arange(len(truth))
         scores = (0.8 * truth + 0.1)[order]
         concepts = {}
         for name in run["config"]["branches"]:
@@ -129,7 +129,7 @@ def test_teammate_archives_combine_without_overwriting_or_unexpected_paths(tmp_p
 
     manifest = make_manifest()
     archives = []
-    for seed in (17, 42, 73):
+    for seed in (42, 123, 456):
         archive_path = tmp_path / f"seed-{seed}.zip"
         with zipfile.ZipFile(archive_path, "w") as archive:
             for run in selected_runs(manifest, seed=seed):
@@ -171,18 +171,18 @@ def test_seed_download_streams_only_selected_reports_and_predictions(tmp_path, m
             yield b"second"
 
     monkeypatch.setitem(sys.modules, "modal", types.SimpleNamespace(Volume=FakeVolume))
-    output = tmp_path / "seed-42.zip"
-    download_seed(make_manifest(), 42, output)
+    output = tmp_path / "seed-123.zip"
+    download_seed(make_manifest(), 123, output)
     assert len(calls) == 21
-    assert all("-s42/" in path and path.split("/")[-1] in FILES for path in calls)
+    assert all("-s123/" in path and path.split("/")[-1] in FILES for path in calls)
     with zipfile.ZipFile(output) as archive:
         assert all(archive.read(name) == b"first second" for name in archive.namelist())
     with pytest.raises(FileExistsError):
-        download_seed(make_manifest(), 42, output)
+        download_seed(make_manifest(), 123, output)
     calls.clear()
-    individual = tmp_path / "full-s17.zip"
-    download_seed(make_manifest(), None, individual, run_name="paper-v2-full-s17")
-    assert calls == [f"/paper-v2-full-s17/{filename}" for filename in FILES]
+    individual = tmp_path / "full-s42.zip"
+    download_seed(make_manifest(), None, individual, run_name="paper-v2-full-s42")
+    assert calls == [f"/paper-v2-full-s42/{filename}" for filename in FILES]
     from scripts.paper_handoff import import_archives
     import_archives(make_manifest(), [individual], tmp_path / "one-run")
     assert len(list((tmp_path / "one-run").iterdir())) == 1

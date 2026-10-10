@@ -10,7 +10,7 @@ import modal_app
 @pytest.mark.parametrize("completed", [False, True])
 def test_combined_job_trains_before_test_and_reuses_completed_training(monkeypatch, completed):
     calls = []
-    arguments = {"run_name": "paper-v2-full-s17", "skip_test": True}
+    arguments = {"run_name": "paper-v2-full-s42", "skip_test": True}
 
     def training(**kwargs):
         assert kwargs == arguments
@@ -40,4 +40,4 @@ def test_combined_job_does_not_evaluate_after_training_failure(monkeypatch):
     monkeypatch.setattr(modal_app, "train_remote", SimpleNamespace(local=training))
     monkeypatch.setattr(modal_app, "evaluate_remote", SimpleNamespace(local=evaluation))
     with pytest.raises(RuntimeError, match="Training failed"):
-        modal_app.train_and_evaluate_remote.local({"run_name": "paper-v2-full-s17"})
+        modal_app.train_and_evaluate_remote.local({"run_name": "paper-v2-full-s42"})

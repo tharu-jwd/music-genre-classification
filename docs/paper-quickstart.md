@@ -47,23 +47,23 @@ If teammates use different Modal workspaces, each workspace needs access to the
 audio volume and must complete step 1. Volumes in one workspace are not
 automatically available in another. With a shared workspace, upload inputs once.
 
-Choose one run name from this table. Replace `17` with `42` or `73` for the other
+Choose one run name from this table. Replace `42` with `123` or `456` for the other
 seeds. A seed controls training randomness; three repetitions show stability.
 
-| Configuration | Run name for seed 17 |
+| Configuration | Run name for seed 42 |
 |---|---|
-| Direct CNN | `paper-v2-cnn-s17` |
-| All concepts | `paper-v2-full-s17` |
-| Without concept supervision | `paper-v2-no-supervision-s17` |
-| Without instrument branch | `paper-v2-without-instrument-s17` |
-| Without timbre branch | `paper-v2-without-timbre-s17` |
-| Without rhythm branch | `paper-v2-without-rhythm-s17` |
-| Without harmony branch | `paper-v2-without-harmony-s17` |
+| Direct CNN | `paper-v2-cnn-s42` |
+| All concepts | `paper-v2-full-s42` |
+| Without concept supervision | `paper-v2-no-supervision-s42` |
+| Without instrument branch | `paper-v2-without-instrument-s42` |
+| Without timbre branch | `paper-v2-without-timbre-s42` |
+| Without rhythm branch | `paper-v2-without-rhythm-s42` |
+| Without harmony branch | `paper-v2-without-harmony-s42` |
 
-Example: train only the full model with seed 17:
+Example: train only the full model with seed 42:
 
 ```powershell
-$experimentRun = "paper-v2-full-s17"
+$experimentRun = "paper-v2-full-s42"
 modal run --detach modal_paper.py::paper --action run --phase all --run-name $experimentRun --execute
 ```
 
@@ -74,7 +74,7 @@ skips completed compatible runs; partial runs stop rather than overwrite files.
 Keep the terminal open until the job starts. `--detach` lets the submitted remote
 job continue if your terminal disconnects; reconnect to inspect its results.
 
-Each run saves a folder such as `paper-v2-full-s17` in `music-genre-runs`:
+Each run saves a folder such as `paper-v2-full-s42` in `music-genre-runs`:
 
 - `best.pt`: the saved model selected using validation performance (a checkpoint).
 - `results.json`: settings, metrics, parameter counts and training history.
@@ -101,7 +101,7 @@ This downloads only three files for this single run: `results.json`,
 `evaluation_test.json` and `test_predictions.npz`. It preserves the run names
 and excludes model checkpoints and audio, keeping the handoff small. The command
 uses the teammate's currently configured Modal workspace and allocates no GPU.
-The teammate sends you the ZIP, for example `paper-v2-full-s17.zip`. They can
+The teammate sends you the ZIP, for example `paper-v2-full-s42.zip`. They can
 train, evaluate and send any other assigned run independently with its own name.
 
 `results.json` alone contains training/validation information. The test report

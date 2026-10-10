@@ -9,12 +9,12 @@ def paper(action: str = "plan", phase: str = "core", seed: int = 0,
           run_name: str = "", manifest_path: str = "experiments/paper21-modal.json",
           gpu: str = "A10", execute: bool = False, split: str = "test"):
     """Preview or explicitly execute the fixed paper protocol on Modal."""
-    from scripts.paper_experiments import load_manifest, selected_runs
+    from scripts.paper_experiments import SEEDS, load_manifest, selected_runs
     if action not in ("plan", "train", "evaluate", "pilot", "run"):
         raise ValueError("action must be plan, train, evaluate, pilot or run")
     if action == "run" and (not run_name or split != "test"):
         raise ValueError("run requires --run-name and evaluates the test split")
-    if phase not in ("core", "ablation", "all") or seed not in (0, 17, 42, 73):
+    if phase not in ("core", "ablation", "all") or seed not in (0, *SEEDS):
         raise ValueError("Invalid phase or seed")
     if split not in ("validation", "test"):
         raise ValueError("Invalid evaluation split")

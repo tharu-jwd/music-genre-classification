@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 from scripts import train_joint as j
 from scripts.paper_artifacts import METRIC_VERSION, write_json
 
-SEEDS = (17, 42, 73)
+SEEDS = (42, 123, 456)
 CONFIGURATIONS = (
     ("cnn", (), 0.0, "core"),
     ("full", j.CONCEPT_ORDER, 1.0, "core"),
@@ -58,6 +58,8 @@ def load_manifest(path):
     manifest = json.loads(Path(path).read_text(encoding="utf-8"))
     if manifest.get("schema_version") != "paper_experiments_v2" or manifest.get("metric_version") != METRIC_VERSION:
         raise ValueError("Unsupported manifest or metric definition")
+    if manifest.get("seeds") != list(SEEDS):
+        raise ValueError("Manifest seed list differs from the study protocol")
     if len(manifest["runs"]) != 21 or len({run["run_id"] for run in manifest["runs"]}) != 21:
         raise ValueError("Manifest must contain 21 unique runs")
     expected = {(name, seed): (branches, weight, phase)

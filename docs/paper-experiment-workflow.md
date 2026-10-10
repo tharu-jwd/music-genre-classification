@@ -1,12 +1,12 @@
 # Paper experiment and analysis workflow
 
 The frozen experiment manifest is [paper21-modal.json](../experiments/paper21-modal.json).
-It defines seven configurations and seeds 17, 42 and 73: direct CNN, full concept
+It defines seven configurations and seeds 42, 123 and 456: direct CNN, full concept
 model, identical architecture with all concept-loss coefficients zero, and four
 retrained branch-removal models. There are 21 runs, nine core and twelve ablations.
 
 For one individual run per command, use the [simple run handoff guide](paper-quickstart.md).
-The launcher accepts `--phase all --run-name paper-v2-full-s17` for both training
+The launcher accepts `--phase all --run-name paper-v2-full-s42` for both training
 and evaluation. Each teammate downloads that run's ZIP with `scripts/paper_handoff.py`;
 the analysis owner imports the run ZIPs into one local runs folder. These
 lightweight exports contain reports and test predictions, without checkpoints
@@ -109,7 +109,7 @@ Test evaluation is disabled during training.
 Start the first seed of the three core comparisons:
 
 ```powershell
-modal run --detach modal_paper.py::paper --action train --phase core --seed 17 --execute
+modal run --detach modal_paper.py::paper --action train --phase core --seed 42 --execute
 ```
 
 Then complete the core seeds and ablations:
@@ -125,7 +125,7 @@ run-level continuation, not optimizer/checkpoint resume. Existing run directorie
 are never silently overwritten. To select one run, use:
 
 ```powershell
-modal run modal_paper.py::paper --action train --phase core --run-name paper-v2-full-s42 --execute
+modal run modal_paper.py::paper --action train --phase core --run-name paper-v2-full-s123 --execute
 ```
 
 Use only one active launcher for a given phase/run set; concurrent launchers can
@@ -157,7 +157,7 @@ contain validation predictions and detailed validation metrics already.
 To evaluate a checkpoint locally after downloading it, provide the relocated data:
 
 ```powershell
-python scripts/evaluate_checkpoint.py --checkpoint results/modal-runs/paper-v2-full-s17/best.pt --data-dir data --dataset-csv data/vector-dataset.csv --split-csv data/track_split_assignments.csv --logmel-root PATH_TO_CACHE --split test --out-dir results/local-evaluation
+python scripts/evaluate_checkpoint.py --checkpoint results/modal-runs/paper-v2-full-s42/best.pt --data-dir data --dataset-csv data/vector-dataset.csv --split-csv data/track_split_assignments.csv --logmel-root PATH_TO_CACHE --split test --out-dir results/local-evaluation
 ```
 
 Dataset files must have identical contents. Outputs are protected against
