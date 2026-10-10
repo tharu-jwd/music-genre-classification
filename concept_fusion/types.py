@@ -41,7 +41,7 @@ class BranchOutput:
     fusion_mask: torch.Tensor  # (B, 1) 1 = branch enabled for fusion
     fusion_token: torch.Tensor | None = None  # rhythm 64D embedding-fusion ablation input
     embedding: torch.Tensor | None = None  # harmony embedding-fusion ablation input
-    hidden_token: torch.Tensor | None = None  # instrument: (B,128) detached; others (B,64)
+    hidden_token: torch.Tensor | None = None  # (B,64), instrument diagnostics detached
     logits: torch.Tensor | None = None  # instrument BCE-with-logits (B,41)
     tag_order: tuple[str, ...] | None = None
     temporal_chroma_logits: torch.Tensor | None = None  # harmony (B,T,12)
@@ -191,7 +191,7 @@ class BranchBundle:
 
     def hidden_tokens(self) -> torch.Tensor:
         raise ContractError(
-            "instrument hidden is 128-D; use TokenAssembler(..., use_hidden=True)"
+            "use TokenAssembler(..., use_hidden=True) for hidden-token ablations"
         )
 
     def with_enabled_concepts(self, enabled: Sequence[str]) -> "BranchBundle":
@@ -225,13 +225,13 @@ class BranchBundle:
 
 @dataclass
 class FusionOutput:
-    fused: torch.Tensor  # (B, 128)
+    fused: torch.Tensor  # (B,D): native concepts/MLP width; projected legacy width 128
     gates: torch.Tensor  # (B, 4) post-mask weights; disabled concepts are exactly 0
     effective_mask: torch.Tensor  # (B, 4) after concept dropout
     used_null_token: torch.Tensor  # (B,) bool — all-masked fallback fired
 
-    def validate(self, batch: int) -> None:
-        require_tensor("fused", self.fused, ndim=2, last=FUSED_DIM)
+    def validate(self, batch: int, *, fused_dim: int = FUSED_DIM) -> None:
+        require_tensor("fused", self.fused, ndim=2, last=fused_dim)
         require_tensor("gates", self.gates, ndim=2, last=N_CONCEPTS)
         require_tensor("effective_mask", self.effective_mask, ndim=2, last=N_CONCEPTS)
         require_batch("fused", self.fused, batch)

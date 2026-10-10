@@ -1,5 +1,9 @@
 # Timbre branch implementation
 
+> Current v2 uses 128 -> 64 -> 35 with LayerNorm, GELU and dropout 0.15.
+> See [the current specification](../../docs/common-concept-architecture.md).
+> The architecture below is historical.
+
 The implemented branch is a strict learned concept bottleneck. It accepts the shared encoder's one-row-per-track 128-dimensional representation and returns 35 standardized, named timbre predictions. This returned tensor is the timbre input to fusion; the unrestricted 128-dimensional input is never forwarded around it.
 
 ## Architecture

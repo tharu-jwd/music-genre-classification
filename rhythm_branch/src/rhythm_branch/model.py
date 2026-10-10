@@ -17,8 +17,8 @@ class RhythmBranchConfig:
     hidden_dim: int = 64
     embedding_dim: int = RHYTHM_EMBEDDING_DIM
     output_dim: int = N_RHYTHM_FEATURES
-    temporal_layers: int = 3
-    kernel_size: int = 5
+    temporal_layers: int = 2
+    kernel_size: int = 3
     dropout: float = 0.15
 
     def __post_init__(self) -> None:
@@ -29,6 +29,8 @@ class RhythmBranchConfig:
             raise ValueError(f"shared rhythm input must be {RHYTHM_INPUT_DIM}D")
         if self.embedding_dim != RHYTHM_EMBEDDING_DIM:
             raise ValueError(f"rhythm fusion embedding must be {RHYTHM_EMBEDDING_DIM}D")
+        if self.hidden_dim != self.embedding_dim:
+            raise ValueError("mean-pooling rhythm hidden width must equal embedding width")
         if self.output_dim != N_RHYTHM_FEATURES:
             raise ValueError(f"rhythm regression output must have {N_RHYTHM_FEATURES} fields")
         if self.kernel_size < 3 or self.kernel_size % 2 == 0:
@@ -58,8 +60,6 @@ class _ResidualTemporalBlock(nn.Module):
         self.network = nn.Sequential(
             nn.Conv1d(width, width, kernel_size, padding=padding, dilation=dilation),
             nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(width, width, 1),
             nn.Dropout(dropout),
         )
         self.norm = nn.LayerNorm(width)
@@ -95,12 +95,7 @@ class RhythmBranch(nn.Module):
             )
             for layer in range(self.config.temporal_layers)
         )
-        self.attention = nn.Linear(self.config.hidden_dim, 1)
-        self.embedding_head = nn.Sequential(
-            nn.Linear(self.config.hidden_dim, self.config.embedding_dim),
-            nn.LayerNorm(self.config.embedding_dim),
-            nn.GELU(),
-        )
+        self.embedding_head = nn.Identity()
         self.regression_head = nn.Linear(self.config.embedding_dim, self.config.output_dim)
 
     def forward(
@@ -141,16 +136,8 @@ class RhythmBranch(nn.Module):
             values = encoded
 
         availability = mask.any(dim=1)
-        scores = self.attention(values).squeeze(-1)
-        scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
-        # Softmax over an all-masked row is undefined. Supply a harmless temporary
-        # position, then erase the resulting pooled value with availability.
-        safe_mask = mask.clone()
-        if bool((~availability).any()):
-            safe_mask[~availability, 0] = True
-            scores = scores.masked_fill(~safe_mask, torch.finfo(scores.dtype).min)
-            scores[~availability, 0] = 0
-        weights = torch.softmax(scores, dim=1) * mask.to(scores.dtype)
+        weights = mask.to(values.dtype)
+        weights = weights / weights.sum(dim=1, keepdim=True).clamp_min(1)
         pooled = (values * weights.unsqueeze(-1)).sum(dim=1)
         embedding = self.embedding_head(pooled)
         embedding = embedding * availability.unsqueeze(-1).to(embedding.dtype)

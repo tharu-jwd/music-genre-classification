@@ -114,7 +114,7 @@ def test_rhythm_and_genre_gradients_reach_branch_and_shared_cnn():
         genre_logits, torch.rand_like(genre_logits)
     ).backward()
     assert branch.regression_head.weight.grad.abs().sum() > 0
-    assert branch.embedding_head[0].weight.grad.abs().sum() > 0
+    assert branch.input_projection[0].weight.grad.abs().sum() > 0
     assert encoder.cnn[0].weight.grad.abs().sum() > 0
 
 

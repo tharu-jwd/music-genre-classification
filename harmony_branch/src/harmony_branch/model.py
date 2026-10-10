@@ -37,7 +37,7 @@ class TemporalHarmonyBranch(nn.Module):
         temporal_layers: int = 2,
         chord_classes: int | None = None,
         descriptor_dim: int | None = None,
-        dropout: float = 0.1,
+        dropout: float = 0.15,
     ):
         super().__init__()
         for value, name in (
@@ -65,21 +65,20 @@ class TemporalHarmonyBranch(nn.Module):
         self.input_dim = input_dim
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
-        self.input_projection = nn.Linear(input_dim, hidden_dim)
+        self.input_projection = nn.Sequential(nn.Linear(input_dim, hidden_dim),
+                                              nn.LayerNorm(hidden_dim), nn.GELU())
         self.temporal_layers = nn.ModuleList(
-            nn.Conv1d(hidden_dim, hidden_dim, kernel_size=3, padding=1)
-            for _ in range(temporal_layers)
+            nn.Conv1d(hidden_dim, hidden_dim, kernel_size=3, padding=2**layer,
+                      dilation=2**layer)
+            for layer in range(temporal_layers)
         )
+        self.temporal_norms = nn.ModuleList(nn.LayerNorm(hidden_dim) for _ in range(temporal_layers))
         self.dropout = nn.Dropout(dropout)
-        self.embedding_projection = nn.Linear(hidden_dim, embedding_dim)
+        self.embedding_projection = (nn.Identity() if embedding_dim == hidden_dim
+                                     else nn.Linear(hidden_dim, embedding_dim))
         self.chroma_head = nn.Linear(embedding_dim, 12)
         self.descriptor_head = (
-            nn.Sequential(
-                nn.Linear(embedding_dim, embedding_dim),
-                nn.GELU(),
-                nn.Dropout(dropout),
-                nn.Linear(embedding_dim, descriptor_dim),
-            )
+            nn.Linear(embedding_dim, descriptor_dim)
             if descriptor_dim is not None
             else None
         )
@@ -141,10 +140,11 @@ class TemporalHarmonyBranch(nn.Module):
         structured_mask = mask.reshape(batch * windows, tokens_per_window)
         context = hidden.reshape(batch * windows, tokens_per_window, self.hidden_dim)
         context = context.transpose(1, 2)
-        for convolution in self.temporal_layers:
+        for convolution, norm in zip(self.temporal_layers, self.temporal_norms):
             update = F.gelu(convolution(context))
             update = self.dropout(update)
-            context = (context + update) * structured_mask.unsqueeze(1).to(context.dtype)
+            context = norm((context + update).transpose(1, 2)).transpose(1, 2)
+            context = context * structured_mask.unsqueeze(1).to(context.dtype)
         context = context.transpose(1, 2).reshape(batch, tokens, self.hidden_dim)
         context = context * mask.unsqueeze(-1).to(context.dtype)
 

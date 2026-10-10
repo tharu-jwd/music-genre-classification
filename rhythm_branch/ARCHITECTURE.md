@@ -1,5 +1,9 @@
 # Rhythm branch architecture
 
+> The current v2 mean-pooling architecture is specified in
+> [common-concept-architecture.md](../docs/common-concept-architecture.md).
+> The v1 architecture and parameter counts below are historical.
+
 ## Purpose
 
 The rhythm branch learns a song-level rhythm representation from the shared CNN's

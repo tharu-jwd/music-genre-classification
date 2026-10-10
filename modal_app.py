@@ -7,6 +7,7 @@ Run from the repository root with, for example:
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
 import sys
@@ -82,6 +83,11 @@ def train_remote(
     branches: str = "",
     seed: int = 42,
     fusion: str = "native_concat",
+    genre_predictor: str = "linear",
+    genre_hidden_dim: int = 64,
+    genre_dropout: float = 0.0,
+    concept_dropout: float = 0.0,
+    lambda_aux: float = 1.0,
 ) -> dict[str, object]:
     """Validate the Volume layout, run training, and persist all outputs."""
     import torch
@@ -119,6 +125,11 @@ def train_remote(
         "--max-windows", str(max_windows),
         "--seed", str(seed),
         "--fusion", fusion,
+        "--genre-predictor", genre_predictor,
+        "--genre-hidden-dim", str(genre_hidden_dim),
+        "--genre-dropout", str(genre_dropout),
+        "--concept-dropout", str(concept_dropout),
+        "--lambda-aux", str(lambda_aux),
     ]
     if branches:
         command.extend(["--branches", *branches.replace(",", " ").split()])
@@ -161,12 +172,27 @@ def main(
     branches: str = "",
     seed: int = 42,
     fusion: str = "native_concat",
+    genre_predictor: str = "linear",
+    genre_hidden_dim: int = 64,
+    genre_dropout: float = 0.0,
+    concept_dropout: float = 0.0,
+    lambda_aux: float = 1.0,
 ) -> None:
     """Submit one GPU training run from any authenticated Modal account."""
     if model not in ("joint", "cnn"):
         raise ValueError("model must be joint or cnn")
     if fusion not in ("native_concat", "gated"):
         raise ValueError("fusion must be native_concat or gated")
+    if genre_predictor not in ("linear", "mlp") or genre_hidden_dim < 1:
+        raise ValueError("genre predictor must be linear or mlp with a positive hidden width")
+    if not 0 <= genre_dropout < 1 or not 0 <= concept_dropout < 1:
+        raise ValueError("dropout rates must be in [0,1)")
+    if genre_predictor == "linear" and genre_dropout != 0:
+        raise ValueError("genre dropout requires the MLP predictor")
+    if fusion == "gated" and (genre_predictor != "linear" or genre_dropout != 0 or concept_dropout != 0):
+        raise ValueError("genre predictor/dropout options require native_concat fusion")
+    if not math.isfinite(lambda_aux) or lambda_aux < 0:
+        raise ValueError("lambda_aux must be finite and nonnegative")
     selected = branches.replace(",", " ").split()
     allowed = {"instrument", "rhythm", "timbre", "harmony"}
     if selected and selected != ["none"]:
@@ -196,6 +222,11 @@ def main(
         branches,
         seed,
         fusion,
+        genre_predictor,
+        genre_hidden_dim,
+        genre_dropout,
+        concept_dropout,
+        lambda_aux,
     )
     remote = train_remote.with_options(gpu=gpu)
     if background:

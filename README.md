@@ -1,5 +1,8 @@
 # Concept-Guided Music Genre Classification
 
+The current joint architecture and parameter-selection rationale are documented in
+[Common concept architecture v2](docs/common-concept-architecture.md).
+
 This project is developing an inspectable, multi-label music genre classifier for
 the MTG-Jamendo dataset. The proposed model learns four musical concepts from one
 shared audio representation:

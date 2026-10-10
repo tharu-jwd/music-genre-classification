@@ -113,11 +113,11 @@ def test_adapter_and_projection():
         "logits": torch.randn(4, 41),
         "supervision_mask": torch.ones(4, 41),
         "fusion_mask": torch.ones(4, 1),
-        "diagnostics": {"hidden": torch.randn(4, 128)},
+        "diagnostics": {"hidden": torch.randn(4, 64)},
     }
     br = from_instrument_branch(raw)
     assert br.fusion_token is None
-    assert br.hidden_token.shape == (4, 128)
+    assert br.hidden_token.shape == (4, 64)
     assert not br.hidden_token.requires_grad
     bundle = make_bundle(4, seed=1, fusion_keep=1.0)
     bundle.branches["instrument"] = br

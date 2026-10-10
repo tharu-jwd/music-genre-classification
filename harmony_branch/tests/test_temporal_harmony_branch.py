@@ -80,7 +80,7 @@ class TemporalHarmonyBranchTest(unittest.TestCase):
             output.chord_logits, chord_labels, chord_mask, mask
         )
         loss.backward()
-        self.assertGreater(model.input_projection.weight.grad.abs().sum().item(), 0)
+        self.assertGreater(model.input_projection[0].weight.grad.abs().sum().item(), 0)
         self.assertGreater(model.embedding_projection.weight.grad.abs().sum().item(), 0)
         self.assertGreater(model.chroma_head.weight.grad.abs().sum().item(), 0)
         self.assertGreater(model.chord_head.weight.grad.abs().sum().item(), 0)

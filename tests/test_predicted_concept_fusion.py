@@ -191,5 +191,5 @@ def test_embedding_fusion_ablation_bypasses_prediction_heads_for_genre():
     logits.sum().backward()
     assert rhythm.regression_head.weight.grad is None
     assert harmony.chroma_head.weight.grad is None
-    assert rhythm.embedding_head[0].weight.grad is not None
+    assert rhythm.input_projection[0].weight.grad is not None
     assert harmony.embedding_projection.weight.grad is not None

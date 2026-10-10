@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 import random
@@ -347,8 +348,9 @@ class InstrumentHead(nn.Module):
 
     def __init__(self) -> None:
         super().__init__()
-        self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.15))
-        self.classifier = nn.Linear(128, N_INSTRUMENT_TAGS)
+        self.hidden = nn.Sequential(nn.Linear(128, 64), nn.LayerNorm(64),
+                                    nn.GELU(), nn.Dropout(0.15))
+        self.classifier = nn.Linear(64, N_INSTRUMENT_TAGS)
 
     def forward(self, pooled_song: Tensor) -> dict:
         h = self.hidden(pooled_song)
@@ -912,6 +914,19 @@ def train(cfg: "TrainConfig") -> None:
     cfg.branches = normalize_branches(cfg.branches)
     if cfg.fusion not in ("native_concat", "gated"):
         raise ValueError("fusion must be native_concat or gated")
+    if cfg.genre_predictor not in ("linear", "mlp") or cfg.genre_hidden_dim < 1:
+        raise ValueError("genre predictor must be linear or mlp with a positive hidden width")
+    if not 0 <= cfg.genre_dropout < 1 or not 0 <= cfg.concept_dropout < 1:
+        raise ValueError("dropout rates must be in [0, 1)")
+    if cfg.genre_predictor == "linear" and cfg.genre_dropout != 0:
+        raise ValueError("genre dropout requires --genre-predictor mlp")
+    if cfg.fusion == "gated" and (cfg.genre_predictor != "linear" or cfg.genre_dropout != 0
+                                  or cfg.concept_dropout != 0):
+        raise ValueError("genre predictor/dropout options require native_concat fusion")
+    loss_weights = [cfg.lambda_aux, cfg.lambda_instrument, cfg.lambda_rhythm,
+                    cfg.lambda_timbre, cfg.lambda_harmony]
+    if any(value is not None and (not math.isfinite(value) or value < 0) for value in loss_weights):
+        raise ValueError("auxiliary loss weights must be finite and nonnegative")
     if cfg.epochs < 1 or cfg.batch_size < 1 or cfg.lr <= 0 or cfg.num_workers < 0:
         raise ValueError("epochs, batch size and learning rate must be positive; workers nonnegative")
     if not cfg.branches:
@@ -956,12 +971,19 @@ def train(cfg: "TrainConfig") -> None:
     timbre_head = TimbreBranch().to(device) if "timbre" in cfg.branches else None
     rhythm_head = RhythmBranch().to(device) if "rhythm" in cfg.branches else None
     harmony_head = TemporalHarmonyBranch(
-        128, chord_classes=None, descriptor_dim=N_HARMONY_DESCRIPTORS
+        128, embedding_dim=64, chord_classes=None, descriptor_dim=N_HARMONY_DESCRIPTORS
     ).to(device) if "harmony" in cfg.branches else None
+    if harmony_head is not None:
+        # The descriptor dataset supplies no temporal chroma labels. Keep the
+        # compatibility output, but exclude its unused head from trainable capacity.
+        harmony_head.chroma_head.requires_grad_(False)
     if cfg.fusion == "native_concat":
-        fusion_model = NativeConceptFusionModel(cfg.branches).to(device)
+        fusion_model = NativeConceptFusionModel(
+            cfg.branches, predictor=cfg.genre_predictor, hidden_dim=cfg.genre_hidden_dim,
+            hidden_dropout=cfg.genre_dropout, dropout_p=cfg.concept_dropout,
+        ).to(device)
     else:
-        fusion_model = ConceptBottleneckModel(fusion="gated", harmony_embedding_dim=32).to(device)
+        fusion_model = ConceptBottleneckModel(fusion="gated", harmony_embedding_dim=64).to(device)
         # Disabled projections stay out of the optimizer in the legacy comparison.
         projection_names = {"instrument": "instrument_projection", "rhythm": "rhythm_projection",
                             "timbre": "timbre_projection", "harmony": "harmony_chroma_projection"}
@@ -974,12 +996,28 @@ def train(cfg: "TrainConfig") -> None:
     all_params = [p for module in modules.values() if module is not None
                   for p in module.parameters() if p.requires_grad]
     metadata = {
+        "architecture_version": "common_concept_branches_v2",
         "model": "concept_bottleneck", "branches": list(cfg.branches), "seed": cfg.seed,
         "fusion": cfg.fusion, "parameter_count": sum(p.numel() for p in all_params),
         "fusion_contract_version": fusion_model.fusion_contract_version,
         "concept_widths": {name: ConceptCounts().for_name(name) for name in cfg.branches},
         "fusion_input_dim": fusion_model.input_dim if cfg.fusion == "native_concat" else None,
         "config": {k: str(v) if isinstance(v, Path) else v for k, v in asdict(cfg).items()},
+        "parameter_counts": {name: sum(p.numel() for p in module.parameters() if p.requires_grad)
+                             for name, module in modules.items() if module is not None},
+        "effective_auxiliary_weights": {
+            name: cfg.lambda_aux if getattr(cfg, f"lambda_{name}") is None
+            else getattr(cfg, f"lambda_{name}") for name in cfg.branches},
+        "branch_configs": {
+            "instrument": {"input_dim": 128, "hidden_dim": 64, "output_dim": N_INSTRUMENT_TAGS,
+                           "dropout": 0.15} if instrument_head is not None else None,
+            "timbre": timbre_head.config.to_dict() if timbre_head is not None else None,
+            "rhythm": rhythm_head.config.to_dict() if rhythm_head is not None else None,
+            "harmony": {"input_dim": 128, "hidden_dim": 64, "embedding_dim": 64,
+                        "temporal_layers": 2, "kernel_size": 3, "dilations": [1, 2],
+                        "dropout": 0.15, "output_dim": N_HARMONY_DESCRIPTORS}
+                       if harmony_head is not None else None,
+        },
         "split_track_ids": {name: ds.track_ids for name, ds in
                             zip(("train", "validation", "test"), (train_ds, val_ds, test_ds))},
     }
@@ -991,10 +1029,10 @@ def train(cfg: "TrainConfig") -> None:
     loss_fn = JointLossOrchestrator(
         weights=LossWeights(
             genre=1.0,
-            instrument=cfg.lambda_instrument,
-            rhythm=cfg.lambda_rhythm,
-            timbre=cfg.lambda_timbre,
-            harmony=cfg.lambda_harmony,
+            instrument=cfg.lambda_aux if cfg.lambda_instrument is None else cfg.lambda_instrument,
+            rhythm=cfg.lambda_aux if cfg.lambda_rhythm is None else cfg.lambda_rhythm,
+            timbre=cfg.lambda_aux if cfg.lambda_timbre is None else cfg.lambda_timbre,
+            harmony=cfg.lambda_aux if cfg.lambda_harmony is None else cfg.lambda_harmony,
         )
     ).to(device)
 
@@ -1165,15 +1203,20 @@ def train(cfg: "TrainConfig") -> None:
 class TrainConfig:
     branches: tuple[str, ...] = CONCEPT_ORDER
     fusion: str = "native_concat"
+    genre_predictor: str = "linear"
+    genre_hidden_dim: int = 64
+    genre_dropout: float = 0.0
+    concept_dropout: float = 0.0
+    lambda_aux: float = 1.0
     seed: int = 42
     epochs:             int   = 30
     batch_size:         int   = 1
     lr:                 float = 3e-4
     weight_decay:       float = 1e-4
-    lambda_instrument:  float = 1.0
-    lambda_rhythm:      float = 1.0
-    lambda_timbre:      float = 1.0
-    lambda_harmony:     float = 0.5
+    lambda_instrument:  float | None = None
+    lambda_rhythm:      float | None = None
+    lambda_timbre:      float | None = None
+    lambda_harmony:     float | None = None
     device:             str   = "cuda" if torch.cuda.is_available() else "cpu"
     out_dir:            str   = "results/joint"
     num_workers:        int   = 0
@@ -1200,10 +1243,16 @@ def main() -> None:
     p.add_argument("--batch-size",        type=int,   default=1)
     p.add_argument("--lr",                type=float, default=3e-4)
     p.add_argument("--weight-decay",      type=float, default=1e-4)
-    p.add_argument("--lambda-instrument", type=float, default=1.0)
-    p.add_argument("--lambda-rhythm",     type=float, default=1.0)
-    p.add_argument("--lambda-timbre",     type=float, default=1.0)
-    p.add_argument("--lambda-harmony",    type=float, default=0.5)
+    p.add_argument("--genre-predictor", choices=("linear", "mlp"), default="linear")
+    p.add_argument("--genre-hidden-dim", type=int, default=64)
+    p.add_argument("--genre-dropout", type=float, default=0.0)
+    p.add_argument("--concept-dropout", type=float, default=0.0)
+    p.add_argument("--lambda-aux", type=float, default=1.0,
+                   help="Shared auxiliary loss weight; branch flags override it")
+    p.add_argument("--lambda-instrument", type=float, default=None)
+    p.add_argument("--lambda-rhythm", type=float, default=None)
+    p.add_argument("--lambda-timbre", type=float, default=None)
+    p.add_argument("--lambda-harmony", type=float, default=None)
     p.add_argument("--device",  default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--out-dir", default=None)
     p.add_argument("--num-workers", type=int, default=0)
@@ -1247,6 +1296,11 @@ def main() -> None:
     cfg = TrainConfig(
         branches=branches,
         fusion=args.fusion,
+        genre_predictor=args.genre_predictor,
+        genre_hidden_dim=args.genre_hidden_dim,
+        genre_dropout=args.genre_dropout,
+        concept_dropout=args.concept_dropout,
+        lambda_aux=args.lambda_aux,
         seed=args.seed,
         epochs            = 3 if args.quick else args.epochs,
         batch_size        = args.batch_size,

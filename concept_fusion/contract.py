@@ -48,7 +48,7 @@ N_HARMONY_CHROMA = 12
 N_HARMONY_DESCRIPTORS = 12
 N_HARMONY_CHORDS = 25
 DEFAULT_HARMONY_EMBEDDING_DIM = 32
-INSTRUMENT_HIDDEN_DIM = 128
+INSTRUMENT_HIDDEN_DIM = 64
 # Published branches that do not own a 64-D token. Fusion projects them.
 BRANCHES_WITHOUT_FUSION_TOKEN: frozenset[str] = frozenset(
     {"instrument", "timbre", "harmony"}

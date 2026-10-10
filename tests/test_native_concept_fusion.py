@@ -30,7 +30,7 @@ def test_exact_native_values_and_checkpoint_roundtrip(branches):
     torch.testing.assert_close(captured[0], expected)
     assert model.input_dim == expected.shape[1]
     assert logits.shape == (3, 6)
-    assert output.fused.shape == (3, 128)
+    torch.testing.assert_close(output.fused, expected)
     assert not any('projection' in name for name in model.state_dict())
     restored = NativeConceptFusionModel(branches).eval()
     restored.load_state_dict(model.state_dict())
@@ -51,6 +51,39 @@ def test_missing_branch_cannot_affect_prediction_and_all_missing_is_finite():
     assert torch.isfinite(logits).all()
     assert not output.fused.any()
     assert not output.gates.any()
+
+
+@pytest.mark.parametrize('hidden_dim', [32, 64, 128])
+def test_mlp_predictor_roundtrip_and_concept_gradients(hidden_dim):
+    model = NativeConceptFusionModel(predictor='mlp', hidden_dim=hidden_dim,
+                                    hidden_dropout=0.2).eval()
+    data = bundle()
+    for branch in data.branches.values():
+        branch.concept_values.requires_grad_()
+    logits, output = model.from_bundle(data)
+    assert output.fused.shape == (3, hidden_dim)
+    torch.nn.functional.binary_cross_entropy_with_logits(logits, torch.ones_like(logits)).backward()
+    assert all(branch.concept_values.grad.abs().sum() > 0 for branch in data.branches.values())
+    restored = NativeConceptFusionModel(predictor='mlp', hidden_dim=hidden_dim,
+                                      hidden_dropout=0.2).eval()
+    restored.load_state_dict(model.state_dict())
+    torch.testing.assert_close(logits, restored.from_bundle(data)[0])
+
+
+def test_linear_predictor_is_additive_in_concepts():
+    model = NativeConceptFusionModel().eval()
+    data = bundle()
+    data.branches['instrument'].concept_values[:, 0] = 0.25
+    before, _ = model.from_bundle(data)
+    data.branches['instrument'].concept_values[:, 0] += 0.25
+    after, _ = model.from_bundle(data)
+    expected = (0.25 * model.head.weight[:, 0]).expand_as(after)
+    torch.testing.assert_close(after - before, expected)
+
+
+def test_linear_predictor_rejects_unused_hidden_dropout():
+    with pytest.raises(ValueError, match='requires the MLP'):
+        NativeConceptFusionModel(hidden_dropout=0.1)
 
 
 def test_concept_dropout_preserves_one_selected_branch_and_eval_disables_it():

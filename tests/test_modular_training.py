@@ -57,7 +57,9 @@ def test_selected_stages_train_reload_and_export_without_disabled_targets(tmp_pa
     if branches:
         assert result['fusion'] == 'native_concat'
         assert checkpoint['fusion_input_dim'] == sum(j.ConceptCounts().for_name(n) for n in branches)
-        assert checkpoint['fusion_model']['fusion.0.weight'].shape[1] == checkpoint['fusion_input_dim']
+        assert checkpoint['fusion_model']['head.weight'].shape == (6, checkpoint['fusion_input_dim'])
+        assert checkpoint['architecture_version'] == 'common_concept_branches_v2'
+        assert sum(checkpoint['parameter_counts'].values()) == checkpoint['parameter_count']
         assert set(result['test_branch_metrics']) == set(branches)
         for name in j.CONCEPT_ORDER:
             assert (checkpoint[f'{name}_head'] is not None) == (name in branches)
@@ -120,6 +122,23 @@ def test_cli_passes_selection_and_seed(monkeypatch):
     assert seen[0].branches == ('instrument', 'timbre')
     assert seen[0].seed == 5
     assert seen[0].out_dir == 'results/instrument-timbre'
+
+
+def test_mlp_training_records_resolved_loss_weights_and_reload(tmp_path):
+    data = tmp_path / 'data'
+    write_dataset(data, ('instrument', 'rhythm'))
+    out = tmp_path / 'mlp'
+    j.train(j.TrainConfig(branches=('instrument', 'rhythm'), epochs=1, batch_size=2,
+                         device='cpu', window_frames=16, max_windows=1, data_dir=data,
+                         dataset_csv=data / 'dataset.csv', out_dir=str(out),
+                         genre_predictor='mlp', genre_hidden_dim=32, genre_dropout=0.1,
+                         lambda_aux=0.3, lambda_rhythm=0.7, evaluate_test=False))
+    checkpoint = torch.load(out / 'best.pt', weights_only=False)
+    assert checkpoint['effective_auxiliary_weights'] == {'instrument': 0.3, 'rhythm': 0.7}
+    assert checkpoint['fusion_model']['fusion.0.weight'].shape == (32, 51)
+    assert checkpoint['fusion_model']['head.weight'].shape == (6, 32)
+    assert np.isfinite(np.load(out / 'validation_predictions.npz')['probabilities']).all()
+    assert not (out / 'test_predictions.npz').exists()
 
 
 def test_legacy_instrument_only_needs_no_other_target_csvs(tmp_path):

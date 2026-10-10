@@ -40,8 +40,9 @@ flowchart LR
 CNN-only uses the existing 128→128→6 MLP after song pooling, with genre BCE only.
 Concept runs send predicted concepts to the genre classifier without a raw CNN
 bypass. The default `--fusion native_concat` concatenates selected predictions
-directly, then applies `Linear(total_width,128) -> ReLU -> Dropout(0.1)` and the
-genre head. Instrument, timbre, rhythm and harmony retain widths 41, 35, 10 and 12.
+directly, then applies `Linear(total_width,6)` as the default genre predictor.
+Use `--genre-predictor mlp --genre-hidden-dim 64 --genre-dropout 0.1` for the
+nonlinear comparison. Instrument, timbre, rhythm and harmony retain widths 41, 35, 10 and 12.
 The ladder's input widths are 41, 76, 86 and 98; CNN-only is unchanged. There are
 no per-branch projections or learned scalar gates in this mode. Harmony uses its
 12 predicted descriptors, not its internal embedding.
@@ -59,7 +60,8 @@ masks. Native concatenation omits their columns entirely; gated mode freezes the
 projection parameters. They contribute zero auxiliary loss and no branch metrics. Concept dropout can
 only remove enabled branches and retains at least one available branch.
 
-Enabled heads retain their auxiliary supervision and loss weights:
+Enabled heads retain their auxiliary supervision. `--lambda-aux` sets a shared
+weight (default 1); the following flags explicitly override it for experiments:
 `--lambda-instrument`, `--lambda-timbre`, `--lambda-rhythm`, `--lambda-harmony`.
 A zero loss weight is different from disabling a branch: the prediction still
 enters genre fusion when the branch is selected.
@@ -103,8 +105,8 @@ These commands submit GPU runs; local unit tests do not launch Modal training.
 
 This subset is supported directly, without timbre or harmony targets. Instrument
 contributes 41 probabilities and rhythm contributes 10 standardized predictions.
-Concatenation feeds 51 values to `Linear(51,128) -> ReLU -> Dropout(0.1)`, followed
-by the genre head `Dropout(0.1) -> Linear(128,6)`. Both branches share the same CNN:
+Concatenation feeds 51 values to the reference predictor `Linear(51,6)`.
+Both branches share the same CNN:
 instrument uses its masked pooled song vector, while rhythm uses its temporal
 sequence. The default joint loss is genre BCE + instrument BCE + rhythm Smooth L1.
 

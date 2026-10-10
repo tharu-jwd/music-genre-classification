@@ -10,13 +10,12 @@ from torch import Tensor, nn
 @dataclass(frozen=True)
 class TimbreBranchConfig:
     input_dim: int = 128
-    hidden_dim: int = 128
-    bottleneck_hidden_dim: int = 64
+    hidden_dim: int = 64
     output_dim: int = 35
-    dropout: float = 0.20
+    dropout: float = 0.15
 
     def __post_init__(self) -> None:
-        for name in ("input_dim", "hidden_dim", "bottleneck_hidden_dim", "output_dim"):
+        for name in ("input_dim", "hidden_dim", "output_dim"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
         if not 0.0 <= self.dropout < 1.0:
@@ -49,9 +48,7 @@ class TimbreBranch(nn.Module):
             nn.LayerNorm(self.config.hidden_dim),
             nn.GELU(),
             nn.Dropout(self.config.dropout),
-            nn.Linear(self.config.hidden_dim, self.config.bottleneck_hidden_dim),
-            nn.GELU(),
-            nn.Linear(self.config.bottleneck_hidden_dim, self.config.output_dim),
+            nn.Linear(self.config.hidden_dim, self.config.output_dim),
         )
 
     def forward(self, h_audio: Tensor) -> Tensor:

@@ -1,5 +1,10 @@
 # Harmony branch architecture
 
+> Current joint training uses the 12-descriptor schema with a 64D temporal head,
+> dilations 1/2, LayerNorm, mean pooling and dropout 0.15. See
+> [the current specification](../docs/common-concept-architecture.md).
+> The 45D extraction boundary and legacy architecture below describe separate versions.
+
 ## Active feature boundary and legacy scope
 
 The active extracted supervision table is a 45-dimensional, interpretable harmony

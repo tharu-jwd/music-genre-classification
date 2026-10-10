@@ -28,12 +28,12 @@ from timbre_branch.model import TimbreBranch
 
 
 class _InstrumentHead(nn.Module):
-    """Importable equivalent of the notebook-owned instrument v2 head."""
+    """Importable equivalent of the notebook-owned instrument v3 head."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.1))
-        self.classifier = nn.Linear(128, 41)
+        self.hidden = nn.Sequential(nn.Linear(128, 64), nn.LayerNorm(64), nn.GELU(), nn.Dropout(0.15))
+        self.classifier = nn.Linear(64, 41)
 
     def forward(self, pooled_song: torch.Tensor) -> dict:
         hidden = self.hidden(pooled_song)

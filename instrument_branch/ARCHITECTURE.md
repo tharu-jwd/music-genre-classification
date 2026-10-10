@@ -1,5 +1,9 @@
 # Instrument branch architecture
 
+> The current v3 instrument head uses 128 -> 64 -> 41, LayerNorm, GELU and
+> dropout 0.15. See [the current specification](../docs/common-concept-architecture.md).
+> The v2 architecture and parameter counts below are historical.
+
 ## Purpose
 
 The instrument branch is the instrument-concept bottleneck in the proposed music

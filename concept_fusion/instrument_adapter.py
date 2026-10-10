@@ -10,11 +10,11 @@ from concept_fusion.validation import ContractError
 
 
 def from_instrument_branch(output: dict, *, name: str = "instrument") -> BranchOutput:
-    """Map the v2 instrument notebook dict onto BranchOutput.
+    """Map the instrument notebook dict onto BranchOutput.
 
     Required keys: concept_values (B,41), logits (B,41),
     supervision_mask (B,41), fusion_mask (B,1).
-    Optional: diagnostics.hidden (B,128), detached.
+    Optional: diagnostics.hidden (B,64), detached (current v3 head).
     """
     if "fusion_token" in output and output["fusion_token"] is not None:
         raise ContractError(

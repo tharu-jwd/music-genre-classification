@@ -26,8 +26,8 @@ One notebook for official split-0 auditing, a shared-input PyTorch branch,
 masked loss, validation, checkpoints and integration. No Essentia dependency.
 
 ```
-song_repr (B,128) -> Linear(128,128) -> ReLU -> Dropout(0.1)
-                 -> Linear(128,41) -> logits (B,41) -> sigmoid
+song_repr (B,128) -> Linear(128,64) -> LayerNorm -> GELU -> Dropout(0.15)
+                 -> Linear(64,41) -> logits (B,41) -> sigmoid
                  -> concept_values (B,41) -> external fusion
 ```
 
@@ -315,13 +315,13 @@ def checked_mask(mask, shape, reference):
         raise ValueError(f"Expected binary mask with shape {shape}")
     return mask
 
-BRANCH_VERSION = "song-128-hidden-128-dropout-0.1-concepts-41-v2"
+BRANCH_VERSION = "song-128-hidden-64-layernorm-gelu-dropout-0.15-concepts-41-v3"
 
 class InstrumentBranch(nn.Module):
     def __init__(self):
         super().__init__()
-        self.hidden = nn.Sequential(nn.Linear(128, 128), nn.ReLU(), nn.Dropout(0.1))
-        self.classifier = nn.Linear(128, N_INSTRUMENTS)
+        self.hidden = nn.Sequential(nn.Linear(128, 64), nn.LayerNorm(64), nn.GELU(), nn.Dropout(0.15))
+        self.classifier = nn.Linear(64, N_INSTRUMENTS)
 
     def forward(self, song_repr, window_repr=None, supervision_mask=None, fusion_mask=None):
         if song_repr.ndim != 2 or song_repr.shape[1] != 128 or not torch.isfinite(song_repr).all():
@@ -745,7 +745,7 @@ repository supplies the checked dataset details below.
 | [Automatic tagging with CNNs](https://arxiv.org/pdf/1606.00298) | Multi-label MTAT/MSD tags; 29.1-second clips, 96-by-1366 log-mels; convolution/pooling stacks ending in independent sigmoids. | Binary cross-entropy with Adam. Binary tag vectors are used; an element-wise missing-annotation mask is not described in its training section. | ROC-AUC; mel/architecture comparisons. Supports mel-CNN representations and sigmoid/BCE; keep the encoder outside this branch. |
 | [Concept Bottleneck Models](https://proceedings.mlr.press/v119/koh20a/koh20a.pdf) | Image concepts and downstream labels in knee radiographs and bird images; explicit concept layer followed by task predictor. | Independent, sequential and joint training; joint objective weights concept and task losses. Requires concept annotations; does not supply a Jamendo missing-label policy. | Task/concept accuracy and interventions. Fusion sees instrument probabilities; compare downstream accuracy and concept fidelity, and retain supervision during joint training. |
 
-Starting configuration: 128-D hidden layer with ReLU and dropout 0.1, unweighted
+Starting configuration: 64-D hidden layer with LayerNorm, GELU and dropout 0.15, unweighted
 masked BCE and 41 sigmoid probabilities. Fusion owns any projection. Final loss/aggregation selection
 remains validation-dependent. Retain the observed-label caveat in reports.
 ''', "literature")
