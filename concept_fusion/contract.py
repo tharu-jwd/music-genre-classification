@@ -72,11 +72,18 @@ def _load_instrument_tags() -> tuple[str, ...]:
 INSTRUMENT_TAGS: tuple[str, ...] = _load_instrument_tags()
 
 HARMONY_FEATURES: tuple[str, ...] = (
-    "tonal_concentration_mean", "tonal_concentration_std",
-    "chroma_entropy_mean", "chroma_entropy_std",
-    "chroma_flux_mean", "chroma_flux_std",
-    "tonnetz_movement_mean", "tonnetz_movement_std",
-    "valid_tonal_ratio", "tonnetz_01_mean", "tonnetz_02_mean", "tonnetz_03_mean",
+    "global_key_strength",
+    "mode_confidence",
+    "key_stability",
+    "chroma_entropy_mean",
+    "chroma_entropy_std",
+    "chroma_flux_mean",
+    "tonnetz_movement_mean",
+    "tonal_centroid_radius_mean",
+    "chroma_recurrence_15s",
+    "chord_strength_mean",
+    "chord_change_rate",
+    "chord_vocabulary_ratio",
 )
 assert len(HARMONY_FEATURES) == N_HARMONY_DESCRIPTORS
 

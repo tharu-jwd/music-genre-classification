@@ -2,89 +2,101 @@
 
 ## Status
 
-This document is the canonical contract for the extracted, track-level harmony
-descriptors used by the current baseline. It supersedes older statements in this
-directory that describe an unselected 18-value summary or say that full-corpus
-harmony extraction has not been completed.
+The current stable harmony branch predicts exactly 12 interpretable,
+track-level descriptors. A wider 15-column harmony warehouse is retained for
+audit, correlation analysis, and future ablations, but it is not the stable model
+input.
 
-The temporal chroma/chord implementation remains an experimental architecture. It
-does not change the schema or provenance of the completed 45-dimensional target
-table described here.
-
-## Source audio and extraction policy
-
-| Property | Frozen value |
-|---|---:|
-| Selected tracks | 7,324 |
-| Audio region | First `min(decoded duration, 240 s)` |
-| Input | Mono waveform decoded from the full-quality MP3 |
-| Sample rate | 16,000 Hz |
-| Hop length | 512 samples |
-| Chroma representation | `librosa.feature.chroma_cqt` |
-| Pitch-class order | C, C#, D, D#, E, F, F#, G, G#, A, A#, B |
-| Tonnetz representation | `librosa.feature.tonnetz` from normalized chroma |
-| Extractor identifier | `librosa_chroma_cqt_first4min_v1` |
-
-Chroma frames are L1-normalized. Low-energy or unusable tonal frames are excluded
-through the extractor's validity mask rather than being treated as observed zero
-targets. All statistics are calculated only from valid tonal frames. Flux and
-Tonnetz movement use consecutive pairs for which both frames are valid.
+The temporal chroma/chord implementation remains an experimental architecture.
+It does not change the order or meaning of the stable 12-dimensional descriptor
+target.
 
 These values are automatically extracted reference descriptors, not human harmony
 annotations and not causal explanations.
 
-## Feature schema
+## Stable model contract
 
-Every clean row contains `TRACK_ID` followed by exactly 45 finite numeric features.
+`harmony_vector` contains exactly the following values in this fixed order:
 
-| Group | Columns | Count | Interpretation |
-|---|---|---:|---|
-| Chroma means | `chroma_{pitch}_mean` | 12 | Mean relative activity of each pitch class |
-| Chroma standard deviations | `chroma_{pitch}_std` | 12 | Track-level variation of each pitch class |
-| Tonnetz means | `tonnetz_01_mean` ... `tonnetz_06_mean` | 6 | Mean position in the six-dimensional tonal-centroid space |
-| Tonnetz standard deviations | `tonnetz_01_std` ... `tonnetz_06_std` | 6 | Variation in tonal-centroid coordinates |
-| Tonal concentration | `tonal_concentration_mean`, `tonal_concentration_std` | 2 | Mean and variation of the strongest normalized chroma bin |
-| Chroma entropy | `chroma_entropy_mean`, `chroma_entropy_std` | 2 | Mean and variation of normalized pitch-class uncertainty |
-| Chroma flux | `chroma_flux_mean`, `chroma_flux_std` | 2 | Mean and variation of frame-to-frame chroma change |
-| Tonnetz movement | `tonnetz_movement_mean`, `tonnetz_movement_std` | 2 | Mean and variation of frame-to-frame tonal-centroid movement |
-| Valid tonal coverage | `valid_tonal_ratio` | 1 | Fraction of analyzed frames accepted by the tonal validity mask |
-| **Total** |  | **45** |  |
+| Position | Column | Interpretation |
+|---:|---|---|
+| 1 | `global_key_strength` | Strength of the best global key-profile match |
+| 2 | `mode_confidence` | Confidence of the major/minor mode decision |
+| 3 | `key_stability` | Consistency of local key evidence through time |
+| 4 | `chroma_entropy_mean` | Mean pitch-class uncertainty or tonal complexity |
+| 5 | `chroma_entropy_std` | Temporal variability of pitch-class uncertainty |
+| 6 | `chroma_flux_mean` | Mean frame-to-frame pitch-class change |
+| 7 | `tonnetz_movement_mean` | Mean movement in tonal-centroid space |
+| 8 | `tonal_centroid_radius_mean` | Mean tonal concentration in tonal-centroid space |
+| 9 | `chroma_recurrence_15s` | Recurrence of chroma structure at a 15-second lag |
+| 10 | `chord_strength_mean` | Mean confidence or strength of chord-template matches |
+| 11 | `chord_change_rate` | Rate of changes in the estimated chord sequence |
+| 12 | `chord_vocabulary_ratio` | Diversity of detected chord classes |
 
-The pitch placeholder is expanded in this fixed order:
+The feature order is part of the serialized data contract. Reordering columns
+without rebuilding `harmony_vector` is invalid even when the vector width remains
+12.
+
+## Harmony warehouse contract
+
+The warehouse retains 15 harmony descriptors:
+
+| Column | Stable model status |
+|---|---|
+| `global_key_strength` | Stable 12 |
+| `mode_confidence` | Stable 12 |
+| `key_stability` | Stable 12 |
+| `chroma_entropy_mean` | Stable 12 |
+| `chroma_entropy_std` | Stable 12 |
+| `chroma_flux_mean` | Stable 12 |
+| `chroma_flux_std` | Warehouse only |
+| `tonnetz_movement_mean` | Stable 12 |
+| `tonnetz_movement_std` | Warehouse only |
+| `tonal_centroid_radius_mean` | Stable 12 |
+| `tonal_centroid_radius_std` | Warehouse only |
+| `chroma_recurrence_15s` | Stable 12 |
+| `chord_strength_mean` | Stable 12 |
+| `chord_change_rate` | Stable 12 |
+| `chord_vocabulary_ratio` | Stable 12 |
+
+The warehouse-only fields are therefore:
 
 ```text
-c, csharp, d, dsharp, e, f, fsharp, g, gsharp, a, asharp, b
+chroma_flux_std
+tonnetz_movement_std
+tonal_centroid_radius_std
 ```
 
-The 45 values are an explicit concept bottleneck: each output dimension retains a
-defined audio meaning. Downstream normalization must be fitted on the training
-split only. The raw values must remain available for interpretation and inverse
-transformation even if a later projection is used for fusion.
+They must not be silently appended to the stable model vector.
 
-## Files
+## Stable project dimensions
+
+The current stable dataset and architecture use:
+
+| Branch | Width |
+|---|---:|
+| Instrument | 41 |
+| Rhythm | 10 |
+| Timbre | 12 |
+| Harmony | 12 |
+| Genre targets | 6 |
+
+## Training and normalization
+
+The raw harmony values remain available in the warehouse for interpretation and
+inverse transformation. The trainer expands `harmony_vector` using the exact
+`HARMONY_FEATURES` order, fits the harmony standardizer using training tracks only,
+and applies that fitted transform unchanged to validation and test tracks.
+
+The harmony descriptor head predicts 12 standardized values. Predicted values—not
+ground-truth targets—enter fusion through the fusion-owned `Linear(12, 64)`
+projection.
+
+## Relevant files
 
 | File | Purpose |
 |---|---|
-| `harmony_branch/data/harmony_features_raw.csv` | Auditable table containing extraction metadata, status, diagnostics, and all 45 descriptors |
-| `data/harmony_df.csv` | Training-ready projection containing only `TRACK_ID` and the 45 descriptors |
-| `harmony_branch/notebooks/extract_harmony_features_first4min_vastai.ipynb` | Reproducible extraction notebook |
-
-The clean table is an exact feature-value projection of the detailed raw table.
-It is not a separately calculated dataset.
-
-## Completed-data audit
-
-The committed extraction was checked against `data/split_csv.csv`:
-
-- 7,324 rows and 7,324 unique track IDs;
-- no missing or extra selected tracks;
-- all 7,324 extraction statuses are `ok`;
-- 45 feature columns and 329,580 finite numeric feature cells;
-- no blank, NaN, infinite, or nonnumeric feature values;
-- zero feature-value mismatches between the raw and clean tables; and
-- one consistent sample rate, hop length, and extractor identifier.
-
-Three short files differ from rounded manifest duration by approximately 0.10 s.
-This is consistent with codec/frame boundaries and does not change the first-four-
-minute policy.
-
+| `concept_fusion/contract.py` | Canonical stable Harmony-12 names and order |
+| `data/warehouse_dataset_new.csv` | Auditable 15-column harmony warehouse together with the other branches |
+| `data/vector-dataset.csv` | Compact stable vectors used by the Modal paper protocol |
+| `data/track_split_assignments.csv` | Fixed train, validation, and test assignments |

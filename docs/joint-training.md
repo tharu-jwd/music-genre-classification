@@ -14,6 +14,20 @@ Smooth L1 loss. Predicted descriptors—not targets—enter fusion, so validatio
 test inference remain leakage-free. The temporal chroma and optional chord heads
 remain available for future aligned targets but are not supervised by this run.
 
+The stable harmony target order is:
+
+```text
+global_key_strength, mode_confidence, key_stability,
+chroma_entropy_mean, chroma_entropy_std, chroma_flux_mean,
+tonnetz_movement_mean, tonal_centroid_radius_mean,
+chroma_recurrence_15s, chord_strength_mean,
+chord_change_rate, chord_vocabulary_ratio
+```
+
+The 15-column harmony warehouse is not the model input. Only these prespecified
+12 columns, in the exact `HARMONY_FEATURES` order, are serialized into
+`harmony_vector`.
+
 ## Local audio setup
 
 `data/logmel_root.txt` contains the actual `logmel_songs` directory resolved from

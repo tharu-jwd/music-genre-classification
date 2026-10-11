@@ -115,11 +115,28 @@ def test_combined_dataset_requires_harmony_descriptors(tmp_path):
         split_csv, index=False
     )
 
-    with pytest.raises(ValueError, match="tonal_concentration_mean"):
+    with pytest.raises(ValueError, match="global_key_strength"):
         j.build_datasets(
             tmp_path, dataset_csv=dataset_csv, split_csv=split_csv,
             logmel_root=tmp_path / "logmel_songs",
         )
+
+
+def test_harmony_feature_contract_is_new_stable_12():
+    assert j.HARMONY_FEATURES == (
+        "global_key_strength",
+        "mode_confidence",
+        "key_stability",
+        "chroma_entropy_mean",
+        "chroma_entropy_std",
+        "chroma_flux_mean",
+        "tonnetz_movement_mean",
+        "tonal_centroid_radius_mean",
+        "chroma_recurrence_15s",
+        "chord_strength_mean",
+        "chord_change_rate",
+        "chord_vocabulary_ratio",
+    )
 
 
 def test_compact_json_vectors_expand_for_training(tmp_path):

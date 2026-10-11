@@ -350,6 +350,14 @@ only on training rows. An all-masked song produces a zero vector and an unavaila
 fusion mask. Temporal chroma logits remain preserved for future aligned chroma
 supervision and standalone harmony experiments.
 
+The stable `HARMONY_FEATURES` contract is the chord-aware 12-feature selection:
+global key strength, mode confidence, key stability, chroma entropy mean and
+standard deviation, chroma flux mean, Tonnetz movement mean, tonal-centroid radius
+mean, 15-second chroma recurrence, chord strength mean, chord change rate, and chord
+vocabulary ratio. The harmony warehouse retains 15 descriptors for audit and
+ablation, but `chroma_flux_std`, `tonnetz_movement_std`, and
+`tonal_centroid_radius_std` do not enter the stable harmony vector or fusion.
+
 The separate 32D song embedding is a uniform masked mean of token embeddings. It
 is retained only for the configured `embedding_fusion` ablation, where fusion owns
 `Linear(32,64)`. Optional chord predictions do not enter either primary fusion or

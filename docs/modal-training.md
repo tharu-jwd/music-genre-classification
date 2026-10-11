@@ -21,7 +21,7 @@ track_id,path,instrument_vector,rhythm_vector,timbre_vector,harmony_vector,genre
 | `instrument_vector` | 41 | supervision for the instrument branch |
 | `rhythm_vector` | 10 | supervision for the rhythm branch |
 | `timbre_vector` | 12 | supervision for the timbre branch |
-| `harmony_vector` | 12 | tonal descriptor vector from the source dataset |
+| `harmony_vector` | 12 | Chord-aware harmony vector in the exact `HARMONY_FEATURES` order; the 15-column harmony warehouse is not the model vector |
 | `genre` | 6 | final multi-label target after concept fusion |
 
 Each vector cell is a compact JSON array such as `[0,1,0]`. The exact vector
