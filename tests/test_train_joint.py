@@ -31,7 +31,7 @@ def test_combined_dataset_schema_has_one_vector_per_branch():
     assert schema["logmel_input"] == "path"
     assert {name: len(columns) for name, columns in schema["branch_vectors"].items()} == {
         "instrument_vector": 41, "rhythm_vector": 10,
-        "timbre_vector": 35, "harmony_vector": 12,
+        "timbre_vector": 12, "harmony_vector": 12,
     }
     assert len(schema["fusion_target"]["genre"]) == 6
 
@@ -45,8 +45,8 @@ def test_harmony_supervision_reaches_branch_and_encoder_without_target_leakage()
         head.eval()
     encoded = encoder(torch.randn(2, 2, 1, 16, 12), torch.ones(2, 2, dtype=torch.bool),
                       torch.full((2, 2), 12), torch.tensor([[0., 10.], [0., 10.]]))
-    kwargs = dict(instr_tgt=torch.zeros(2, 41), timbre_tgt=torch.zeros(2, 35),
-                  timbre_msk=torch.ones(2, 35, dtype=torch.bool),
+    kwargs = dict(instr_tgt=torch.zeros(2, 41), timbre_tgt=torch.zeros(2, 12),
+                  timbre_msk=torch.ones(2, 12, dtype=torch.bool),
                   rhythm_tgt=torch.zeros(2, 10), rhythm_msk=torch.ones(2, 10, dtype=torch.bool),
                   harmony_tgt=torch.randn(2, 12),
                   harmony_msk=torch.ones(2, 12, dtype=torch.bool), device=torch.device('cpu'))
@@ -127,7 +127,7 @@ def test_compact_json_vectors_expand_for_training(tmp_path):
     row = {
         "instrument_vector": json.dumps([0] * 41),
         "rhythm_vector": json.dumps([1.0] * 10),
-        "timbre_vector": json.dumps([2.0] * 35),
+        "timbre_vector": json.dumps([2.0] * 12),
         "harmony_vector": json.dumps([3.0] * 12),
         "genre": json.dumps([0, 1, 0, 0, 0, 0]),
     }
@@ -157,7 +157,7 @@ def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):
     path = tmp_path / 'stack.npy'
     np.save(path, np.ones((3, 128, 469), dtype=np.float32))
     ds = j.MultiTargetDataset(['1'], [str(path)], np.zeros((1, 6)), np.zeros((1, 41)),
-        np.zeros((1, 35)), np.ones((1, 35), bool), np.zeros((1, 10)),
+        np.zeros((1, 12)), np.ones((1, 12), bool), np.zeros((1, 10)),
         np.ones((1, 10), bool), np.ones((1, 12)) / 12, max_windows=2,
         mel_config={'sample_rate': 16000, 'hop_length': 512, 'window_seconds': 15,
                     'n_mels': 128, 'center': True}, durations={'1': 31.0})

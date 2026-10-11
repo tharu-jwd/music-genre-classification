@@ -32,7 +32,7 @@ flowchart LR
     E --> P[128D song representation]
     P --> C[CNN-only MLP genre head]
     E --> B[Selected concept heads]
-    B --> T[Native predictions: instrument 41, rhythm 10, timbre 35, harmony 12]
+    B --> T[Native predictions: instrument 41, rhythm 10, timbre 12, harmony 12]
     T --> F[Masked concatenation then MLP to 128D]
     F --> G[Genre head]
 ```
@@ -42,8 +42,8 @@ Concept runs send predicted concepts to the genre classifier without a raw CNN
 bypass. The default `--fusion native_concat` concatenates selected predictions
 directly, then applies `Linear(total_width,6)` as the default genre predictor.
 Use `--genre-predictor mlp --genre-hidden-dim 64 --genre-dropout 0.1` for the
-nonlinear comparison. Instrument, timbre, rhythm and harmony retain widths 41, 35, 10 and 12.
-The ladder's input widths are 41, 76, 86 and 98; CNN-only is unchanged. There are
+nonlinear comparison. Instrument, timbre, rhythm and harmony retain widths 41, 12, 10 and 12.
+The ladder's input widths are 41, 53, 63 and 75; CNN-only is unchanged. There are
 no per-branch projections or learned scalar gates in this mode. Harmony uses its
 12 predicted descriptors, not its internal embedding.
 

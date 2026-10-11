@@ -1,5 +1,9 @@
 # Complete model architecture and training specification
 
+This document includes legacy architecture details. The current paper model is
+specified in [common-concept-architecture.md](common-concept-architecture.md),
+with its editable settings in [architecture-config.md](architecture-config.md).
+
 This is the system-level specification for the implemented concept-guided,
 multi-label music-genre classifier. It covers the shared encoder, all four concept
 branches, fusion, genre prediction, target provenance, masking, losses, and the
@@ -26,7 +30,7 @@ sampled log-Mel windows: (B, W, 1, 96, F)
        ┌────┴────┐                  ┌───┴────┐
        ▼         ▼                  ▼        ▼
  instrument   timbre             rhythm   harmony
- 41 probs     35 values        10 values  12 pooled probs
+ 41 probs     12 values        10 values  12 pooled probs
        │         │               │          │
        └────┬────┴───────────────┬──────────┘
             ▼                    ▼
@@ -53,7 +57,7 @@ layout metadata.
 | Shared CNN | `(B,W,1,96,F)` | sequence `(B,T,128)`, song `(B,128)` | 86,913 |
 | Instrument | song `(B,128)` | 41 probabilities | 21,801 |
 | Rhythm | sequence `(B,T,128)` | 10 standardized predictions | 87,883 |
-| Timbre | song `(B,128)` | 35 standardized predictions | 27,299 |
+| Timbre | song `(B,128)` | 12 standardized predictions | 27,299 |
 | Harmony | sequence `(B,T,128)` | 12 standardized song-level descriptor predictions | implementation-dependent |
 | Optional harmony chord head | 32D token embeddings | 25 logits/token | +825 |
 | Fusion | four projected 64D tokens | 128D fused representation | variant-dependent |
@@ -285,27 +289,27 @@ Detailed document:
 pooled_song (B,128)
   → Linear(128,128) → LayerNorm(128) → GELU → Dropout(0.20)
   → Linear(128,64) → GELU
-  → Linear(64,35) → standardized descriptor predictions
+  → Linear(64,12) → standardized descriptor predictions
 ```
 
 There is no final activation because targets are standardized real values. This is
-a strict bottleneck: the 35 predictions are the auxiliary output and the only
-primary timbre values exposed to fusion. Fusion owns `Linear(35,64)`; no unrestricted
+a strict bottleneck: the 12 predictions are the auxiliary output and the only
+primary timbre values exposed to fusion. Fusion owns `Linear(12,64)`; no unrestricted
 `pooled_song` bypass exists.
 
 ### 6.2 Targets, loss, and metrics
 
-The 35 fixed targets are:
+The 12 fixed targets are:
 
-- spectral shape: centroid mean/std, bandwidth mean/std, contrast mean, flatness
-  mean, and rolloff mean (7);
+- spectral shape: centroid mean/std, bandwidth mean/std, skewness mean, contrast
+  mean, flatness mean, and rolloff mean (8);
+- spectral dynamics: spectral flux mean and standard deviation (2);
 - harmonic/noise: mean harmonic-to-noise ratio in dB and mean inharmonicity (2);
-- spectral envelope: MFCC 1–13 means and MFCC 1–13 standard deviations (26).
 
 Exact order: [`constants.py`](../timbre_branch/src/timbre_branch/constants.py).
 These are **deterministically extracted signal descriptors**, not human labels.
 The checked extraction artifact used up to the first four minutes of full-quality
-audio and contains 7,324 successful tracks, 35 finite columns, no duplicate IDs,
+audio and contains 7,324 successful tracks, 12 finite columns, no duplicate IDs,
 and no recorded failures. Those are artifact facts, not model results.
 
 Standardization uses training-split statistics only. Training uses masked Smooth
@@ -397,7 +401,7 @@ The frozen order is `[instrument, rhythm, timbre, harmony]`:
 |---|---|---|
 | 41 instrument probabilities | `Linear(41,64)` | `(B,64)` |
 | 10 standardized rhythm predictions | `Linear(10,64)` | `(B,64)` |
-| 35 standardized timbre predictions | `Linear(35,64)` | `(B,64)` |
+| 12 standardized timbre predictions | `Linear(12,64)` | `(B,64)` |
 | 12 masked-pooled chroma probabilities | `Linear(12,64)` | `(B,64)` |
 
 Every value is a branch prediction, making the primary route a
@@ -463,7 +467,7 @@ metrics use validation-selected thresholds only.
 | Genre | 87/song | official genre tags | weak human/uploader annotation | BCE with logits |
 | Instrument | 41/song | official instrument tags | weak human/uploader annotation | masked BCE with logits |
 | Rhythm | 10/song | AcousticBrainz/Essentia | extracted target | masked Smooth L1 |
-| Timbre | 35/song | deterministic audio extractor | extracted target | masked Smooth L1 |
+| Timbre | 12/song | deterministic audio extractor | extracted target | masked Smooth L1 |
 | Harmony descriptors | 12/song | deterministic tonal summaries | extracted target | masked Smooth L1 |
 | Chroma | 12/token | CQT/HPCP extractor | algorithmic reference | masked soft-target CE |
 | Chord, optional | 25/token | validated automatic teacher | pseudo-label | masked hard-label CE |

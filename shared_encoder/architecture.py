@@ -65,7 +65,7 @@ def validate_architecture(data):
         raise ValueError("Encoder pooling geometry and 128-D output are fixed by the audio/branch contracts")
     if encoder["frequency_pooling"] != "learned_attention" or encoder["song_pooling"] != "masked_mean":
         raise ValueError("Only learned_attention and masked_mean pooling are implemented")
-    for name, width in (("instrument", 41), ("timbre", 35), ("rhythm", 10), ("harmony", 12)):
+    for name, width in (("instrument", 41), ("timbre", 12), ("rhythm", 10), ("harmony", 12)):
         values = data[name]
         if values["input_dim"] != 128 or values["output_dim"] != width or values["normalization"] != "layer_norm":
             raise ValueError(f"{name} requires 128-D input, {width} target outputs and layer_norm")

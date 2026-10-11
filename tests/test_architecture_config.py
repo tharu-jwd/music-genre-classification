@@ -18,7 +18,7 @@ def test_default_architecture_preserves_current_parameter_counts():
     cfg = j.TrainConfig(architecture=load_architecture())
     configure_training(cfg)
     modules = j.build_concept_modules(cfg, "cpu")
-    assert sum(p.numel() for m in modules.values() for p in m.parameters() if p.requires_grad) == 177333
+    assert sum(p.numel() for m in modules.values() for p in m.parameters() if p.requires_grad) == 175700
     assert sum(p.numel() for p in GenreCNN(cfg.architecture).parameters()) == 104199
     manifest = load_manifest("experiments/paper21-modal.json")
     assert all(run["config"]["architecture"] == cfg.architecture for run in manifest["runs"])

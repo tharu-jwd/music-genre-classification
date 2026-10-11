@@ -9,7 +9,7 @@ retraining; their hidden layers and state dictionaries differ.
 All heads receive shared 128D encoder features. Instrument and timbre use pooled
 features: Linear(128,64), LayerNorm(64), GELU, Dropout(0.15), Linear(64,N).
 Instrument emits 41 logits and sends sigmoid probabilities to fusion. Timbre
-emits 35 standardized continuous predictions.
+emits 12 standardized continuous predictions.
 
 Rhythm and harmony process ordered tokens at hidden width 64, using two residual
 Conv1d blocks with kernel 3 and dilations 1 and 2. Each block applies convolution,
@@ -29,10 +29,10 @@ substituted for the 12D joint vector without updating its target contract.
 | Component | Trainable parameters, excluding shared encoder |
 |---|---:|
 | Instrument | 11,049 |
-| Timbre | 10,659 |
+| Timbre | 9,164 |
 | Rhythm | 33,994 |
 | Harmony descriptor branch | 34,124 |
-| Linear genre predictor, all branches | 594 |
+| Linear genre predictor, all branches | 456 |
 
 Within each family, these count differences come from the required output widths.
 The harmony count excludes the frozen compatibility chroma head.
@@ -40,7 +40,7 @@ The harmony count excludes the frozen compatibility chroma head.
 ## Fusion and genre prediction
 
 Concatenate the enabled branches' predicted concept values, preserving native
-widths. With all current branches, C = 41 + 10 + 35 + 12 = 98.
+widths. With all current branches, C = 41 + 10 + 12 + 12 = 75.
 The default predictor is Linear(C,6): six genre logits, independent sigmoid
 probabilities for reporting. No raw encoder feature bypass is used.
 

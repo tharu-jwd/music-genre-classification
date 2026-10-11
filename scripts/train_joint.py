@@ -9,7 +9,7 @@ The legacy seven-table layout is also supported:
   logmel_metadata.csv          TRACK_ID -> .npy log-mel path  (mel_bins, T) each
   genres_df.csv                TRACK_ID + 6 genre columns
   instrument_df.csv            TRACK_ID + 41 instrument columns
-  timbre_df.csv                TRACK_ID + 35 timbre descriptor columns
+  timbre_df.csv                TRACK_ID + 12 timbre descriptor columns
   rhythm_df.csv                TRACK_ID + 10 rhythm columns
   harmony_df.csv               TRACK_ID + 12 song-level harmony descriptors
 
@@ -228,8 +228,8 @@ class MultiTargetDataset(Dataset):
         npy_paths: list[str],
         genre_targets: np.ndarray,       # (N, 6)  float32 binary
         instrument_targets: np.ndarray,  # (N, 41) float32 binary
-        timbre_targets: np.ndarray,      # (N, 35) float32 standardized
-        timbre_mask: np.ndarray,         # (N, 35) bool
+        timbre_targets: np.ndarray,      # (N, 12) float32 standardized
+        timbre_mask: np.ndarray,         # (N, 12) bool
         rhythm_targets: np.ndarray,      # (N, 10) float32 standardized
         rhythm_mask: np.ndarray,         # (N, 10) bool
         harmony_targets: np.ndarray,     # (N, 12) float32 standardized descriptors
@@ -345,8 +345,8 @@ def collate_fn(batch):
         window_start,                          # (B, 1)
         torch.stack(genre),                    # (B, 6)
         torch.stack(instr),                    # (B, 41)
-        torch.stack(timbre),                   # (B, 35)
-        torch.stack(timbre_mask),              # (B, 35)
+        torch.stack(timbre),                   # (B, 12)
+        torch.stack(timbre_mask),              # (B, 12)
         torch.stack(rhythm),                   # (B, 10)
         torch.stack(rhythm_mask),              # (B, 10)
         torch.stack(harmony),                  # (B, 12)

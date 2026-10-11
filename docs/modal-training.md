@@ -20,7 +20,7 @@ track_id,path,instrument_vector,rhythm_vector,timbre_vector,harmony_vector,genre
 | `path` | path to `(mel, time)` or `(windows, mel, time)` | input to the shared CNN encoder |
 | `instrument_vector` | 41 | supervision for the instrument branch |
 | `rhythm_vector` | 10 | supervision for the rhythm branch |
-| `timbre_vector` | 35 | supervision for the timbre branch |
+| `timbre_vector` | 12 | supervision for the timbre branch |
 | `harmony_vector` | 12 | tonal descriptor vector from the source dataset |
 | `genre` | 6 | final multi-label target after concept fusion |
 

@@ -1,4 +1,4 @@
-"""Train the strict 128-to-35 timbre branch from saved encoder embeddings.
+"""Train the strict 128-to-12 timbre branch from saved encoder embeddings.
 
 Embedding NPZ contract:
   track_ids: [N] strings matching TRACK_ID
@@ -21,6 +21,8 @@ from torch.utils.data import DataLoader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
+if str(PROJECT_ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT.parent))
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
@@ -38,7 +40,7 @@ from timbre_branch.training import evaluate, save_checkpoint, train_one_epoch
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--embeddings", type=Path, required=True)
-    parser.add_argument("--targets", type=Path, default=PROJECT_ROOT / "data/timbre_features_raw.csv")
+    parser.add_argument("--targets", type=Path, default=PROJECT_ROOT.parent / "data/warehouse_dataset_new.csv")
     parser.add_argument("--splits", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "checkpoints/timbre_branch/best.pt")
     parser.add_argument("--epochs", type=int, default=50)

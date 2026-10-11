@@ -114,7 +114,7 @@ def test_one_encoder_output_satisfies_all_four_branch_interfaces():
     assert encoded.window_repr.shape == (2, 2, 128)
     assert encoded.encoded_sequence.shape == (2, 10, 128)
     assert instrument["concept_values"].shape == (2, 41)
-    assert timbre.shape == (2, 35)
+    assert timbre.shape == (2, 12)
     assert rhythm.embedding.shape == (2, 64)
     assert rhythm.predictions.shape == (2, 10)
     assert harmony.embedding.shape == (2, 32)

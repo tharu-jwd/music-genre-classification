@@ -1,4 +1,4 @@
-"""Strict 128-to-35 explainable timbre concept bottleneck."""
+"""Strict 128-to-12 explainable timbre concept bottleneck."""
 
 from .constants import FEATURE_COLUMNS, FEATURE_GROUPS
 from .inference import predict_timbre_concepts

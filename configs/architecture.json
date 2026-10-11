@@ -16,7 +16,7 @@
     "activation": "gelu", "normalization": "layer_norm", "dropout": 0.15
   },
   "timbre": {
-    "input_dim": 128, "hidden_dim": 64, "output_dim": 35,
+    "input_dim": 128, "hidden_dim": 64, "output_dim": 12,
     "activation": "gelu", "normalization": "layer_norm", "dropout": 0.15
   },
   "rhythm": {

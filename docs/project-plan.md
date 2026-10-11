@@ -28,7 +28,7 @@ not evidence that a stage works end to end.
 | Direct CNN baseline | Code present | Ordered masked windows are implemented; do not spend GPU until the comparison cohort is frozen |
 | Instrument pretraining | Code present | Uses only annotated songs for supervision; verify a capped hosted run after data preflight |
 | Rhythm targets | Code present | Ten-field v1 schema, split-aware join, train-only scaler, masks, and interval audit are implemented; run the audit on real artifacts |
-| Timbre targets | Code present | The 35-descriptor extractor and claimed 7,324-track audit are documented; supply the ignored real target table and check it against the canonical cohort |
+| Timbre targets | Code present | The 12-descriptor extractor and claimed 7,324-track audit are documented; supply the ignored real target table and check it against the canonical cohort |
 | Harmony preflight | Code present | Reports waveform availability and exports exact model-window regions; clean hosted decode checks remain |
 | Harmony target design | Code present | CQT and harmonic-HPCP pass synthetic CPU tests; aligned-region runner and immutable decision gate are ready, bounded real-audio comparison remains |
 | Harmony pseudo-labels | Code present | A provenance-checked temporal-chroma pilot writer and bounded CPU Essentia chord baseline are tested; full generation still requires real extractor evidence and an accepted teacher/confidence policy |
@@ -202,7 +202,7 @@ supported by concept removal and prediction-change analysis for the selected mod
 | Data pipeline | Manifest, labels, splits, windowing | Canonical song batches and masks |
 | Instrument | Official instrument targets and 41-concept head | Probabilities/logits, masks, and fixed tag order; fusion owns the 41-to-common-width projection |
 | Rhythm | Rhythm schema, extraction, 32D branch | Targets, masks, metrics, embedding |
-| Timbre | 35-descriptor schema, extraction, and learned bottleneck | Standardized concepts, masks, metrics, and fixed feature order; fusion owns the 35-to-common-width projection |
+| Timbre | 12-descriptor schema, extraction, and learned bottleneck | Standardized concepts, masks, metrics, and fixed feature order; fusion owns the 12-to-common-width projection |
 | Harmony | Temporal schema, teacher evaluation, pseudo-labels, configurable-width branch | Targets, confidence masks, metrics, embedding |
 | Shared model | Encoder, pooling, joint losses, fusion | Integrated model and checkpoints |
 | Evaluation | Cohorts, metrics, ablations, reports | Comparable predictions and results |

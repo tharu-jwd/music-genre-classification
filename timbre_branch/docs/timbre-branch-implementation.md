@@ -1,10 +1,10 @@
 # Timbre branch implementation
 
-> Current v2 uses 128 -> 64 -> 35 with LayerNorm, GELU and dropout 0.15.
+> Current v2 uses 128 -> 64 -> 12 with LayerNorm, GELU and dropout 0.15.
 > See [the current specification](../../docs/common-concept-architecture.md).
 > The architecture below is historical.
 
-The implemented branch is a strict learned concept bottleneck. It accepts the shared encoder's one-row-per-track 128-dimensional representation and returns 35 standardized, named timbre predictions. This returned tensor is the timbre input to fusion; the unrestricted 128-dimensional input is never forwarded around it.
+The implemented branch is a strict learned concept bottleneck. It accepts the shared encoder's one-row-per-track 128-dimensional representation and returns 12 standardized, named timbre predictions. This returned tensor is the timbre input to fusion; the unrestricted 128-dimensional input is never forwarded around it.
 
 ## Architecture
 
@@ -16,8 +16,8 @@ h_audio [batch, 128]
   -> Dropout(0.20)
   -> Linear(128, 64)
   -> GELU
-  -> Linear(64, 35)
-  -> z_timbre = d_hat_standardized [batch, 35]
+  -> Linear(64, 12)
+  -> z_timbre = d_hat_standardized [batch, 12]
 ```
 
 The final layer has no sigmoid or softmax because standardized continuous descriptors can be positive or negative. `d_hat_standardized` is used by fusion and converted to original acoustic units with the saved training-only standardizer for explanations.
@@ -26,7 +26,7 @@ The final layer has no sigmoid or softmax because standardized continuous descri
 
 The training command requires three aligned artifacts:
 
-1. `data/timbre_features_raw.csv`, containing one row and all 35 targets for every `TRACK_ID`.
+1. `data/warehouse_dataset_new.csv` at the project root, containing the current 12 named timbre targets.
 2. A NumPy `.npz` file containing `track_ids` with shape `[N]` and `embeddings` with shape `[N, 128]`.
 3. An official split manifest containing `TRACK_ID` and `split`, where `split` is `train`, `validation`, or `test`.
 

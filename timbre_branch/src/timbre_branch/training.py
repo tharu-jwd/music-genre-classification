@@ -111,7 +111,7 @@ def load_checkpoint(
     if payload.get("architecture") != "strict_timbre_concept_bottleneck_v2":
         raise ValueError("Checkpoint timbre architecture is incompatible; retrain with v2")
     if tuple(payload["feature_names"]) != FEATURE_COLUMNS:
-        raise ValueError("Checkpoint feature order does not match the 35-D contract")
+        raise ValueError("Checkpoint feature order does not match the 12-D contract")
     model = TimbreBranch(TimbreBranchConfig.from_dict(payload["model_config"]))
     model.load_state_dict(payload["model_state_dict"])
     model.to(device)

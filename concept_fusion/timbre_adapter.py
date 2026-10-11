@@ -1,4 +1,4 @@
-"""Accept Senindu's published timbre z_timbre (B,35). Reject fusion_token."""
+"""Accept Senindu's published timbre z_timbre (B,12). Reject fusion_token."""
 
 from __future__ import annotations
 
@@ -19,12 +19,12 @@ def from_timbre_branch(
     """Map timbre v2 output onto BranchOutput.
 
     Accepts either the raw ``z_timbre`` tensor or the inference dict with
-    ``z_timbre`` / ``d_hat_standardized``. Fusion consumes only those 35
+    ``z_timbre`` / ``d_hat_standardized``. Fusion consumes only those 12
     standardized concepts — never ``h_audio``.
     """
     if isinstance(output, dict):
         if output.get("fusion_token") is not None:
-            raise ContractError("timbre v2 must not return fusion_token; fusion owns Linear(35,64)")
+            raise ContractError("timbre v2 must not return fusion_token; fusion owns Linear(12,64)")
         if "h_audio" in output and output["h_audio"] is not None:
             raise ContractError("fusion must not consume h_audio; that bypasses the timbre bottleneck")
         z = output.get("z_timbre", output.get("d_hat_standardized", output.get("concept_values")))

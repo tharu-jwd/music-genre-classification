@@ -1,4 +1,4 @@
-"""Target loading and leakage-safe standardization for the 35 concepts."""
+"""Target loading and leakage-safe standardization for the 12 concepts."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,7 +106,7 @@ class TimbreStandardizer:
             raise RuntimeError("TimbreStandardizer has not been fitted")
         expected = (len(FEATURE_COLUMNS),)
         if self.mean.shape != expected or self.scale.shape != expected or self.count.shape != expected:
-            raise ValueError("Scaler state does not contain exactly 35 concepts")
+            raise ValueError("Scaler state does not contain exactly 12 concepts")
 
 
 def align_embeddings_and_targets(

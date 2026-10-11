@@ -34,7 +34,7 @@ width different from 64 omits the optional legacy hidden-feature diagnostic;
 its instrument predictions and their fusion are unaffected.
 
 The file also records fixed contracts. Shared output/input width 128, temporal
-pooling geometry, masked mean pooling and concept output counts 41/35/10/12 must
+pooling geometry, masked mean pooling and concept output counts 41/12/10/12 must
 remain valid. Six genre outputs are fixed by the labels. The chroma head stays
 frozen and the chord head stays disabled because these targets are unavailable.
 Changing these fields requires changes to the corresponding data/model contracts,

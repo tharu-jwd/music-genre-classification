@@ -92,8 +92,8 @@ def test_only_selected_heads_receive_genre_gradients(branches):
     heads = [factory() if name in branches else None for name, factory in zip(names, factories)]
     encoded = encoder(torch.randn(2, 1, 1, 16, 12), torch.ones(2, 1, dtype=torch.bool),
                       torch.full((2, 1), 12), torch.zeros(2, 1))
-    kwargs = dict(instr_tgt=torch.zeros(2, 41), timbre_tgt=torch.zeros(2, 35),
-                  timbre_msk=torch.ones(2, 35), rhythm_tgt=torch.zeros(2, 10),
+    kwargs = dict(instr_tgt=torch.zeros(2, 41), timbre_tgt=torch.zeros(2, 12),
+                  timbre_msk=torch.ones(2, 12), rhythm_tgt=torch.zeros(2, 10),
                   rhythm_msk=torch.ones(2, 10), harmony_tgt=torch.zeros(2, 12),
                   harmony_msk=torch.ones(2, 12), device=torch.device('cpu'))
     bundle, _ = j._build_bundle(encoded, *heads, **kwargs)

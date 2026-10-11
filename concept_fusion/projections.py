@@ -25,7 +25,7 @@ from concept_fusion.validation import ContractError, require_finite, require_ten
 class TokenAssembler(nn.Module):
     """Build tokens (B, 4, 64) in CONCEPT_ORDER.
 
-    Primary ``predicted_concepts`` mode owns 41→64, 10→64, 35→64, and
+    Primary ``predicted_concepts`` mode owns 41→64, 10→64, 12→64, and
     12→64 projections. The harmony input is the configured 12-value predicted
     concept vector (song descriptors in joint vector-dataset training).
     ``embedding_fusion`` preserves the previous rhythm 64D

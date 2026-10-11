@@ -10,9 +10,9 @@ These numbers are **not** paper results until real branch tokens replace the fix
 
 **Instrument v2 (on `main`):** no 64-D token. Fusion owns `Linear(41, 64)` over 41 probabilities.
 
-**Timbre v2 (on `main`):** no 64-D token and no `h_audio` shortcut. Fusion owns `Linear(35, 64)` over Senindu's standardized `z_timbre`. Feature order is `timbre_branch/src/timbre_branch/constants.py` (`FEATURE_COLUMNS`, 35 names).
+**Timbre v2 (on `main`):** no 64-D token and no `h_audio` shortcut. Fusion owns `Linear(12, 64)` over Senindu's standardized `z_timbre`. Feature order is `timbre_branch/src/timbre_branch/constants.py` (`FEATURE_COLUMNS`, 12 names).
 
-**Predicted-concept fusion v1:** instrument 41→64, rhythm 10→64, timbre 35→64,
+**Predicted-concept fusion v1:** instrument 41→64, rhythm 10→64, timbre 12→64,
 and masked-pooled predicted chroma 12→64 are fusion-owned projections. Temporal
 chroma logits and optional 25-class chords retain their masked auxiliary losses.
 The former rhythm/harmony embedding route is `F-Embedding`.

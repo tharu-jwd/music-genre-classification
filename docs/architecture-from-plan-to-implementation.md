@@ -61,25 +61,25 @@ Merged as PR #4. Package: `timbre_branch/`.
 h_audio (B, 128)
   → Linear(128, 128) → LayerNorm → GELU → Dropout(0.20)
   → Linear(128, 64) → GELU
-  → Linear(64, 35)
-  → z_timbre = d_hat_standardized (B, 35)
+  → Linear(64, 12)
+  → z_timbre = d_hat_standardized (B, 12)
 ```
 
-- Strict bottleneck: fusion must consume **only** the 35 named concepts.
+- Strict bottleneck: fusion must consume **only** the 12 named concepts.
 - Concatenating `h_audio` with `z_timbre` is forbidden — that would bypass the bottleneck.
 - No sigmoid/softmax: standardized descriptors can be positive or negative.
 - Original acoustic units are recovered with a **training-only** standardizer for explanations.
 - Loss: masked Smooth L1 over valid descriptor cells.
 
-### Frozen 35-feature order (`FEATURE_COLUMNS`)
+### Frozen 12-feature order (`FEATURE_COLUMNS`)
 
-Spectral shape (7): centroid/bandwidth mean+std, contrast, flatness, rolloff.
-Harmonic/noise (2): HNR dB, inharmonicity.
-MFCC envelope (26): mfcc_01..13 mean and std.
+Spectral shape (8): centroid/bandwidth mean+std, skewness, contrast, flatness, rolloff.
+Spectral dynamics (2): spectral flux mean and std.
+Harmonic/noise (2): HNR dB and inharmonicity.
 
 ### What the branch returns
 
-The model returns a tensor `(B, 35)`. Inference helper:
+The model returns a tensor `(B, 12)`. Inference helper:
 
 ```python
 {"z_timbre", "d_hat_standardized", "d_hat_original_units", "feature_names"}
@@ -89,9 +89,9 @@ There is **no `fusion_token`**.
 
 ### Data note
 
-7,324 selected tracks have a complete 35-column target table (gitignored CSV). Real encoder embeddings are still required for paper training.
+7,324 selected tracks have a complete 12-column target table (gitignored CSV). Real encoder embeddings are still required for paper training.
 
-Main also removed the old hosted Colab/Kaggle notebook set in that merge. Proposed-architecture.md now lists timbre supervision as **35** descriptors, not 6 or 32.
+Main also removed the old hosted Colab/Kaggle notebook set in that merge. Proposed-architecture.md now lists timbre supervision as **12** descriptors, not 6 or 32.
 
 ---
 
@@ -99,9 +99,9 @@ Main also removed the old hosted Colab/Kaggle notebook set in that merge. Propos
 
 | | First fusion contract | After Senindu v2 |
 |---|---|---|
-| Timbre `C_k` | Provisional **6** | Frozen **35** |
-| Timbre fusion input | Branch-owned `fusion_token (B,64)` | `z_timbre (B,35)` standardized |
-| Who owns `Linear(35,64)` | Assumed inside the branch | **Fusion** (`TokenAssembler.timbre_projection`) |
+| Timbre `C_k` | Provisional **6** | Frozen **12** |
+| Timbre fusion input | Branch-owned `fusion_token (B,64)` | `z_timbre (B,12)` standardized |
+| Who owns `Linear(12,64)` | Assumed inside the branch | **Fusion** (`TokenAssembler.timbre_projection`) |
 | `h_audio` into fusion | Not specified | **Rejected** (bypasses the bottleneck) |
 | Feature order | Unspecified | `TIMBRE_FEATURES` loaded from Senindu’s `constants.py` |
 
@@ -135,7 +135,7 @@ shared encoder
     ├── pooled song (B,128) → Instrument v2 → 41 probs → Linear(41,64)
     ├── ordered features (B,T,128) → Rhythm v1 → token (B,64)
     │                                      └→ 10 AB regression predictions
-    ├── pooled song (B,128) → Timbre v2 → 35 values → Linear(35,64)
+    ├── pooled song (B,128) → Timbre v2 → 12 values → Linear(12,64)
     └── ordered features → Harmony v1 → embedding (B,D) → Linear(D,64)
                                       └→ temporal chroma/chord auxiliary losses
                     ↓

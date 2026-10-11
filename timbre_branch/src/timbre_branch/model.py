@@ -12,7 +12,7 @@ from shared_encoder.architecture import activation
 class TimbreBranchConfig:
     input_dim: int = 128
     hidden_dim: int = 64
-    output_dim: int = 35
+    output_dim: int = 12
     dropout: float = 0.15
     activation: str = "gelu"
 
@@ -24,8 +24,8 @@ class TimbreBranchConfig:
             raise ValueError("dropout must be in [0, 1)")
         if self.input_dim != 128:
             raise ValueError("The shared encoder contract requires input_dim=128")
-        if self.output_dim != 35:
-            raise ValueError("The timbre concept contract requires output_dim=35")
+        if self.output_dim != 12:
+            raise ValueError("The timbre concept contract requires output_dim=12")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -36,7 +36,7 @@ class TimbreBranchConfig:
 
 
 class TimbreBranch(nn.Module):
-    """Predict 35 standardized, named timbre concepts from a 128-D embedding.
+    """Predict 12 standardized, named timbre concepts from a 128-D embedding.
 
     The returned tensor is both ``d_hat`` and ``z_timbre``. There is deliberately
     no path that passes the unrestricted shared embedding around this output.

@@ -22,8 +22,8 @@ class TimbreEmbeddingDataset(Dataset):
         row_count = len(self.track_ids)
         if self.embeddings.shape != (row_count, 128):
             raise ValueError("embeddings must have shape [samples, 128]")
-        if self.targets.shape != (row_count, 35):
-            raise ValueError("standardized_targets must have shape [samples, 35]")
+        if self.targets.shape != (row_count, 12):
+            raise ValueError("standardized_targets must have shape [samples, 12]")
         if self.valid_mask.shape != self.targets.shape:
             raise ValueError("valid_mask must match standardized_targets")
 

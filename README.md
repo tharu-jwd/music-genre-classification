@@ -116,7 +116,7 @@ in the local trainer or Modal runner.
 │   ├── kaggle/
 │   └── dataset_split/
 ├── instrument_branch/             # 41 instrument concepts from a 128D song input
-├── timbre_branch/                  # 35 standardized timbre concepts from a 128D input
+├── timbre_branch/                  # 12 standardized timbre concepts from a 128D input
 ├── rhythm_branch/                  # 10 learned temporal rhythm concepts
 ├── harmony_branch/                 # temporal harmony package, scripts, tests, and docs
 ├── shared_encoder/                 # modular shared CNN, geometry, validation, and types

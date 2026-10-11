@@ -29,7 +29,7 @@ def test_token_shape_and_order():
     assert b.branches["instrument"].fusion_token is None
     assert b.branches["timbre"].fusion_token is None
     assert b.branches["harmony"].fusion_token is None
-    assert b.branches["timbre"].concept_values.shape == (5, 35)
+    assert b.branches["timbre"].concept_values.shape == (5, 12)
 
 
 def test_rejects_wrong_token_order():

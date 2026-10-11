@@ -35,20 +35,20 @@ class TimbreBranchSmokeTest(unittest.TestCase):
         return frame
 
     def test_real_target_contract(self):
-        target_path = PROJECT_ROOT / "data/timbre_features_raw.csv"
+        target_path = PROJECT_ROOT.parent / "data/warehouse_dataset_new.csv"
         if not target_path.is_file():
             self.skipTest("ignored real timbre target artifact is not present")
         targets = load_timbre_targets(target_path)
         self.assertEqual(len(targets), 7324)
-        self.assertEqual(len(FEATURE_COLUMNS), 35)
+        self.assertEqual(len(FEATURE_COLUMNS), 12)
         self.assertFalse(targets.loc[:, FEATURE_COLUMNS].isna().any().any())
 
     def test_forward_loss_train_checkpoint_and_inverse(self):
         rows = 48
         embeddings = np.random.normal(size=(rows, 128)).astype(np.float32)
-        raw_targets = np.random.normal(size=(rows, 35)).astype(np.float64)
+        raw_targets = np.random.normal(size=(rows, 12)).astype(np.float64)
         raw_targets[:, 0] = raw_targets[:, 0] * 600.0 + 1800.0
-        mask = np.ones((rows, 35), dtype=bool)
+        mask = np.ones((rows, 12), dtype=bool)
         mask[0, 7] = False
         raw_targets[0, 7] = np.nan
 
@@ -67,7 +67,7 @@ class TimbreBranchSmokeTest(unittest.TestCase):
         loader = DataLoader(dataset, batch_size=12, shuffle=False)
         model = TimbreBranch()
         output = model(torch.from_numpy(embeddings[:5]))
-        self.assertEqual(tuple(output.shape), (5, 35))
+        self.assertEqual(tuple(output.shape), (5, 12))
         self.assertTrue(torch.isfinite(output).all())
 
         loss = masked_smooth_l1_loss(
@@ -89,8 +89,8 @@ class TimbreBranchSmokeTest(unittest.TestCase):
         explanation = predict_timbre_concepts(
             model, torch.from_numpy(embeddings[:5]), scaler
         )
-        self.assertEqual(tuple(explanation["z_timbre"].shape), (5, 35))
-        self.assertEqual(explanation["d_hat_original_units"].shape, (5, 35))
+        self.assertEqual(tuple(explanation["z_timbre"].shape), (5, 12))
+        self.assertEqual(explanation["d_hat_original_units"].shape, (5, 12))
         self.assertEqual(tuple(explanation["feature_names"]), FEATURE_COLUMNS)
         with tempfile.TemporaryDirectory() as directory:
             checkpoint = Path(directory) / "timbre.pt"
