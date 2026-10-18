@@ -26,7 +26,7 @@ def save_checkpoint(
     path.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
         "format_version": 1,
-        "architecture": "temporal_rhythm_branch_v1",
+        "architecture": "temporal_rhythm_branch_v2_mean",
         "schema_version": RHYTHM_SCHEMA_VERSION,
         "model_config": model.config.to_dict(),
         "model_state_dict": model.state_dict(),
@@ -47,6 +47,8 @@ def load_checkpoint(
     path: str | Path, device: torch.device | str = "cpu"
 ) -> tuple[RhythmBranch, RhythmStandardizer, dict[str, Any]]:
     payload = torch.load(path, map_location=device, weights_only=False)
+    if payload.get("architecture") != "temporal_rhythm_branch_v2_mean":
+        raise ValueError("checkpoint rhythm architecture is incompatible; retrain with v2")
     if payload.get("schema_version") != RHYTHM_SCHEMA_VERSION:
         raise ValueError("checkpoint rhythm schema version does not match")
     if tuple(payload.get("feature_names", ())) != RHYTHM_FEATURES:

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
 import torch
 from torch import Tensor, nn
+from shared_encoder.architecture import activation
 
 from .constants import N_RHYTHM_FEATURES, RHYTHM_EMBEDDING_DIM, RHYTHM_INPUT_DIM
 
@@ -17,13 +18,14 @@ class RhythmBranchConfig:
     hidden_dim: int = 64
     embedding_dim: int = RHYTHM_EMBEDDING_DIM
     output_dim: int = N_RHYTHM_FEATURES
-    temporal_layers: int = 3
-    kernel_size: int = 5
+    temporal_layers: int = 2
+    kernel_size: int = 3
     dropout: float = 0.15
-    pooling_mode: str = field(default="attention_mean_std", init=False)
+    activation: str = "gelu"
+    dilation_base: int = 2
 
     def __post_init__(self) -> None:
-        for name in ("input_dim", "hidden_dim", "embedding_dim", "output_dim", "temporal_layers"):
+        for name in ("input_dim", "hidden_dim", "embedding_dim", "output_dim", "temporal_layers", "dilation_base"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be positive")
         if self.input_dim != RHYTHM_INPUT_DIM:
@@ -42,14 +44,7 @@ class RhythmBranchConfig:
 
     @classmethod
     def from_dict(cls, values: Mapping[str, Any]) -> "RhythmBranchConfig":
-        config = dict(values)
-        legacy_pooling_mode = config.pop("pooling_mode", "attention")
-        if legacy_pooling_mode != "attention_mean_std":
-            raise ValueError(
-                "attention-only rhythm checkpoints are incompatible with the "
-                "attention/mean/std pooling architecture"
-            )
-        return cls(**config)
+        return cls(**dict(values))
 
 
 @dataclass
@@ -60,14 +55,12 @@ class RhythmBranchOutput:
 
 
 class _ResidualTemporalBlock(nn.Module):
-    def __init__(self, width: int, kernel_size: int, dilation: int, dropout: float) -> None:
+    def __init__(self, width: int, kernel_size: int, dilation: int, dropout: float, activation_name="gelu") -> None:
         super().__init__()
         padding = dilation * (kernel_size - 1) // 2
         self.network = nn.Sequential(
             nn.Conv1d(width, width, kernel_size, padding=padding, dilation=dilation),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Conv1d(width, width, 1),
+            activation(activation_name),
             nn.Dropout(dropout),
         )
         self.norm = nn.LayerNorm(width)
@@ -92,26 +85,20 @@ class RhythmBranch(nn.Module):
         self.input_projection = nn.Sequential(
             nn.Linear(self.config.input_dim, self.config.hidden_dim),
             nn.LayerNorm(self.config.hidden_dim),
-            nn.GELU(),
+            activation(self.config.activation),
         )
         self.temporal_blocks = nn.ModuleList(
             _ResidualTemporalBlock(
                 self.config.hidden_dim,
                 self.config.kernel_size,
-                dilation=2**layer,
+                dilation=self.config.dilation_base**layer,
                 dropout=self.config.dropout,
+                activation_name=self.config.activation,
             )
             for layer in range(self.config.temporal_layers)
         )
-        self.attention = nn.Linear(self.config.hidden_dim, 1)
-        self.summary_projection = nn.Linear(
-            3 * self.config.hidden_dim, self.config.hidden_dim
-        )
-        self.embedding_head = nn.Sequential(
-            nn.Linear(self.config.hidden_dim, self.config.embedding_dim),
-            nn.LayerNorm(self.config.embedding_dim),
-            nn.GELU(),
-        )
+        self.embedding_head = (nn.Identity() if self.config.hidden_dim == self.config.embedding_dim else
+                               nn.Linear(self.config.hidden_dim, self.config.embedding_dim))
         self.regression_head = nn.Linear(self.config.embedding_dim, self.config.output_dim)
 
     def forward(
@@ -148,36 +135,19 @@ class RhythmBranch(nn.Module):
             if valid_indices.numel():
                 for window in torch.unique(valid_indices).tolist():
                     segment_mask = mask & (sequence_window_index == int(window))
-                    encoded = encoded + self._encode_segment(values, segment_mask)
+                    # Crop the inactive columns instead of convolving the entire
+                    # song once per window. Outside this span all states are zero
+                    # after every block, so convolution padding is equivalent.
+                    columns = segment_mask.any(dim=0).nonzero(as_tuple=False).flatten()
+                    left, right = int(columns[0]), int(columns[-1]) + 1
+                    update = self._encode_segment(values[:, left:right], segment_mask[:, left:right])
+                    encoded[:, left:right] = encoded[:, left:right] + update
             values = encoded
 
         availability = mask.any(dim=1)
-        scores = self.attention(values).squeeze(-1)
-        scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
-        # Softmax over an all-masked row is undefined. Supply a harmless temporary
-        # position, then erase the resulting pooled value with availability.
-        safe_mask = mask.clone()
-        if bool((~availability).any()):
-            safe_mask[~availability, 0] = True
-            scores = scores.masked_fill(~safe_mask, torch.finfo(scores.dtype).min)
-            scores[~availability, 0] = 0
-        weights = torch.softmax(scores, dim=1) * mask.to(scores.dtype)
-        attention_mean = (values * weights.unsqueeze(-1)).sum(dim=1)
-        valid = mask.unsqueeze(-1).to(values.dtype)
-        count = valid.sum(dim=1).clamp_min(1)
-        masked_mean = (values * valid).sum(dim=1) / count
-        centered = (values - masked_mean.unsqueeze(1)) * valid
-        variance = centered.square().sum(dim=1) / count
-        # Avoid sqrt(0)'s undefined derivative while retaining an exact zero
-        # for constant, single-token, and all-masked sequences.
-        positive_variance = variance > 0
-        safe_variance = torch.where(
-            positive_variance, variance, torch.ones_like(variance)
-        )
-        masked_std = torch.sqrt(safe_variance) * positive_variance.to(values.dtype)
-        pooled = self.summary_projection(
-            torch.cat((attention_mean, masked_mean, masked_std), dim=-1)
-        )
+        weights = mask.to(values.dtype)
+        weights = weights / weights.sum(dim=1, keepdim=True).clamp_min(1)
+        pooled = (values * weights.unsqueeze(-1)).sum(dim=1)
         embedding = self.embedding_head(pooled)
         embedding = embedding * availability.unsqueeze(-1).to(embedding.dtype)
         predictions = self.regression_head(embedding)

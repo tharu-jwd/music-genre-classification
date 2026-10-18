@@ -3,12 +3,30 @@
 `scripts/train_joint.py` trains the shared encoder, all four concept branches,
 and fusion for the current six genres and 41 instrument labels.
 
+Select any concept subset with `--branches instrument timbre` or run the direct
+CNN baseline with `--branches none`. See [modular experiments](modular-experiments.md)
+for the five-stage ladder, checkpoint metadata, and Modal commands.
+
 Harmony is predicted from the shared audio sequence. A song-level descriptor head
 maps the masked temporal embedding to the 12 values in `harmony_vector`. The
 targets are standardized using training-split statistics and optimized with masked
 Smooth L1 loss. Predicted descriptors—not targets—enter fusion, so validation and
 test inference remain leakage-free. The temporal chroma and optional chord heads
 remain available for future aligned targets but are not supervised by this run.
+
+The stable harmony target order is:
+
+```text
+global_key_strength, mode_confidence, key_stability,
+chroma_entropy_mean, chroma_entropy_std, chroma_flux_mean,
+tonnetz_movement_mean, tonal_centroid_radius_mean,
+chroma_recurrence_15s, chord_strength_mean,
+chord_change_rate, chord_vocabulary_ratio
+```
+
+The 15-column harmony warehouse is not the model input. Only these prespecified
+12 columns, in the exact `HARMONY_FEATURES` order, are serialized into
+`harmony_vector`.
 
 ## Local audio setup
 
@@ -17,8 +35,9 @@ the Google Drive shortcut. `--logmel-root PATH` overrides it. The original Colab
 CSV paths are relocated at load time; the CSV itself is unchanged.
 
 The current cache stores `(windows, 128, 469)` arrays. Stored windows stay separate;
-the default uses every valid stored window. A positive `--max-windows` selects a
-capped subset evenly across the sequence; `--max-windows 0` means all windows.
+up to `--max-windows` windows are selected evenly across the stored sequence.
+The default is 16, covering every non-overlapping 15-second window in the
+four-minute per-track cache.
 `data/logmel_audit.csv` supplies track durations for final-window masking.
 
 Before using this cache for training, create `data/logmel_config.json` with the

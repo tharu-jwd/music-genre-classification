@@ -1,13 +1,5 @@
 # Shared CNN audio encoder architecture
 
-> **Input-scope note, 2026-09-28:** The 96-mel geometry and 29-second window
-> settings below describe the earlier encoder/precomputed-input contract, not
-> the audited Harmony v3 joint run. That run records 128 mel bins and a
-> 15-second stacked cache; see the [v3 snapshot](../harmony_branch/docs/architecture-versions/v3/README.md)
-> and [joint-training guide](joint-training.md). The shared 128D song/sequence
-> output idea remains relevant, but do not copy this page's older input settings
-> into the current training configuration.
-
 ## Role and boundary
 
 `SharedAudioEncoder` is the only learned audio front end for the four concept
@@ -45,8 +37,7 @@ window_start_seconds: (B,W)        song-relative start of each sampled window
 
 The frozen data schema uses 12 kHz mono audio, a 512-sample analysis frame, a
 256-sample hop (approximately 21.333 ms), 96 Slaney Mel bands, 1,366 frames per
-window, and all valid ordered windows by default. A positive `--max-windows`
-evenly selects a capped subset.
+window, and at most 12 ordered, evenly selected windows.
 
 The v1 data policy applies no additional normalization after the stored log-Mel dB
 representation. Encoder v2 uses GroupNorm, whose statistics are computed per

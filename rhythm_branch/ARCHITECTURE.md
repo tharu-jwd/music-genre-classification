@@ -1,5 +1,9 @@
 # Rhythm branch architecture
 
+> The current v2 mean-pooling architecture is specified in
+> [common-concept-architecture.md](../docs/common-concept-architecture.md).
+> The v1 architecture and parameter counts below are historical.
+
 ## Purpose
 
 The rhythm branch learns a song-level rhythm representation from the shared CNN's
@@ -29,7 +33,7 @@ shared CNN encoder
 |                                                                |
 | Linear(128,64) -> LayerNorm -> GELU                            |
 |      -> 3 gap-aware residual temporal Conv1d blocks            |
-|      -> attention + masked mean/std pooling                    |
+|      -> masked attention pooling                               |
 |      -> Linear(64,64) -> LayerNorm -> GELU                     |
 +----------------------------------------------------------------+
       |                                      |
@@ -59,19 +63,17 @@ The checkpoint architecture identifier is `temporal_rhythm_branch_v1`.
 | Conv1d kernel size | 5 |
 | Block dilations | 1, 2, 4 |
 | Dropout | 0.15 |
-| Pooling | Attention-weighted mean + masked mean/std |
 
-With the default configuration, the branch has **100,235 trainable parameters**:
+With the default configuration, the branch has **87,883 trainable parameters**:
 
 | Component | Parameters |
 |---|---:|
 | Input projection and LayerNorm | 8,384 |
 | Three residual temporal blocks | 74,496 |
 | Attention scorer | 65 |
-| Summary projection | 12,352 |
 | Embedding head and LayerNorm | 4,288 |
 | Regression head | 650 |
-| **Total** | **100,235** |
+| **Total** | **87,883** |
 
 ## Input contract
 
@@ -134,37 +136,19 @@ of a distant window as adjacent audio.
 Removing this separation would create artificial rhythmic transitions across
 unobserved gaps.
 
-## Masked pooling
+## Masked attention pooling
 
 After temporal encoding, a scalar score is learned for each token:
 
 ```text
 score_t = Linear(64,1)(hidden_t)
 weight_t = softmax(score_t over valid tokens)
-attention_mean = sum(weight_t * hidden_t)
+pooled = sum(weight_t * hidden_t)
 ```
 
 Padded tokens are excluded from the softmax. For an all-masked example, the
 implementation uses a temporary safe position to avoid an undefined softmax and
 then zeros the resulting embedding and predictions.
-
-The branch combines that result with two masked statistical summaries over the
-same post-temporal-block values:
-
-```text
-attention_mean = sum(attention_weight_t * hidden_t)  # (B,64)
-masked_mean    = sum(valid_t * hidden_t) / valid_count
-masked_std     = sqrt(sum(valid_t * (hidden_t - masked_mean)^2) / valid_count)
-
-concat(attention_mean, masked_mean, masked_std)  # (B,192)
-    -> Linear(192,64)
-```
-
-The standard deviation is the population standard deviation over valid tokens.
-Padded positions never enter its count or moments. Single-token and constant
-sequences receive an exact zero standard deviation. All-masked rows are computed
-without division-by-zero or square-root gradient hazards and are zeroed by the
-existing availability mask.
 
 Audio availability is derived only from the encoder mask:
 
@@ -177,7 +161,7 @@ available for fusion.
 
 ## Embedding and regression heads
 
-The selected pooling mode always supplies a 64-dimensional state to:
+The attention-pooled 64-dimensional state passes through:
 
 ```text
 Linear(64,64) -> LayerNorm(64) -> GELU

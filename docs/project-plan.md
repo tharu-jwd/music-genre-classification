@@ -1,21 +1,9 @@
-# Historical project plan and status snapshot
+# Project status and remaining work
 
-> **Status, 2026-09-28:** The detailed status table and phase sequence below
-> describe an earlier stage and must not be used as current Harmony readiness
-> criteria. In particular, they predate the completed 45-descriptor extraction
-> and an audited real-data joint run. Current Harmony v3 predicts 12 selected
-> standardized song descriptors and sends those predictions to fusion; temporal
-> chroma/chord supervision remains a separate unrun experiment. Read the
-> [Harmony handoff](../harmony_branch/docs/integration-handoff.md),
-> [v3 architecture snapshot](../harmony_branch/docs/architecture-versions/v3/README.md),
-> and [completed evaluation plan](../plan.md). The supplied report gives
-> Harmony test macro R² 0.4704 and whole-model genre macro AP 0.7356, but no
-> matched no-harmony result; it does not prove Harmony's genre contribution.
-
-This preserves the earlier project-wide plan and its rationale. It is not a live
-status tracker. Current implementation details belong in the code, the
-[joint-training guide](joint-training.md), and the versioned branch records;
-team-wide implementation contracts belong in [team-standards.md](team-standards.md).
+This is the single project-wide progress document. It records what code exists, what
+is trustworthy, what is blocked, and what remains. Architecture details belong in
+[architecture.md](architecture.md); team-wide implementation contracts belong in
+[team-standards.md](team-standards.md).
 
 ## Status meanings
 
@@ -40,7 +28,7 @@ not evidence that a stage works end to end.
 | Direct CNN baseline | Code present | Ordered masked windows are implemented; do not spend GPU until the comparison cohort is frozen |
 | Instrument pretraining | Code present | Uses only annotated songs for supervision; verify a capped hosted run after data preflight |
 | Rhythm targets | Code present | Ten-field v1 schema, split-aware join, train-only scaler, masks, and interval audit are implemented; run the audit on real artifacts |
-| Timbre targets | Code present | The 35-descriptor extractor and claimed 7,324-track audit are documented; supply the ignored real target table and check it against the canonical cohort |
+| Timbre targets | Code present | The 12-descriptor extractor and claimed 7,324-track audit are documented; supply the ignored real target table and check it against the canonical cohort |
 | Harmony preflight | Code present | Reports waveform availability and exports exact model-window regions; clean hosted decode checks remain |
 | Harmony target design | Code present | CQT and harmonic-HPCP pass synthetic CPU tests; aligned-region runner and immutable decision gate are ready, bounded real-audio comparison remains |
 | Harmony pseudo-labels | Code present | A provenance-checked temporal-chroma pilot writer and bounded CPU Essentia chord baseline are tested; full generation still requires real extractor evidence and an accepted teacher/confidence policy |
@@ -75,20 +63,19 @@ not an arbitrary hashed note. Cohorts are created by
 songs and labels.
 
 - parse the official variable-width annotation files correctly;
-- build one canonical manifest with normalized song IDs and official `split-0`;
-- use split-specific genre and instrument vocabularies in a fixed order;
+- use the canonical 7,324-track manifest with normalized song IDs and frozen
+  train/validation/test assignments;
+- use the fixed six-genre and 41-instrument vocabularies in a fixed order;
 - segment full-song log-Mels into real windows;
 - validate window masks, padding, and truncation;
 - add a tiny shared fixture and data-pipeline smoke test.
 
 No model score should be treated as a baseline result until this phase is complete.
 
-Current CPU evidence: the shared parser preserves variable-width tag columns,
-rejects split vocabulary mismatches, and was checked against the six official
-split-0 files. It recovered 55,094 genre songs with 87 labels and 24,976 instrument
-songs with 40 labels. Synthetic tests cover song-ID normalization, missing-label
-masks, ordered window selection, short-song padding, and window masks. A clean
-hosted manifest run is still required, so Phase 1 is not yet marked ready.
+Current CPU evidence: the canonical project manifest has 7,324 unique tracks:
+5,127 train, 1,099 validation, and 1,098 test. Its instrument table has 41 labels,
+including 199 ukulele-positive tracks. Synthetic tests cover song-ID normalization,
+missing-label masks, ordered window selection, short-song padding, and window masks.
 
 ### Phase 2 — Produce trustworthy concept supervision
 
@@ -104,7 +91,7 @@ hosted manifest run is still required, so Phase 1 is not yet marked ready.
 - save per-target supervision masks;
 - align all concept targets to the canonical manifest.
 
-The optional temporal harmony work is tracked in the [research plan](../harmony_branch/docs/temporal-chroma-research-plan.md).
+Detailed harmony work is tracked in the [harmony plan](../harmony_branch/docs/plan.md).
 Its pseudo-label teacher selection is a quality gate: failure to find an acceptable
 teacher reduces scope to temporal chroma rather than silently accepting poor chords.
 The complete cheap harmony artifact chain also has a two-song CPU integration test;
@@ -149,7 +136,7 @@ through Essentia inference, `mir_eval`, and the accept/reject decision.
 The harmony implementation follows its own ordered sequence: waveform/alignment
 preflight, temporal chroma comparison, chord-teacher benchmark, immutable raw
 pseudo-labels, masks/schema, temporal model interface, standalone training, then
-joint integration. See the [temporal research plan](../harmony_branch/docs/temporal-chroma-research-plan.md) for historical exit criteria.
+joint integration. See the [harmony plan](../harmony_branch/docs/plan.md) for exit criteria.
 
 Integration update (2026-09-24): the old provisional `harmony=18` contract is
 removed. Harmony preserves temporal 12-bin chroma predictions and optional 25-class
@@ -213,9 +200,9 @@ supported by concept removal and prediction-change analysis for the selected mod
 | Area | Ownership scope | Required hand-off |
 |---|---|---|
 | Data pipeline | Manifest, labels, splits, windowing | Canonical song batches and masks |
-| Instrument | Official instrument targets and 40-concept head | Probabilities/logits, masks, and fixed tag order; fusion owns the 40-to-common-width projection |
+| Instrument | Official instrument targets and 41-concept head | Probabilities/logits, masks, and fixed tag order; fusion owns the 41-to-common-width projection |
 | Rhythm | Rhythm schema, extraction, 32D branch | Targets, masks, metrics, embedding |
-| Timbre | 35-descriptor schema, extraction, and learned bottleneck | Standardized concepts, masks, metrics, and fixed feature order; fusion owns the 35-to-common-width projection |
+| Timbre | 12-descriptor schema, extraction, and learned bottleneck | Standardized concepts, masks, metrics, and fixed feature order; fusion owns the 12-to-common-width projection |
 | Harmony | Temporal schema, teacher evaluation, pseudo-labels, configurable-width branch | Targets, confidence masks, metrics, embedding |
 | Shared model | Encoder, pooling, joint losses, fusion | Integrated model and checkpoints |
 | Evaluation | Cohorts, metrics, ablations, reports | Comparable predictions and results |
@@ -238,7 +225,7 @@ interface; one already-pooled song vector is insufficient for chord progressions
 ## Definition of project completion
 
 - a clean smoke run passes from manifest creation through evaluation;
-- all model variants use the same official split, vocabulary, and comparison cohort;
+- all model variants use the same frozen 7,324-track split, vocabulary, and comparison cohort;
 - best checkpoints are selected using validation data only;
 - target schemas, masks, normalization, configurations, seeds, and tag order are
   stored with results;

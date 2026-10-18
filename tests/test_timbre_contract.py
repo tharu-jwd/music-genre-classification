@@ -1,4 +1,4 @@
-"""Timbre v2 contract: 35 standardized concepts, no fusion_token, fusion owns Linear(35,64)."""
+"""Timbre v2 contract: 12 standardized concepts, no fusion_token, fusion owns Linear(12,64)."""
 
 import torch
 import pytest
@@ -11,24 +11,29 @@ from concept_fusion.validation import ContractError
 
 
 def test_published_timbre_feature_order():
-    assert len(TIMBRE_FEATURES) == N_TIMBRE_CONCEPTS == 35
+    assert len(TIMBRE_FEATURES) == N_TIMBRE_CONCEPTS == 12
     assert TIMBRE_FEATURES[0] == "spectral_centroid_mean"
-    assert TIMBRE_FEATURES[7] == "hnr_mean_db"
-    assert TIMBRE_FEATURES[-1] == "mfcc_13_std"
+    assert TIMBRE_FEATURES == (
+        "spectral_centroid_mean", "spectral_centroid_std",
+        "spectral_bandwidth_mean", "spectral_bandwidth_std",
+        "spectral_skewness_mean", "spectral_contrast_mean",
+        "spectral_flatness_mean", "spectral_rolloff_mean",
+        "spectral_flux_mean", "spectral_flux_std", "hnr_mean_db", "inharmonicity_mean",
+    )
 
 
 def test_rejects_timbre_fusion_token():
     b = make_bundle(2, seed=0)
     tim = b.branches["timbre"]
-    assert tim.concept_values.shape == (2, 35)
+    assert tim.concept_values.shape == (2, 12)
     assert tim.fusion_token is None
     tim.fusion_token = torch.randn(2, 64)
     with pytest.raises(ContractError, match="must not return fusion_token"):
-        tim.validate(batch=2, n_concepts=35)
+        tim.validate(batch=2, n_concepts=12)
 
 
 def test_adapter_rejects_h_audio_and_fusion_token():
-    z = torch.randn(3, 35)
+    z = torch.randn(3, 12)
     with pytest.raises(ContractError, match="fusion_token"):
         from_timbre_branch({"z_timbre": z, "fusion_token": torch.randn(3, 64)})
     with pytest.raises(ContractError, match="h_audio"):
@@ -36,10 +41,10 @@ def test_adapter_rejects_h_audio_and_fusion_token():
 
 
 def test_adapter_and_projection():
-    z = torch.randn(4, 35)
+    z = torch.randn(4, 12)
     br = from_timbre_branch({"z_timbre": z, "feature_names": TIMBRE_FEATURES})
     assert br.fusion_token is None
-    assert br.concept_values.shape == (4, 35)
+    assert br.concept_values.shape == (4, 12)
     bundle = make_bundle(4, seed=1, fusion_keep=1.0)
     bundle.branches["timbre"] = br
     bundle.validate()
@@ -59,4 +64,4 @@ def test_timbre_values_always_finite():
     tim = make_bundle(2, seed=3).branches["timbre"]
     tim.concept_values[0, 0] = float("nan")
     with pytest.raises(ContractError, match="NaN"):
-        tim.validate(batch=2, n_concepts=35)
+        tim.validate(batch=2, n_concepts=12)

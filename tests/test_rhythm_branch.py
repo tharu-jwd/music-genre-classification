@@ -52,92 +52,6 @@ def test_output_shapes_and_variable_temporal_length(frames):
     assert torch.isfinite(output.predictions).all()
 
 
-def test_attention_mean_std_pooling_ignores_padding():
-    torch.manual_seed(4)
-    branch = RhythmBranch(RhythmBranchConfig(dropout=0)).eval()
-    valid_tokens = torch.randn(2, 3, 128)
-    short_mask = torch.ones(2, 3, dtype=torch.bool)
-    short = branch(valid_tokens, short_mask)
-
-    padded_tokens = torch.cat((valid_tokens, torch.randn(2, 4, 128) * 1000), dim=1)
-    padded_mask = torch.cat((short_mask, torch.zeros(2, 4, dtype=torch.bool)), dim=1)
-    padded = branch(padded_tokens, padded_mask)
-
-    torch.testing.assert_close(short.embedding, padded.embedding)
-    torch.testing.assert_close(short.predictions, padded.predictions)
-    assert torch.equal(short.availability, padded.availability)
-
-
-def test_attention_mean_std_pooling_concatenates_expected_summaries():
-    torch.manual_seed(8)
-    branch = RhythmBranch(RhythmBranchConfig(dropout=0)).eval()
-    captured = {}
-
-    def capture_temporal(_module, _inputs, output):
-        captured["temporal"] = output.detach()
-
-    def capture_summary(_module, inputs):
-        captured["summary"] = inputs[0].detach()
-
-    temporal_hook = branch.temporal_blocks[-1].register_forward_hook(capture_temporal)
-    summary_hook = branch.summary_projection.register_forward_pre_hook(capture_summary)
-    tokens = torch.randn(2, 5, 128)
-    mask = torch.tensor(
-        [[True, True, True, False, False], [True, True, True, True, True]]
-    )
-    branch(tokens, mask)
-    temporal_hook.remove()
-    summary_hook.remove()
-
-    values = captured["temporal"]
-    valid = mask.unsqueeze(-1).to(values.dtype)
-    scores = branch.attention(values).squeeze(-1)
-    scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
-    weights = torch.softmax(scores, dim=1) * mask.to(scores.dtype)
-    attention_mean = (values * weights.unsqueeze(-1)).sum(dim=1)
-    count = valid.sum(dim=1)
-    masked_mean = (values * valid).sum(dim=1) / count
-    variance = ((values - masked_mean.unsqueeze(1)) * valid).square().sum(dim=1) / count
-    masked_std = torch.sqrt(variance)
-
-    assert branch.summary_projection.weight.shape == (64, 192)
-    torch.testing.assert_close(
-        captured["summary"],
-        torch.cat((attention_mean, masked_mean, masked_std), dim=-1),
-    )
-
-
-def test_attention_mean_std_pooling_handles_single_and_all_masked_sequences():
-    torch.manual_seed(5)
-    branch = RhythmBranch(RhythmBranchConfig(dropout=0))
-    tokens = torch.randn(2, 4, 128, requires_grad=True)
-    mask = torch.tensor([[True, False, False, False], [False, False, False, False]])
-    output = branch(tokens, mask)
-
-    assert torch.isfinite(output.embedding).all()
-    assert torch.isfinite(output.predictions).all()
-    assert output.availability.tolist() == [True, False]
-    assert torch.count_nonzero(output.embedding[1]) == 0
-    assert torch.count_nonzero(output.predictions[1]) == 0
-
-    output.embedding.sum().backward()
-    assert tokens.grad is not None
-    assert torch.isfinite(tokens.grad).all()
-    assert torch.count_nonzero(tokens.grad[1]) == 0
-
-
-def test_config_loads_statistics_pooling_checkpoint_and_rejects_attention_only():
-    config = RhythmBranchConfig.from_dict(
-        {"dropout": 0, "pooling_mode": "attention_mean_std"}
-    )
-    assert config.dropout == 0
-    assert config.pooling_mode == "attention_mean_std"
-    with pytest.raises(ValueError, match="attention-only"):
-        RhythmBranchConfig.from_dict({"pooling_mode": "attention"})
-    with pytest.raises(ValueError, match="attention-only"):
-        RhythmBranchConfig.from_dict({"dropout": 0})
-
-
 def test_missing_targets_and_all_missing_batch_are_safe():
     predictions = torch.randn(3, 10, requires_grad=True)
     targets = torch.randn(3, 10)
@@ -148,6 +62,27 @@ def test_missing_targets_and_all_missing_batch_are_safe():
     assert torch.isfinite(loss)
     loss.backward()
     assert torch.isfinite(predictions.grad).all()
+
+
+def test_cropped_window_convolutions_preserve_full_sequence_reference_and_gradients():
+    torch.manual_seed(11)
+    branch = RhythmBranch(RhythmBranchConfig(dropout=0)).eval()
+    sequence = torch.randn(2, 24, 128, requires_grad=True)
+    mask = torch.ones(2, 24, dtype=torch.bool)
+    mask[1, 19:] = False
+    windows = torch.arange(3).repeat_interleave(8).expand(2, -1).clone()
+    windows[~mask] = -1
+    actual = branch(sequence, mask, windows)
+    projected = branch.input_projection(sequence) * mask.unsqueeze(-1)
+    reference = torch.zeros_like(projected)
+    for window in range(3):
+        reference = reference + branch._encode_segment(projected, mask & (windows == window))
+    weights = mask.float() / mask.sum(1, keepdim=True)
+    expected = branch.regression_head((reference * weights.unsqueeze(-1)).sum(1))
+    torch.testing.assert_close(actual.predictions, expected)
+    actual_grad = torch.autograd.grad(actual.predictions.sum(), sequence, retain_graph=True)[0]
+    reference_grad = torch.autograd.grad(expected.sum(), sequence)[0]
+    torch.testing.assert_close(actual_grad, reference_grad)
 
     predictions = torch.randn(3, 10, requires_grad=True)
     empty = masked_huber_loss(
@@ -200,7 +135,7 @@ def test_rhythm_and_genre_gradients_reach_branch_and_shared_cnn():
         genre_logits, torch.rand_like(genre_logits)
     ).backward()
     assert branch.regression_head.weight.grad.abs().sum() > 0
-    assert branch.embedding_head[0].weight.grad.abs().sum() > 0
+    assert branch.input_projection[0].weight.grad.abs().sum() > 0
     assert encoder.cnn[0].weight.grad.abs().sum() > 0
 
 
@@ -270,7 +205,6 @@ def test_checkpoint_preserves_schema_and_train_statistics(tmp_path):
     )
     restored, restored_scaler, payload = load_checkpoint(path)
     assert tuple(payload["feature_names"]) == RHYTHM_FEATURES
-    assert payload["model_config"]["pooling_mode"] == "attention_mean_std"
     np.testing.assert_allclose(restored_scaler.mean, scaler.mean)
     for expected, actual in zip(model.parameters(), restored.parameters()):
         torch.testing.assert_close(expected, actual)

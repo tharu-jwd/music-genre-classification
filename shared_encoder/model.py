@@ -18,6 +18,7 @@ from .constants import (
 from .geometry import build_temporal_layout
 from .types import SharedEncoderOutput
 from .validation import input_frame_mask, validate_audio, validate_metadata
+from .architecture import activation
 
 
 class SharedAudioEncoder(nn.Module):
@@ -33,26 +34,29 @@ class SharedAudioEncoder(nn.Module):
     temporal_stride_frames = TEMPORAL_DOWNSAMPLE
     temporal_receptive_field_frames = TEMPORAL_RECEPTIVE_FIELD_FRAMES
 
-    def __init__(self, output_dim: int = SHARED_ENCODER_DIM):
+    def __init__(self, output_dim: int = SHARED_ENCODER_DIM, *, config=None):
         super().__init__()
         if not isinstance(output_dim, int) or isinstance(output_dim, bool) or output_dim < 1:
             raise ValueError("output_dim must be a positive integer")
         self.output_dim = output_dim
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(8, 32),
-            nn.GELU(),
-            nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2), ceil_mode=True),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(8, 64),
-            nn.GELU(),
-            nn.MaxPool2d(kernel_size=(2, 1), stride=(2, 1), ceil_mode=True),
-            nn.Conv2d(64, 96, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(8, 96),
-            nn.GELU(),
-        )
-        self.frequency_attention = nn.Conv2d(96, 1, kernel_size=1)
-        self.proj = nn.Linear(96, output_dim)
+        channels = config["channels"] if config else [32, 64, 96]
+        kernel = config["kernel_size"] if config else 3
+        groups = config["group_norm_groups"] if config else 8
+        name = config["activation"] if config else "gelu"
+        bias = config["conv_bias"] if config else False
+        blocks = []
+        previous = 1
+        for index, width in enumerate(channels):
+            blocks.extend([nn.Conv2d(previous, width, kernel_size=kernel, padding=kernel // 2, bias=bias),
+                           nn.GroupNorm(groups, width), activation(name)])
+            if index < 2:
+                pool = (2, 2) if index == 0 else (2, 1)
+                blocks.append(nn.MaxPool2d(kernel_size=pool, stride=pool, ceil_mode=True))
+            previous = width
+        self.cnn = nn.Sequential(*blocks)
+        self.frequency_attention = nn.Conv2d(channels[-1], 1, kernel_size=1)
+        self.proj = nn.Linear(channels[-1], output_dim)
+        self.temporal_receptive_field_frames = kernel + 1 + 4 * (kernel - 1)
 
     def _encode_feature_map(self, x: Tensor, valid_frames: Tensor) -> Tensor:
         batch, windows, _, input_frames = validate_audio(x)

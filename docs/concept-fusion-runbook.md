@@ -1,10 +1,4 @@
-# Historical fixture-only concept fusion runbook
-
-> **Status, 2026-09-28:** These commands run the mock/fixture experiment matrix,
-> not the audited real-data joint run. The predicted-chroma fusion contract
-> below is superseded by 12 standardized Harmony v3 descriptor predictions.
-> For current training use [joint-training.md](joint-training.md); for exact
-> Harmony behavior use the [v3 snapshot](../harmony_branch/docs/architecture-versions/v3/README.md).
+# Concept fusion stack — how to run everything
 
 **Branch:** `harmony` integration candidate
 
@@ -14,11 +8,11 @@
 
 These numbers are **not** paper results until real branch tokens replace the fixture generator.
 
-**Instrument v2 (on `main`):** no 64-D token. Fusion owns `Linear(40, 64)` over 40 probabilities.
+**Instrument v2 (on `main`):** no 64-D token. Fusion owns `Linear(41, 64)` over 41 probabilities.
 
-**Timbre v2 (on `main`):** no 64-D token and no `h_audio` shortcut. Fusion owns `Linear(35, 64)` over Senindu's standardized `z_timbre`. Feature order is `timbre_branch/src/timbre_branch/constants.py` (`FEATURE_COLUMNS`, 35 names).
+**Timbre v2 (on `main`):** no 64-D token and no `h_audio` shortcut. Fusion owns `Linear(12, 64)` over Senindu's standardized `z_timbre`. Feature order is `timbre_branch/src/timbre_branch/constants.py` (`FEATURE_COLUMNS`, 12 names).
 
-**Predicted-concept fusion v1:** instrument 40→64, rhythm 10→64, timbre 35→64,
+**Predicted-concept fusion v1:** instrument 41→64, rhythm 10→64, timbre 12→64,
 and masked-pooled predicted chroma 12→64 are fusion-owned projections. Temporal
 chroma logits and optional 25-class chords retain their masked auxiliary losses.
 The former rhythm/harmony embedding route is `F-Embedding`.
@@ -105,7 +99,7 @@ B0 (legacy notebook CNN) is not in this runner.
 ## After real branches land
 
 1. Ratify the v0.3 predicted-concept contract and temporal masks.
-2. Supply real `BranchBundle` rows on official split-0 IDs instead of `make_cohort`.
+2. Supply real `BranchBundle` rows on the frozen 7,324-track project split instead of `make_cohort`.
 3. Supply accepted temporal harmony targets and ordered encoder features.
 4. Replace B1 with Dehan's CNN. Keep the same `run_all` entry point.
 5. Do not disable dropout on F-Gated if you will report occlusion.

@@ -35,7 +35,7 @@ def write_fixture(root: Path):
         "tags": ["instrument---guitar"],
         "training_config": {
             "input_schema": "mtg_full_audio_logmel_windows_v1",
-            "max_windows": 12,
+            "max_windows": 16,
         },
     }, checkpoint)
     return manifest, cohort, checkpoint
@@ -65,14 +65,14 @@ class CacheHarmonyEncoderPilotTest(unittest.TestCase):
             self.assertEqual(result["encoder_architecture"], SHARED_ENCODER_ARCHITECTURE)
             self.assertAlmostEqual(result["token_stride_seconds"], 256 * 2 / 12000)
             item = result["items"][0]
-            arrays = np.load(output / item["artifact"], allow_pickle=False)
-            self.assertEqual(arrays["encoded_sequence"].shape, (683, 128))
-            self.assertEqual(arrays["window_repr"].shape, (1, 128))
+            with np.load(output / item["artifact"], allow_pickle=False) as arrays:
+                self.assertEqual(arrays["encoded_sequence"].shape, (683, 128))
+                self.assertEqual(arrays["window_repr"].shape, (1, 128))
+                self.assertEqual(arrays["sequence_window_index"][:6].tolist(), [0] * 6)
+                self.assertTrue(np.all(arrays["sequence_window_index"][6:] == -1))
             self.assertEqual(item["windows"], 1)
             self.assertEqual(item["tokens_per_window"], 683)
             self.assertEqual(item["valid_tokens"], 6)
-            self.assertEqual(arrays["sequence_window_index"][:6].tolist(), [0] * 6)
-            self.assertTrue(np.all(arrays["sequence_window_index"][6:] == -1))
             self.assertRegex(item["array_content_sha256"], r"^[0-9a-f]{64}$")
             self.assertTrue((output / "index.json").is_file())
 

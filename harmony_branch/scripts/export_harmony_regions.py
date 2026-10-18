@@ -25,6 +25,7 @@ except ModuleNotFoundError:
 _contract = {"Path": Path, "np": np, "re": re, "ANN_DIR": Path(".")}
 exec(NOTEBOOK_DATA_CONTRACT, _contract)
 logmel_window_plan = _contract["logmel_window_plan"]
+LOGMEL_MAX_WINDOWS = _contract["LOGMEL_MAX_WINDOWS"]
 
 
 SCHEMA_VERSION = "harmony_audio_regions_v1"
@@ -108,7 +109,9 @@ def export_regions(
         if logmel_path is None:
             raise FileNotFoundError(f"log-Mel path is missing for {song_id}")
         raw = np.load(logmel_path, mmap_mode="r", allow_pickle=False)
-        regions = logmel_window_plan(raw, n_mels=96, n_frames=1366, max_windows=12)
+        regions = logmel_window_plan(
+            raw, n_mels=96, n_frames=1366, max_windows=LOGMEL_MAX_WINDOWS
+        )
         total_model_regions = len(regions)
         if regions_per_song is not None and total_model_regions > regions_per_song:
             selected_indices = np.linspace(

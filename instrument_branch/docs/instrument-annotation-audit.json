@@ -1,821 +1,764 @@
 {
-  "scope": "Representative six-genre cohort with 41 local instrument tags",
+  "scope": "Complete official split-0 genre manifest, not local downloaded audio coverage",
   "coverage": [
     {
       "split": "train",
-      "manifest": 5127,
-      "instrument_annotated": 5127,
-      "instrument_unannotated": 0
+      "official_genre": 32572,
+      "official_instrument": 14395,
+      "official_overlap": 14218,
+      "manifest": 32572,
+      "manifest_annotated": 14218
     },
     {
       "split": "validation",
-      "manifest": 1099,
-      "instrument_annotated": 1099,
-      "instrument_unannotated": 0
+      "official_genre": 11043,
+      "official_instrument": 5466,
+      "official_overlap": 5428,
+      "manifest": 11043,
+      "manifest_annotated": 5428
     },
     {
       "split": "test",
-      "manifest": 1098,
-      "instrument_annotated": 1098,
-      "instrument_unannotated": 0
+      "official_genre": 11479,
+      "official_instrument": 5115,
+      "official_overlap": 5063,
+      "manifest": 11479,
+      "manifest_annotated": 5063
     }
   ],
   "per_tag": [
     {
       "split": "train",
       "tag": "instrument---accordion",
-      "observed": 5127,
-      "positive": 146
+      "official_positive": 208,
+      "manifest_positive": 201
     },
     {
       "split": "train",
       "tag": "instrument---acousticbassguitar",
-      "observed": 5127,
-      "positive": 97
+      "official_positive": 106,
+      "manifest_positive": 106
     },
     {
       "split": "train",
       "tag": "instrument---acousticguitar",
-      "observed": 5127,
-      "positive": 572
+      "official_positive": 990,
+      "manifest_positive": 978
     },
     {
       "split": "train",
       "tag": "instrument---bass",
-      "observed": 5127,
-      "positive": 1459
+      "official_positive": 3121,
+      "manifest_positive": 3103
     },
     {
       "split": "train",
       "tag": "instrument---beat",
-      "observed": 5127,
-      "positive": 300
+      "official_positive": 353,
+      "manifest_positive": 353
     },
     {
       "split": "train",
       "tag": "instrument---bell",
-      "observed": 5127,
-      "positive": 158
+      "official_positive": 177,
+      "manifest_positive": 174
     },
     {
       "split": "train",
       "tag": "instrument---bongo",
-      "observed": 5127,
-      "positive": 160
+      "official_positive": 84,
+      "manifest_positive": 84
     },
     {
       "split": "train",
       "tag": "instrument---brass",
-      "observed": 5127,
-      "positive": 240
+      "official_positive": 149,
+      "manifest_positive": 146
     },
     {
       "split": "train",
       "tag": "instrument---cello",
-      "observed": 5127,
-      "positive": 389
+      "official_positive": 451,
+      "manifest_positive": 451
     },
     {
       "split": "train",
       "tag": "instrument---clarinet",
-      "observed": 5127,
-      "positive": 187
+      "official_positive": 71,
+      "manifest_positive": 70
     },
     {
       "split": "train",
       "tag": "instrument---classicalguitar",
-      "observed": 5127,
-      "positive": 268
+      "official_positive": 339,
+      "manifest_positive": 332
     },
     {
       "split": "train",
       "tag": "instrument---computer",
-      "observed": 5127,
-      "positive": 494
+      "official_positive": 748,
+      "manifest_positive": 743
     },
     {
       "split": "train",
       "tag": "instrument---doublebass",
-      "observed": 5127,
-      "positive": 143
+      "official_positive": 213,
+      "manifest_positive": 213
     },
     {
       "split": "train",
       "tag": "instrument---drummachine",
-      "observed": 5127,
-      "positive": 490
+      "official_positive": 969,
+      "manifest_positive": 968
     },
     {
       "split": "train",
       "tag": "instrument---drums",
-      "observed": 5127,
-      "positive": 1556
+      "official_positive": 3373,
+      "manifest_positive": 3347
     },
     {
       "split": "train",
       "tag": "instrument---electricguitar",
-      "observed": 5127,
-      "positive": 1052
+      "official_positive": 2309,
+      "manifest_positive": 2300
     },
     {
       "split": "train",
       "tag": "instrument---electricpiano",
-      "observed": 5127,
-      "positive": 439
+      "official_positive": 610,
+      "manifest_positive": 609
     },
     {
       "split": "train",
       "tag": "instrument---flute",
-      "observed": 5127,
-      "positive": 300
+      "official_positive": 371,
+      "manifest_positive": 354
     },
     {
       "split": "train",
       "tag": "instrument---guitar",
-      "observed": 5127,
-      "positive": 1063
+      "official_positive": 2915,
+      "manifest_positive": 2885
     },
     {
       "split": "train",
       "tag": "instrument---harmonica",
-      "observed": 5127,
-      "positive": 81
+      "official_positive": 125,
+      "manifest_positive": 124
     },
     {
       "split": "train",
       "tag": "instrument---harp",
-      "observed": 5127,
-      "positive": 217
+      "official_positive": 254,
+      "manifest_positive": 254
     },
     {
       "split": "train",
       "tag": "instrument---horn",
-      "observed": 5127,
-      "positive": 190
+      "official_positive": 163,
+      "manifest_positive": 163
     },
     {
       "split": "train",
       "tag": "instrument---keyboard",
-      "observed": 5127,
-      "positive": 465
+      "official_positive": 1185,
+      "manifest_positive": 1183
     },
     {
       "split": "train",
       "tag": "instrument---oboe",
-      "observed": 5127,
-      "positive": 97
+      "official_positive": 156,
+      "manifest_positive": 156
     },
     {
       "split": "train",
       "tag": "instrument---orchestra",
-      "observed": 5127,
-      "positive": 141
+      "official_positive": 283,
+      "manifest_positive": 282
     },
     {
       "split": "train",
       "tag": "instrument---organ",
-      "observed": 5127,
-      "positive": 31
+      "official_positive": 96,
+      "manifest_positive": 95
     },
     {
       "split": "train",
       "tag": "instrument---pad",
-      "observed": 5127,
-      "positive": 19
+      "official_positive": 87,
+      "manifest_positive": 87
     },
     {
       "split": "train",
       "tag": "instrument---percussion",
-      "observed": 5127,
-      "positive": 114
+      "official_positive": 572,
+      "manifest_positive": 566
     },
     {
       "split": "train",
       "tag": "instrument---piano",
-      "observed": 5127,
-      "positive": 1808
+      "official_positive": 4194,
+      "manifest_positive": 4112
     },
     {
       "split": "train",
       "tag": "instrument---pipeorgan",
-      "observed": 5127,
-      "positive": 65
+      "official_positive": 156,
+      "manifest_positive": 155
     },
     {
       "split": "train",
       "tag": "instrument---rhodes",
-      "observed": 5127,
-      "positive": 265
+      "official_positive": 146,
+      "manifest_positive": 146
     },
     {
       "split": "train",
       "tag": "instrument---sampler",
-      "observed": 5127,
-      "positive": 229
+      "official_positive": 713,
+      "manifest_positive": 709
     },
     {
       "split": "train",
       "tag": "instrument---saxophone",
-      "observed": 5127,
-      "positive": 375
+      "official_positive": 366,
+      "manifest_positive": 366
     },
     {
       "split": "train",
       "tag": "instrument---strings",
-      "observed": 5127,
-      "positive": 305
+      "official_positive": 594,
+      "manifest_positive": 592
     },
     {
       "split": "train",
       "tag": "instrument---synthesizer",
-      "observed": 5127,
-      "positive": 1208
+      "official_positive": 4356,
+      "manifest_positive": 4320
     },
     {
       "split": "train",
       "tag": "instrument---trombone",
-      "observed": 5127,
-      "positive": 212
+      "official_positive": 143,
+      "manifest_positive": 143
     },
     {
       "split": "train",
       "tag": "instrument---trumpet",
-      "observed": 5127,
-      "positive": 363
-    },
-    {
-      "split": "train",
-      "tag": "instrument---ukulele",
-      "observed": 5127,
-      "positive": 140
+      "official_positive": 305,
+      "manifest_positive": 305
     },
     {
       "split": "train",
       "tag": "instrument---viola",
-      "observed": 5127,
-      "positive": 68
+      "official_positive": 184,
+      "manifest_positive": 172
     },
     {
       "split": "train",
       "tag": "instrument---violin",
-      "observed": 5127,
-      "positive": 525
+      "official_positive": 785,
+      "manifest_positive": 757
     },
     {
       "split": "train",
       "tag": "instrument---voice",
-      "observed": 5127,
-      "positive": 492
+      "official_positive": 776,
+      "manifest_positive": 774
     },
     {
       "split": "validation",
       "tag": "instrument---accordion",
-      "observed": 1099,
-      "positive": 28
+      "official_positive": 81,
+      "manifest_positive": 80
     },
     {
       "split": "validation",
       "tag": "instrument---acousticbassguitar",
-      "observed": 1099,
-      "positive": 27
+      "official_positive": 124,
+      "manifest_positive": 123
     },
     {
       "split": "validation",
       "tag": "instrument---acousticguitar",
-      "observed": 1099,
-      "positive": 138
+      "official_positive": 410,
+      "manifest_positive": 405
     },
     {
       "split": "validation",
       "tag": "instrument---bass",
-      "observed": 1099,
-      "positive": 299
+      "official_positive": 1450,
+      "manifest_positive": 1440
     },
     {
       "split": "validation",
       "tag": "instrument---beat",
-      "observed": 1099,
-      "positive": 64
+      "official_positive": 192,
+      "manifest_positive": 192
     },
     {
       "split": "validation",
       "tag": "instrument---bell",
-      "observed": 1099,
-      "positive": 36
+      "official_positive": 223,
+      "manifest_positive": 223
     },
     {
       "split": "validation",
       "tag": "instrument---bongo",
-      "observed": 1099,
-      "positive": 26
+      "official_positive": 210,
+      "manifest_positive": 210
     },
     {
       "split": "validation",
       "tag": "instrument---brass",
-      "observed": 1099,
-      "positive": 40
+      "official_positive": 300,
+      "manifest_positive": 300
     },
     {
       "split": "validation",
       "tag": "instrument---cello",
-      "observed": 1099,
-      "positive": 76
+      "official_positive": 455,
+      "manifest_positive": 453
     },
     {
       "split": "validation",
       "tag": "instrument---clarinet",
-      "observed": 1099,
-      "positive": 33
+      "official_positive": 247,
+      "manifest_positive": 242
     },
     {
       "split": "validation",
       "tag": "instrument---classicalguitar",
-      "observed": 1099,
-      "positive": 60
+      "official_positive": 263,
+      "manifest_positive": 263
     },
     {
       "split": "validation",
       "tag": "instrument---computer",
-      "observed": 1099,
-      "positive": 116
+      "official_positive": 643,
+      "manifest_positive": 642
     },
     {
       "split": "validation",
       "tag": "instrument---doublebass",
-      "observed": 1099,
-      "positive": 29
+      "official_positive": 114,
+      "manifest_positive": 113
     },
     {
       "split": "validation",
       "tag": "instrument---drummachine",
-      "observed": 1099,
-      "positive": 104
+      "official_positive": 562,
+      "manifest_positive": 562
     },
     {
       "split": "validation",
       "tag": "instrument---drums",
-      "observed": 1099,
-      "positive": 316
+      "official_positive": 1492,
+      "manifest_positive": 1486
     },
     {
       "split": "validation",
       "tag": "instrument---electricguitar",
-      "observed": 1099,
-      "positive": 216
+      "official_positive": 1093,
+      "manifest_positive": 1091
     },
     {
       "split": "validation",
       "tag": "instrument---electricpiano",
-      "observed": 1099,
-      "positive": 107
+      "official_positive": 467,
+      "manifest_positive": 460
     },
     {
       "split": "validation",
       "tag": "instrument---flute",
-      "observed": 1099,
-      "positive": 50
+      "official_positive": 379,
+      "manifest_positive": 378
     },
     {
       "split": "validation",
       "tag": "instrument---guitar",
-      "observed": 1099,
-      "positive": 191
+      "official_positive": 1083,
+      "manifest_positive": 1066
     },
     {
       "split": "validation",
       "tag": "instrument---harmonica",
-      "observed": 1099,
-      "positive": 25
+      "official_positive": 39,
+      "manifest_positive": 39
     },
     {
       "split": "validation",
       "tag": "instrument---harp",
-      "observed": 1099,
-      "positive": 42
+      "official_positive": 274,
+      "manifest_positive": 274
     },
     {
       "split": "validation",
       "tag": "instrument---horn",
-      "observed": 1099,
-      "positive": 31
+      "official_positive": 245,
+      "manifest_positive": 245
     },
     {
       "split": "validation",
       "tag": "instrument---keyboard",
-      "observed": 1099,
-      "positive": 91
+      "official_positive": 500,
+      "manifest_positive": 495
     },
     {
       "split": "validation",
       "tag": "instrument---oboe",
-      "observed": 1099,
-      "positive": 13
+      "official_positive": 98,
+      "manifest_positive": 98
     },
     {
       "split": "validation",
       "tag": "instrument---orchestra",
-      "observed": 1099,
-      "positive": 30
+      "official_positive": 250,
+      "manifest_positive": 248
     },
     {
       "split": "validation",
       "tag": "instrument---organ",
-      "observed": 1099,
-      "positive": 3
+      "official_positive": 34,
+      "manifest_positive": 34
     },
     {
       "split": "validation",
       "tag": "instrument---pad",
-      "observed": 1099,
-      "positive": 4
+      "official_positive": 79,
+      "manifest_positive": 79
     },
     {
       "split": "validation",
       "tag": "instrument---percussion",
-      "observed": 1099,
-      "positive": 31
+      "official_positive": 134,
+      "manifest_positive": 134
     },
     {
       "split": "validation",
       "tag": "instrument---piano",
-      "observed": 1099,
-      "positive": 376
+      "official_positive": 1929,
+      "manifest_positive": 1922
     },
     {
       "split": "validation",
       "tag": "instrument---pipeorgan",
-      "observed": 1099,
-      "positive": 18
+      "official_positive": 68,
+      "manifest_positive": 63
     },
     {
       "split": "validation",
       "tag": "instrument---rhodes",
-      "observed": 1099,
-      "positive": 55
+      "official_positive": 342,
+      "manifest_positive": 342
     },
     {
       "split": "validation",
       "tag": "instrument---sampler",
-      "observed": 1099,
-      "positive": 54
+      "official_positive": 203,
+      "manifest_positive": 201
     },
     {
       "split": "validation",
       "tag": "instrument---saxophone",
-      "observed": 1099,
-      "positive": 86
+      "official_positive": 372,
+      "manifest_positive": 372
     },
     {
       "split": "validation",
       "tag": "instrument---strings",
-      "observed": 1099,
-      "positive": 69
+      "official_positive": 384,
+      "manifest_positive": 383
     },
     {
       "split": "validation",
       "tag": "instrument---synthesizer",
-      "observed": 1099,
-      "positive": 265
+      "official_positive": 1719,
+      "manifest_positive": 1713
     },
     {
       "split": "validation",
       "tag": "instrument---trombone",
-      "observed": 1099,
-      "positive": 37
+      "official_positive": 264,
+      "manifest_positive": 261
     },
     {
       "split": "validation",
       "tag": "instrument---trumpet",
-      "observed": 1099,
-      "positive": 75
-    },
-    {
-      "split": "validation",
-      "tag": "instrument---ukulele",
-      "observed": 1099,
-      "positive": 30
+      "official_positive": 464,
+      "manifest_positive": 461
     },
     {
       "split": "validation",
       "tag": "instrument---viola",
-      "observed": 1099,
-      "positive": 13
+      "official_positive": 122,
+      "manifest_positive": 121
     },
     {
       "split": "validation",
       "tag": "instrument---violin",
-      "observed": 1099,
-      "positive": 91
+      "official_positive": 675,
+      "manifest_positive": 669
     },
     {
       "split": "validation",
       "tag": "instrument---voice",
-      "observed": 1099,
-      "positive": 109
+      "official_positive": 502,
+      "manifest_positive": 496
     },
     {
       "split": "test",
       "tag": "instrument---accordion",
-      "observed": 1098,
-      "positive": 25
+      "official_positive": 127,
+      "manifest_positive": 127
     },
     {
       "split": "test",
       "tag": "instrument---acousticbassguitar",
-      "observed": 1098,
-      "positive": 26
+      "official_positive": 79,
+      "manifest_positive": 79
     },
     {
       "split": "test",
       "tag": "instrument---acousticguitar",
-      "observed": 1098,
-      "positive": 115
+      "official_positive": 547,
+      "manifest_positive": 547
     },
     {
       "split": "test",
       "tag": "instrument---bass",
-      "observed": 1098,
-      "positive": 299
+      "official_positive": 1155,
+      "manifest_positive": 1152
     },
     {
       "split": "test",
       "tag": "instrument---beat",
-      "observed": 1098,
-      "positive": 71
+      "official_positive": 86,
+      "manifest_positive": 86
     },
     {
       "split": "test",
       "tag": "instrument---bell",
-      "observed": 1098,
-      "positive": 33
+      "official_positive": 73,
+      "manifest_positive": 72
     },
     {
       "split": "test",
       "tag": "instrument---bongo",
-      "observed": 1098,
-      "positive": 31
+      "official_positive": 21,
+      "manifest_positive": 21
     },
     {
       "split": "test",
       "tag": "instrument---brass",
-      "observed": 1098,
-      "positive": 44
+      "official_positive": 69,
+      "manifest_positive": 69
     },
     {
       "split": "test",
       "tag": "instrument---cello",
-      "observed": 1098,
-      "positive": 66
+      "official_positive": 208,
+      "manifest_positive": 208
     },
     {
       "split": "test",
       "tag": "instrument---clarinet",
-      "observed": 1098,
-      "positive": 30
+      "official_positive": 46,
+      "manifest_positive": 46
     },
     {
       "split": "test",
       "tag": "instrument---classicalguitar",
-      "observed": 1098,
-      "positive": 55
+      "official_positive": 119,
+      "manifest_positive": 119
     },
     {
       "split": "test",
       "tag": "instrument---computer",
-      "observed": 1098,
-      "positive": 106
+      "official_positive": 689,
+      "manifest_positive": 687
     },
     {
       "split": "test",
       "tag": "instrument---doublebass",
-      "observed": 1098,
-      "positive": 31
+      "official_positive": 113,
+      "manifest_positive": 113
     },
     {
       "split": "test",
       "tag": "instrument---drummachine",
-      "observed": 1098,
-      "positive": 111
+      "official_positive": 233,
+      "manifest_positive": 233
     },
     {
       "split": "test",
       "tag": "instrument---drums",
-      "observed": 1098,
-      "positive": 316
+      "official_positive": 1255,
+      "manifest_positive": 1252
     },
     {
       "split": "test",
       "tag": "instrument---electricguitar",
-      "observed": 1098,
-      "positive": 222
+      "official_positive": 839,
+      "manifest_positive": 836
     },
     {
       "split": "test",
       "tag": "instrument---electricpiano",
-      "observed": 1098,
-      "positive": 89
+      "official_positive": 205,
+      "manifest_positive": 204
     },
     {
       "split": "test",
       "tag": "instrument---flute",
-      "observed": 1098,
-      "positive": 54
+      "official_positive": 109,
+      "manifest_positive": 105
     },
     {
       "split": "test",
       "tag": "instrument---guitar",
-      "observed": 1098,
-      "positive": 216
+      "official_positive": 806,
+      "manifest_positive": 799
     },
     {
       "split": "test",
       "tag": "instrument---harmonica",
-      "observed": 1098,
-      "positive": 20
+      "official_positive": 65,
+      "manifest_positive": 65
     },
     {
       "split": "test",
       "tag": "instrument---harp",
-      "observed": 1098,
-      "positive": 51
+      "official_positive": 61,
+      "manifest_positive": 61
     },
     {
       "split": "test",
       "tag": "instrument---horn",
-      "observed": 1098,
-      "positive": 32
+      "official_positive": 55,
+      "manifest_positive": 55
     },
     {
       "split": "test",
       "tag": "instrument---keyboard",
-      "observed": 1098,
-      "positive": 110
+      "official_positive": 359,
+      "manifest_positive": 357
     },
     {
       "split": "test",
       "tag": "instrument---oboe",
-      "observed": 1098,
-      "positive": 21
+      "official_positive": 24,
+      "manifest_positive": 24
     },
     {
       "split": "test",
       "tag": "instrument---orchestra",
-      "observed": 1098,
-      "positive": 48
+      "official_positive": 107,
+      "manifest_positive": 107
     },
     {
       "split": "test",
       "tag": "instrument---organ",
-      "observed": 1098,
-      "positive": 4
+      "official_positive": 27,
+      "manifest_positive": 27
     },
     {
       "split": "test",
       "tag": "instrument---pad",
-      "observed": 1098,
-      "positive": 5
+      "official_positive": 24,
+      "manifest_positive": 24
     },
     {
       "split": "test",
       "tag": "instrument---percussion",
-      "observed": 1098,
-      "positive": 21
+      "official_positive": 202,
+      "manifest_positive": 198
     },
     {
       "split": "test",
       "tag": "instrument---piano",
-      "observed": 1098,
-      "positive": 368
+      "official_positive": 1627,
+      "manifest_positive": 1593
     },
     {
       "split": "test",
       "tag": "instrument---pipeorgan",
-      "observed": 1098,
-      "positive": 15
+      "official_positive": 66,
+      "manifest_positive": 66
     },
     {
       "split": "test",
       "tag": "instrument---rhodes",
-      "observed": 1098,
-      "positive": 53
+      "official_positive": 55,
+      "manifest_positive": 55
     },
     {
       "split": "test",
       "tag": "instrument---sampler",
-      "observed": 1098,
-      "positive": 60
+      "official_positive": 154,
+      "manifest_positive": 152
     },
     {
       "split": "test",
       "tag": "instrument---saxophone",
-      "observed": 1098,
-      "positive": 88
+      "official_positive": 153,
+      "manifest_positive": 152
     },
     {
       "split": "test",
       "tag": "instrument---strings",
-      "observed": 1098,
-      "positive": 62
+      "official_positive": 300,
+      "manifest_positive": 278
     },
     {
       "split": "test",
       "tag": "instrument---synthesizer",
-      "observed": 1098,
-      "positive": 235
+      "official_positive": 1421,
+      "manifest_positive": 1402
     },
     {
       "split": "test",
       "tag": "instrument---trombone",
-      "observed": 1098,
-      "positive": 44
+      "official_positive": 90,
+      "manifest_positive": 89
     },
     {
       "split": "test",
       "tag": "instrument---trumpet",
-      "observed": 1098,
-      "positive": 71
-    },
-    {
-      "split": "test",
-      "tag": "instrument---ukulele",
-      "observed": 1098,
-      "positive": 29
+      "official_positive": 104,
+      "manifest_positive": 104
     },
     {
       "split": "test",
       "tag": "instrument---viola",
-      "observed": 1098,
-      "positive": 16
+      "official_positive": 92,
+      "manifest_positive": 92
     },
     {
       "split": "test",
       "tag": "instrument---violin",
-      "observed": 1098,
-      "positive": 117
+      "official_positive": 377,
+      "manifest_positive": 377
     },
     {
       "split": "test",
       "tag": "instrument---voice",
-      "observed": 1098,
-      "positive": 111
+      "official_positive": 326,
+      "manifest_positive": 325
     }
   ],
   "provenance": {
-    "manifest_sha256": "1e0a812199b2e5444c23f757a26b9b81f3717cd70ef79f5d1433a6075e15053f",
-    "genre_labels_csv_sha256": "c0fad1536e8b41488fd62e1ec4fe7db1d3c7207b678b59e4bb8e39ab91eee640",
-    "instrument_labels_csv_sha256": "99c7663fbc2c0eb754b05deaedaed72e9236f556b81c5e0a9a9ef1766048b6c9",
+    "sha256": {
+      "autotagging_instrument-train.tsv": "f844a85f0b40bb31a5d5b448ddfc10a68d7b38ecc760673d23df2bd6e7ca0f4c",
+      "autotagging_instrument-validation.tsv": "a5060020013ac5ba65c6470ee83fc2a9785db1fe554b55065de08aa9b0cca70d",
+      "autotagging_instrument-test.tsv": "8c1ab86f3212b6484106baf2e78f70dd5520b917607487ac98999adbd5d7ab1a",
+      "autotagging_genre-train.tsv": "c1cddb195ef94a07e67e227bf38e2a79389c1820950702b8c8894a2096f21e54",
+      "autotagging_genre-validation.tsv": "3e203b4c573db6ec63a06c7066cf678dcf673a68ad5694c8fed22637c270dbcf",
+      "autotagging_genre-test.tsv": "cf917388eebfa7d17d363c2fca037e2379ac027e31aa6dbe92e8dbf409ac5098"
+    },
+    "manifest_sha256": "5609990b660b1e32b83a0c17bb8e3440a060bc6b5a87c7c7089ad0aaa020ad99",
     "policy": "weak_closed_world",
-    "genre_order": [
-      "classical",
-      "electronic",
-      "folk",
-      "hiphop",
-      "jazz",
-      "rock"
-    ],
-    "instrument_order": [
-      "instrument---accordion",
-      "instrument---acousticbassguitar",
-      "instrument---acousticguitar",
-      "instrument---bass",
-      "instrument---beat",
-      "instrument---bell",
-      "instrument---bongo",
-      "instrument---brass",
-      "instrument---cello",
-      "instrument---clarinet",
-      "instrument---classicalguitar",
-      "instrument---computer",
-      "instrument---doublebass",
-      "instrument---drummachine",
-      "instrument---drums",
-      "instrument---electricguitar",
-      "instrument---electricpiano",
-      "instrument---flute",
-      "instrument---guitar",
-      "instrument---harmonica",
-      "instrument---harp",
-      "instrument---horn",
-      "instrument---keyboard",
-      "instrument---oboe",
-      "instrument---orchestra",
-      "instrument---organ",
-      "instrument---pad",
-      "instrument---percussion",
-      "instrument---piano",
-      "instrument---pipeorgan",
-      "instrument---rhodes",
-      "instrument---sampler",
-      "instrument---saxophone",
-      "instrument---strings",
-      "instrument---synthesizer",
-      "instrument---trombone",
-      "instrument---trumpet",
-      "instrument---ukulele",
-      "instrument---viola",
-      "instrument---violin",
-      "instrument---voice"
-    ],
-    "order_source": "six-genre representative cohort; 41 instrument CSV columns aligned by name"
+    "order_source": "alphabetical, verified against all complete official split-0 files"
   }
 }

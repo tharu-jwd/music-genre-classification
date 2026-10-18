@@ -1,8 +1,6 @@
 # Timbre branch
 
-This directory contains Timbre Branch Architecture V2: audio acquisition,
-35-descriptor extraction, the strict 128-to-35 learned concept bottleneck,
-training utilities, validation tests, and versioned architecture reports.
+This directory contains the complete timbre-branch workstream: audio acquisition, 12-descriptor extraction, the strict 128-to-12 learned concept bottleneck, training utilities, validation tests, and the research proposal.
 
 All mergeable timbre-branch files live here:
 
@@ -33,41 +31,34 @@ timbre_branch/
         README.md
 ```
 
-The two local CSV artifacts are kept under `data/` but intentionally ignored by Git:
+The current targets are the 12 timbre columns in `../data/warehouse_dataset_new.csv`,
+in the order declared by `src/timbre_branch/constants.py`. Both joint vector CSVs
+use this same order. The older `data/timbre_features_raw.csv` artifact is legacy
+and does not contain the current skewness/flux fields.
 
 - `split_csv.csv` contains the 7,324 selected MTG-Jamendo tracks.
-- `timbre_features_raw.csv` contains one verified row and 35 extracted targets per track.
+- `../data/warehouse_dataset_new.csv` contains the current named timbre targets.
 
 ## Architecture
 
 ```text
 h_audio (B, 128)
-  -> Linear(128, 128)
-  -> LayerNorm(128)
-  -> GELU
-  -> Dropout(0.20)
   -> Linear(128, 64)
+  -> LayerNorm(64)
   -> GELU
-  -> Linear(64, 35)
-  -> z_timbre = d_hat_standardized (B, 35)
+  -> Dropout(0.15)
+  -> Linear(64, 12)
+  -> z_timbre = d_hat_standardized (B, 12)
 ```
 
-The fusion layer receives only the 35 named predicted concepts. There is no direct path from the unrestricted 128-dimensional encoder representation to the timbre fusion input. V2 keeps this neural head unchanged and adds training-only log preprocessing for spectral flatness. Loss weighting, optimization, scheduling, checkpoint selection, and fusion-level evaluation remain owned by the existing full-architecture trainer.
-
-## V2 training contract
-
-- Fit `timbre_v2_log_flatness_zscore_v1` on training rows only.
-- Apply `log(max(spectral_flatness_mean, 1e-12))` before its z-score.
-- Z-score the other 34 concepts directly using training statistics.
-- Use the full trainer's masked, cell-averaged Smooth L1 timbre loss.
-- Use the optimizer, learning rate, cosine schedule, and checkpoint-selection policy supplied by the full architecture.
-- Train for at most 30 epochs. Any later increase must be recorded as a V2 training revision.
-
-The standalone `train_timbre_branch.py` utility mirrors the current full trainer with AdamW, a default learning rate of `3e-4`, cosine annealing, and no branch-owned early stopping. It selects the best standalone checkpoint by validation standardized timbre MAE because genre labels are not available to that utility.
+The fusion layer receives only the 12 named predicted concepts. There is no direct path from the unrestricted 128-dimensional encoder representation to the timbre fusion input.
 
 ## Current data status
 
-The first-four-minutes extractor completed all 7,324 tracks. The resulting target table has 35 finite descriptor columns, no duplicate IDs, no failed rows, and no missing values. Targets remain in original acoustic units until a training-only standardizer is fitted.
+All 7,324 timbre vectors in each joint vector CSV were verified against the
+12 warehouse columns in the declared order. Targets are standardized using
+training tracks only. The extraction notebooks now emit the same named schema;
+they do not replace the existing warehouse targets automatically.
 
 ## Development smoke test
 
@@ -78,9 +69,9 @@ python -m pip install -r requirements.txt
 python -m unittest -v tests.test_timbre_branch_smoke
 ```
 
-The self-contained tests cover the 128-to-35 shape contract, V2 log-flatness
-round-trip, masked Smooth L1 loss, downstream gradient flow, checkpoint equivalence, invalid-input
-rejection, and command-line training on disposable synthetic inputs. If
+The self-contained tests cover 128-to-12 forward shape, masked Smooth L1 loss,
+backward optimization, inverse scaling, checkpoint equivalence, invalid-input
+rejection, and end-to-end command-line training on disposable synthetic inputs. If
 the ignored real target table is present, they also check its 7,324-row contract.
 
 ## Real training
@@ -100,7 +91,7 @@ Run from `timbre_branch/`:
 python scripts/train_timbre_branch.py `
   --embeddings path/to/shared_encoder_embeddings.npz `
   --splits path/to/official_split_manifest.csv `
-  --targets ../data/timbre_df.csv `
+  --targets data/timbre_features_raw.csv `
   --output checkpoints/timbre_branch/best.pt
 ```
 

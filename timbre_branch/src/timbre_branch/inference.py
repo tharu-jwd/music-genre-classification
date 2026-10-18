@@ -17,7 +17,7 @@ def predict_timbre_concepts(
     h_audio: Tensor,
     standardizer: TimbreStandardizer,
 ) -> dict[str, Any]:
-    """Return the 35-D fusion tensor and its interpretable original-unit view."""
+    """Return the 12-D fusion tensor and its interpretable original-unit view."""
     model.eval()
     standardized = model(h_audio)
     original = standardizer.inverse_transform(

@@ -1,15 +1,10 @@
-# Historical system architecture proposal (not the current run contract)
+# Complete model architecture and training specification
 
-> **Status, 2026-09-28:** This page records an earlier system-wide proposal.
-> Its 96-mel, 40-instrument, 87-genre, temporal-chroma, and chord-supervision
-> defaults are **not** the audited joint run. Do not use the shapes, target
-> definitions, or training instructions below as current configuration.
-> For implemented Harmony v3 use the
-> [versioned snapshot](../harmony_branch/docs/architecture-versions/v3/README.md),
-> [handoff](../harmony_branch/docs/integration-handoff.md), and
-> [joint-training guide](joint-training.md).
+This document includes legacy architecture details. The current paper model is
+specified in [common-concept-architecture.md](common-concept-architecture.md),
+with its editable settings in [architecture-config.md](architecture-config.md).
 
-This was the system-level specification for an earlier concept-guided,
+This is the system-level specification for the implemented concept-guided,
 multi-label music-genre classifier. It covers the shared encoder, all four concept
 branches, fusion, genre prediction, target provenance, masking, losses, and the
 intended training procedure.
@@ -35,7 +30,7 @@ sampled log-Mel windows: (B, W, 1, 96, F)
        ┌────┴────┐                  ┌───┴────┐
        ▼         ▼                  ▼        ▼
  instrument   timbre             rhythm   harmony
- 41 probs     35 values        10 values  12 pooled probs
+ 41 probs     12 values        10 values  12 pooled probs
        │         │               │          │
        └────┬────┴───────────────┬──────────┘
             ▼                    ▼
@@ -45,7 +40,7 @@ sampled log-Mel windows: (B, W, 1, 96, F)
                          │
                   fused vector (B, 128)
                          │
-                 genre head: 6 logits
+                 genre head: 87 logits
 ```
 
 All branches consume outputs from the **same encoder forward pass**. Instrument
@@ -62,11 +57,11 @@ layout metadata.
 | Shared CNN | `(B,W,1,96,F)` | sequence `(B,T,128)`, song `(B,128)` | 86,913 |
 | Instrument | song `(B,128)` | 41 probabilities | 21,801 |
 | Rhythm | sequence `(B,T,128)` | 10 standardized predictions | 87,883 |
-| Timbre | song `(B,128)` | 35 standardized predictions | 27,299 |
+| Timbre | song `(B,128)` | 12 standardized predictions | 27,299 |
 | Harmony | sequence `(B,T,128)` | 12 standardized song-level descriptor predictions | implementation-dependent |
 | Optional harmony chord head | 32D token embeddings | 25 logits/token | +825 |
 | Fusion | four projected 64D tokens | 128D fused representation | variant-dependent |
-| Genre head | 128D fused representation | 6 logits | 774 |
+| Genre head | 128D fused representation | 87 logits | 11,223 |
 
 Counts use current defaults and exclude optional components unless stated.
 
@@ -74,12 +69,13 @@ Counts use current defaults and exclude optional components unless stated.
 
 ### 2.1 Dataset split and labels
 
-The project uses a representative six-genre cohort with frozen train, validation,
-and test partitions. Split membership must not be recomputed randomly. Extractors,
+The project uses the frozen 7,324-track assignments in
+`data/track_split_assignments.csv`: 5,127 train, 1,099 validation, and 1,098 test.
+Split membership must not be recomputed randomly. Extractors,
 normalizers, class weights, early stopping, threshold calibration, and final
 evaluation must respect this partition.
 
-Genre prediction has 6 outputs. It is multi-label: outputs are independent logits,
+Genre prediction has 87 outputs. It is multi-label: outputs are independent logits,
 not one softmax distribution.
 
 ### 2.2 Audio representation
@@ -99,8 +95,7 @@ The canonical preprocessing contract is:
 - hop length: 256 samples, or 21.333 ms per Mel frame;
 - Mel bins: 96;
 - canonical window: 1,366 frames, approximately 29.14 seconds;
-- selected windows per track: all valid windows by default; a positive
-  `--max-windows` can cap them for an explicit comparison;
+- maximum selected windows per track: 12;
 - stored values: log-Mel magnitudes in dB;
 - no second dataset-wide Mel normalization inside the encoder.
 
@@ -196,9 +191,14 @@ standalone implementation but is not used in its current prediction path.
 
 ### 4.2 Targets, loss, and metrics
 
-Targets use the fixed 41-tag project vocabulary, including `ukulele`, in alphabetical
+Targets are the official 41 MTG-Jamendo instrument tags in the frozen alphabetical
 order stored in
 [`instrument-vocabulary.json`](../instrument_branch/docs/instrument-vocabulary.json).
+
+Official split-0 TSVs cover 40 tags and omit ukulele, but they are not used for
+training. The standalone notebook requires the local 41-column instrument CSV and
+the frozen 7,324-track assignments. Ukulele therefore receives label supervision
+along with the other instruments. Missing annotation rows remain masked.
 
 They are **weak human/uploader annotations**, not exhaustive acoustic-presence
 labels. On a row known to have instrument annotation, an omitted tag is treated as
@@ -207,9 +207,9 @@ absence. A row without instrument annotation gets an all-zero supervision mask.
 
 | Split | Genre cohort | Instrument-annotated | Unknown instrument labels |
 |---|---:|---:|---:|
-| Train | 5,127 | 5,127 | 0 |
-| Validation | 1,099 | 1,099 | 0 |
-| Test | 1,098 | 1,098 | 0 |
+| Train | 32,572 | 14,218 | 18,354 |
+| Validation | 11,043 | 5,428 | 5,615 |
+| Test | 11,479 | 5,063 | 6,416 |
 
 Training uses element-wise BCE with logits, reduced only over the supervision mask.
 Optional positive weights come from observed training rows only. Per-tag thresholds
@@ -289,27 +289,27 @@ Detailed document:
 pooled_song (B,128)
   → Linear(128,128) → LayerNorm(128) → GELU → Dropout(0.20)
   → Linear(128,64) → GELU
-  → Linear(64,35) → standardized descriptor predictions
+  → Linear(64,12) → standardized descriptor predictions
 ```
 
 There is no final activation because targets are standardized real values. This is
-a strict bottleneck: the 35 predictions are the auxiliary output and the only
-primary timbre values exposed to fusion. Fusion owns `Linear(35,64)`; no unrestricted
+a strict bottleneck: the 12 predictions are the auxiliary output and the only
+primary timbre values exposed to fusion. Fusion owns `Linear(12,64)`; no unrestricted
 `pooled_song` bypass exists.
 
 ### 6.2 Targets, loss, and metrics
 
-The 35 fixed targets are:
+The 12 fixed targets are:
 
-- spectral shape: centroid mean/std, bandwidth mean/std, contrast mean, flatness
-  mean, and rolloff mean (7);
+- spectral shape: centroid mean/std, bandwidth mean/std, skewness mean, contrast
+  mean, flatness mean, and rolloff mean (8);
+- spectral dynamics: spectral flux mean and standard deviation (2);
 - harmonic/noise: mean harmonic-to-noise ratio in dB and mean inharmonicity (2);
-- spectral envelope: MFCC 1–13 means and MFCC 1–13 standard deviations (26).
 
 Exact order: [`constants.py`](../timbre_branch/src/timbre_branch/constants.py).
 These are **deterministically extracted signal descriptors**, not human labels.
 The checked extraction artifact used up to the first four minutes of full-quality
-audio and contains 7,324 successful tracks, 35 finite columns, no duplicate IDs,
+audio and contains 7,324 successful tracks, 12 finite columns, no duplicate IDs,
 and no recorded failures. Those are artifact facts, not model results.
 
 Standardization uses training-split statistics only. Training uses masked Smooth
@@ -350,14 +350,22 @@ only on training rows. An all-masked song produces a zero vector and an unavaila
 fusion mask. Temporal chroma logits remain preserved for future aligned chroma
 supervision and standalone harmony experiments.
 
+The stable `HARMONY_FEATURES` contract is the chord-aware 12-feature selection:
+global key strength, mode confidence, key stability, chroma entropy mean and
+standard deviation, chroma flux mean, Tonnetz movement mean, tonal-centroid radius
+mean, 15-second chroma recurrence, chord strength mean, chord change rate, and chord
+vocabulary ratio. The harmony warehouse retains 15 descriptors for audit and
+ablation, but `chroma_flux_std`, `tonnetz_movement_std`, and
+`tonal_centroid_radius_std` do not enter the stable harmony vector or fusion.
+
 The separate 32D song embedding is a uniform masked mean of token embeddings. It
 is retained only for the configured `embedding_fusion` ablation, where fusion owns
 `Linear(32,64)`. Optional chord predictions do not enter either primary fusion or
 the predicted chroma vector.
 
-### 7.2 Chroma reference targets (proposed, not v3 supervision)
+### 7.2 Chroma reference targets
 
-The proposed temporal target was a 12-bin pitch-class distribution per encoder token:
+The primary target is a 12-bin pitch-class distribution per encoder token:
 
 ```text
 C, C#, D, D#, E, F, F#, G, G#, A, A#, B
@@ -376,7 +384,7 @@ L_chroma(t) = -sum_c target[t,c] * log_softmax(logits[t,:])[c]
 
 Only positions enabled by both prediction and target masks are reduced.
 
-### 7.3 Optional chord pseudo-labels (proposed, not v3 supervision)
+### 7.3 Optional chord pseudo-labels
 
 MTG-Jamendo has no aligned human chord timelines. The optional chord vocabulary is
 12 major roots, 12 minor roots, and `N` (no chord). An automatic teacher may supply
@@ -401,7 +409,7 @@ The frozen order is `[instrument, rhythm, timbre, harmony]`:
 |---|---|---|
 | 41 instrument probabilities | `Linear(41,64)` | `(B,64)` |
 | 10 standardized rhythm predictions | `Linear(10,64)` | `(B,64)` |
-| 35 standardized timbre predictions | `Linear(35,64)` | `(B,64)` |
+| 12 standardized timbre predictions | `Linear(12,64)` | `(B,64)` |
 | 12 masked-pooled chroma probabilities | `Linear(12,64)` | `(B,64)` |
 
 Every value is a branch prediction, making the primary route a
@@ -450,10 +458,10 @@ only to `F-Shortcut`; private hidden vectors belong only to `F-Hidden`.
 ### 8.4 Genre head and target
 
 ```text
-fused (B,128) → Dropout(0.10) → Linear(128,6) → logits
+fused (B,128) → Dropout(0.10) → Linear(128,87) → logits
 ```
 
-Training uses BCE with logits against the cohort's six-genre multi-hot annotation.
+Training uses BCE with logits against the official 87D multi-hot genre annotation.
 Sigmoid is applied once for metrics/inference, never before BCE. Genre tags are
 also weak uploader labels: zero means “not annotated under the benchmark policy,”
 not guaranteed acoustic absence. Report macro/micro average precision, macro
@@ -464,10 +472,10 @@ metrics use validation-selected thresholds only.
 
 | Output | Shape/granularity | Source | Status | Loss |
 |---|---|---|---|---|
-| Genre | 6/song | representative cohort genre tags | weak human/uploader annotation | BCE with logits |
-| Instrument | 41/song | project 41-tag CSV, including `ukulele` | weak human/uploader annotation | masked BCE with logits |
+| Genre | 87/song | official genre tags | weak human/uploader annotation | BCE with logits |
+| Instrument | 41/song | official instrument tags | weak human/uploader annotation | masked BCE with logits |
 | Rhythm | 10/song | AcousticBrainz/Essentia | extracted target | masked Smooth L1 |
-| Timbre | 35/song | deterministic audio extractor | extracted target | masked Smooth L1 |
+| Timbre | 12/song | deterministic audio extractor | extracted target | masked Smooth L1 |
 | Harmony descriptors | 12/song | deterministic tonal summaries | extracted target | masked Smooth L1 |
 | Chroma | 12/token | CQT/HPCP extractor | algorithmic reference | masked soft-target CE |
 | Chord, optional | 25/token | validated automatic teacher | pseudo-label | masked hard-label CE |
@@ -503,7 +511,7 @@ same CNN. The encoder is optimized by all unmasked active objectives unless froz
 
 ### Stage 0 — contracts and artifacts
 
-1. Use the frozen representative-cohort IDs and fixed 6-genre/41-instrument orders.
+1. Use the frozen 7,324-track split and fixed 87-genre/41-instrument orders.
 2. Produce log-Mel windows and complete window metadata.
 3. Join targets by normalized track ID without changing splits.
 4. Generate availability masks; never silently impute missing targets.
@@ -535,7 +543,7 @@ For each batch:
 5. use instrument probabilities, rhythm predictions, timbre predictions, and
    predicted song-level harmony descriptors, then project four ordered 64D tokens;
 6. apply training-only concept dropout;
-7. fuse tokens and produce 6 genre logits;
+7. fuse tokens and produce 87 genre logits;
 8. compute genre and independently masked auxiliary losses;
 9. backpropagate their weighted total.
 
@@ -594,9 +602,10 @@ not evidence of trained model quality.
 | Instrument | [`instrument_branch/ARCHITECTURE.md`](../instrument_branch/ARCHITECTURE.md) |
 | Rhythm | [`rhythm_branch/ARCHITECTURE.md`](../rhythm_branch/ARCHITECTURE.md) |
 | Timbre | [`timbre-branch-implementation.md`](../timbre_branch/docs/timbre-branch-implementation.md) |
-| Harmony | [Current v3 snapshot](../harmony_branch/docs/architecture-versions/v3/README.md) |
+| Harmony | [`harmony_branch/ARCHITECTURE.md`](../harmony_branch/ARCHITECTURE.md) |
 | Fusion | [`concept_fusion/`](../concept_fusion/) |
 | Decisions | [`docs/adr/`](adr/) |
 
-When code and historical prose diverge, tested runtime contracts are the
-implementation truth. New contract changes belong in the versioned snapshot.
+When code and prose diverge, tested runtime contracts are the immediate
+implementation truth. Update this document in the same change that modifies a
+shape, target order, mask rule, or objective.

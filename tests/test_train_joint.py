@@ -1,5 +1,7 @@
 """Real trainer wiring: learned harmony, target isolation, and checkpoint reload."""
+import ast
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,31 +11,29 @@ import torch
 from scripts import train_joint as j
 
 
+def test_default_window_limit_uses_all_four_minutes():
+    assert j.LOGMEL_MAX_WINDOWS == 16
+    assert j.TrainConfig().max_windows == 16
+
+
+def test_modal_entrypoint_defaults_to_all_sixteen_windows():
+    tree = ast.parse((Path(__file__).resolve().parents[1] / "modal_app.py").read_text(encoding="utf-8"))
+    entrypoint = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    defaults = dict(zip(
+        [arg.arg for arg in entrypoint.args.args[-len(entrypoint.args.defaults):]],
+        entrypoint.args.defaults,
+    ))
+    assert ast.literal_eval(defaults["max_windows"]) == 16
+
+
 def test_combined_dataset_schema_has_one_vector_per_branch():
     schema = j.dataset_schema()
     assert schema["logmel_input"] == "path"
     assert {name: len(columns) for name, columns in schema["branch_vectors"].items()} == {
         "instrument_vector": 41, "rhythm_vector": 10,
-        "timbre_vector": 35, "harmony_vector": 12,
+        "timbre_vector": 12, "harmony_vector": 12,
     }
     assert len(schema["fusion_target"]["genre"]) == 6
-
-
-def test_residual_instrument_head_keeps_concept_contract_and_gradients():
-    head = j.InstrumentHead("residual")
-    song = torch.randn(2, 128, requires_grad=True)
-    output = head(song)
-    assert output["concept_values"].shape == (2, 41)
-    torch.testing.assert_close(output["concept_values"], output["logits"].sigmoid())
-    output["concept_values"].sum().backward()
-    assert song.grad is not None and song.grad.abs().sum() > 0
-    assert j.TrainConfig().max_windows == 0
-    assert j.TrainConfig(instrument_architecture="residual").instrument_architecture == "residual"
-
-
-def test_residual_instrument_architecture_is_default():
-    assert j.TrainConfig().instrument_architecture == "residual"
-    assert j.InstrumentHead().architecture == "residual"
 
 
 def test_harmony_supervision_reaches_branch_and_encoder_without_target_leakage():
@@ -45,8 +45,8 @@ def test_harmony_supervision_reaches_branch_and_encoder_without_target_leakage()
         head.eval()
     encoded = encoder(torch.randn(2, 2, 1, 16, 12), torch.ones(2, 2, dtype=torch.bool),
                       torch.full((2, 2), 12), torch.tensor([[0., 10.], [0., 10.]]))
-    kwargs = dict(instr_tgt=torch.zeros(2, 41), timbre_tgt=torch.zeros(2, 35),
-                  timbre_msk=torch.ones(2, 35, dtype=torch.bool),
+    kwargs = dict(instr_tgt=torch.zeros(2, 41), timbre_tgt=torch.zeros(2, 12),
+                  timbre_msk=torch.ones(2, 12, dtype=torch.bool),
                   rhythm_tgt=torch.zeros(2, 10), rhythm_msk=torch.ones(2, 10, dtype=torch.bool),
                   harmony_tgt=torch.randn(2, 12),
                   harmony_msk=torch.ones(2, 12, dtype=torch.bool), device=torch.device('cpu'))
@@ -88,27 +88,13 @@ def test_training_saves_and_reloads_learned_harmony(tmp_path, monkeypatch):
         frame.insert(0, 'TRACK_ID', ids)
         frame.to_csv(data / f'{name}_df.csv', index=False)
     monkeypatch.setattr(j, 'ROOT', tmp_path)
-    j.train(j.TrainConfig(
-        epochs=1, batch_size=2, device='cpu', window_frames=16, max_windows=2,
-    ))
+    j.train(j.TrainConfig(epochs=1, batch_size=2, device='cpu', window_frames=16, max_windows=2))
     checkpoint = torch.load(tmp_path / 'results/joint/best.pt', weights_only=False)
     assert checkpoint['harmony_head']
     assert checkpoint['harmony_strategy'] == 'standardized_song_descriptor_regression'
     assert checkpoint['harmony_standardizer']['feature_names'] == list(j.HARMONY_FEATURES)
     assert checkpoint['n_instrument_tags'] == 41
-    assert checkpoint['rhythm_model_config']['pooling_mode'] == 'attention_mean_std'
-    assert checkpoint['seed'] == 42
     assert json.loads((tmp_path / 'results/joint/results.json').read_text())['n_test'] == 2
-
-    j.train(j.TrainConfig(
-        epochs=2, batch_size=2, device='cpu', window_frames=16, max_windows=2,
-        resume_checkpoint=tmp_path / 'results/joint/best.pt',
-        out_dir='results/resumed',
-    ))
-    resumed = json.loads((tmp_path / 'results/resumed/results.json').read_text())
-    assert resumed['resumed_from_epoch'] == 1
-    assert resumed['scheduler_resume_policy'] == 'saved_optimizer_lr_constant'
-    assert [row['epoch'] for row in resumed['log']] == [1, 2]
 
 
 def test_relocates_colab_logmel_path(tmp_path):
@@ -129,11 +115,28 @@ def test_combined_dataset_requires_harmony_descriptors(tmp_path):
         split_csv, index=False
     )
 
-    with pytest.raises(ValueError, match="tonal_concentration_mean"):
+    with pytest.raises(ValueError, match="global_key_strength"):
         j.build_datasets(
             tmp_path, dataset_csv=dataset_csv, split_csv=split_csv,
             logmel_root=tmp_path / "logmel_songs",
         )
+
+
+def test_harmony_feature_contract_is_new_stable_12():
+    assert j.HARMONY_FEATURES == (
+        "global_key_strength",
+        "mode_confidence",
+        "key_stability",
+        "chroma_entropy_mean",
+        "chroma_entropy_std",
+        "chroma_flux_mean",
+        "tonnetz_movement_mean",
+        "tonal_centroid_radius_mean",
+        "chroma_recurrence_15s",
+        "chord_strength_mean",
+        "chord_change_rate",
+        "chord_vocabulary_ratio",
+    )
 
 
 def test_compact_json_vectors_expand_for_training(tmp_path):
@@ -141,7 +144,7 @@ def test_compact_json_vectors_expand_for_training(tmp_path):
     row = {
         "instrument_vector": json.dumps([0] * 41),
         "rhythm_vector": json.dumps([1.0] * 10),
-        "timbre_vector": json.dumps([2.0] * 35),
+        "timbre_vector": json.dumps([2.0] * 12),
         "harmony_vector": json.dumps([3.0] * 12),
         "genre": json.dumps([0, 1, 0, 0, 0, 0]),
     }
@@ -171,7 +174,7 @@ def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):
     path = tmp_path / 'stack.npy'
     np.save(path, np.ones((3, 128, 469), dtype=np.float32))
     ds = j.MultiTargetDataset(['1'], [str(path)], np.zeros((1, 6)), np.zeros((1, 41)),
-        np.zeros((1, 35)), np.ones((1, 35), bool), np.zeros((1, 10)),
+        np.zeros((1, 12)), np.ones((1, 12), bool), np.zeros((1, 10)),
         np.ones((1, 10), bool), np.ones((1, 12)) / 12, max_windows=2,
         mel_config={'sample_rate': 16000, 'hop_length': 512, 'window_seconds': 15,
                     'n_mels': 128, 'center': True}, durations={'1': 31.0})
@@ -180,18 +183,3 @@ def test_stored_windows_preserve_boundaries_and_mask_final_padding(tmp_path):
     assert starts.tolist() == [0., 30.]
     assert valid.tolist() == [469, 32]
     assert not mel[1, :, :, 32:].any()
-
-
-def test_stored_windows_default_uses_all_available(tmp_path):
-    path = tmp_path / 'stack.npy'
-    np.save(path, np.ones((3, 128, 469), dtype=np.float32))
-    ds = j.MultiTargetDataset(['1'], [str(path)], np.zeros((1, 6)), np.zeros((1, 41)),
-        np.zeros((1, 35)), np.ones((1, 35), bool), np.zeros((1, 10)),
-        np.ones((1, 10), bool), np.ones((1, 12)) / 12,
-        mel_config={'sample_rate': 16000, 'hop_length': 512, 'window_seconds': 15,
-                    'n_mels': 128, 'center': True}, durations={'1': 31.0})
-    (mel, valid, starts), *_ = ds[0]
-    assert mel.shape == (3, 1, 128, 469)
-    assert starts.tolist() == [0., 15., 30.]
-    assert valid.tolist() == [469, 469, 32]
-    assert not mel[2, :, :, 32:].any()

@@ -4,31 +4,24 @@ These are the shared contracts every project component must follow. They prevent
 independently developed branches from using incompatible data, tensor shapes,
 targets, artifacts, or evaluation rules.
 
-> **Applicability, 2026-09-28:** This records the earlier 96-mel/40-instrument/
-> 87-genre shared-data design and GPU research gates. It is not the current
-> six-genre, 41-instrument joint-run data contract. For that run use
-> [joint-training.md](joint-training.md), [modal-training.md](modal-training.md),
-> and the [Harmony v3 snapshot](../harmony_branch/docs/architecture-versions/v3/README.md).
-> General principles below (official splits, stable IDs, no target leakage)
-> still apply, but do not substitute old dimensions or cache assumptions.
-
-Historical architecture choices are in [architecture.md](architecture.md) and
-the earlier work sequence in [project-plan.md](project-plan.md). This file
-preserves cross-team rules and development workflow from that stage.
+Architecture choices are documented in [architecture.md](architecture.md). Work
+remaining is documented in [project-plan.md](project-plan.md). This file owns the
+cross-team rules and development workflow.
 
 ## 1. Canonical data contract
 
 ### Song identity and splits
 
 - Normalize every song ID to the same seven-digit string format.
-- Use the official MTG-Jamendo `split-0` train, validation, and test partitions.
+- Use the frozen 7,324-track assignments in `data/track_split_assignments.csv`
+  (5,127 train, 1,099 validation, 1,098 test).
 - Reject duplicate song IDs and conflicting split assignments.
 - Join artifacts by `song_id`, never by row position alone.
 - Keep the exact song IDs used by every experiment.
 
 ### Label vocabularies
 
-- Use the split-specific genre and instrument vocabularies.
+- Use the fixed six-genre and 41-instrument project vocabularies.
 - Define one fixed column order for each multi-label target.
 - Store that order with target artifacts, predictions, and checkpoints.
 - Do not treat a song without instrument annotations as an all-negative example.
@@ -56,7 +49,7 @@ the same.
 
 ## 2. Audio and log-Mel contract
 
-The earlier precomputed-input schema was `mtg_full_audio_logmel_windows_v1`. It
+The current precomputed-input schema is `mtg_full_audio_logmel_windows_v1`. It
 matches the official MTG-Jamendo [Mel extraction
 script](https://github.com/MTG/mtg-jamendo-dataset/blob/master/scripts/melspectrograms.py):
 
@@ -67,8 +60,8 @@ script](https://github.com/MTG/mtg-jamendo-dataset/blob/master/scripts/melspectr
 | Mel representation | 96 Slaney Mel power bands followed by linear-to-dB conversion |
 | Source duration | Full-song precomputed Mel, not a single center crop |
 | Model window | 1,366 frames (approximately 29.1 seconds) |
-| Song cap | All valid ordered windows by default (`--max-windows 0`) |
-| Long songs | Use every non-overlapping chunk by default; a positive cap selects evenly spaced chunks including the beginning and end |
+| Song cap | 12 ordered windows |
+| Long songs | Select evenly spaced non-overlapping chunk indices, including the beginning and end |
 | Short/final windows | Right-pad time with zero; mark the window real in the mask |
 | Unused slots | All-zero tensor with mask value zero |
 | Additional normalization | None in v1; any later change is a separately versioned decision |
@@ -316,7 +309,7 @@ cap, or test policy requires a new run ID and review.
 
 ## 7. Evaluation contract
 
-All compared genre models must use the same official split, label order, and
+All compared genre models must use the same frozen 7,324-track split, label order, and
 evaluated song cohort. Save predictions and exact evaluated song IDs so this can be
 verified.
 

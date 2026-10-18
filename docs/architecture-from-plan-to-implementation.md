@@ -1,17 +1,8 @@
-# Historical architecture transition record (through 2026-09-24)
+# Architecture from first plan to current implementation
 
-> **Status, 2026-09-28:** This is a dated account of earlier contracts, not
-> a live architecture specification. Its 40 instruments, 87 genres, and
-> Harmony v1 embedding route have been superseded. For current Harmony v3
-> shapes, losses, and fusion values see the
-> [versioned snapshot](../harmony_branch/docs/architecture-versions/v3/README.md).
-
-This document records the proposed model at that stage: the **original plan**, what **Thevindu implemented** on `thevindu-concept-fusion`, what **Anupama** and **Senindu** published on `main`, and the architecture after those contracts were absorbed.
+This document is the full story of the proposed model: the **original plan**, what **Thevindu implemented** on `thevindu-concept-fusion`, what **Anupama** and **Senindu** published on `main`, and the **current architecture** after those contracts were absorbed.
 
 Fixture scores are not research numbers.
-
-Current instrument outputs use the fixed 41-tag project vocabulary, including
-`ukulele`. Sections 2 and 3 retain the earlier 40-tag design as history.
 
 ---
 
@@ -22,7 +13,7 @@ Target: explainable multi-label genre classification on MTG-Jamendo official spl
 Planned flow (`docs/proposed-architecture.md`):
 
 ```text
-up to 12 log-mel windows → shared CNN → song representation
+up to 16 log-mel windows → shared CNN → song representation
     → four concept branches (instrument / rhythm / timbre / harmony)
     → gated fusion → 128-D → 87 genre logits
 ```
@@ -49,10 +40,12 @@ That first contract is what Anupama and Senindu later revised for their own bran
 
 ## 3. Anupama instrument v2 (already on `main`)
 
-`instrument_branch/`: `song_repr (B,128) → Linear(128,128)→ReLU→Dropout→Linear(128,40) → logits / probabilities`.
+`instrument_branch/`: `song_repr (B,128) → Linear(128,128)→ReLU→Dropout→Linear(128,41) → logits / probabilities`.
 
-- **No `fusion_token`.** Fusion owns `Linear(40, 64)`.
-- Official **alphabetical** 40-tag vocabulary.
+- **No `fusion_token`.** Fusion owns `Linear(41, 64)`.
+- Full **alphabetical** 41-tag vocabulary, including ukulele.
+- The local 41-column labels preserve the saved train/validation/test assignments;
+  the filtered official 40-tag split files are used only for historical comparison.
 - Weak-closed-world masks; missing annotation rows stay in genre training.
 - Hidden `(B,128)` detached diagnostics only.
 
@@ -68,25 +61,25 @@ Merged as PR #4. Package: `timbre_branch/`.
 h_audio (B, 128)
   → Linear(128, 128) → LayerNorm → GELU → Dropout(0.20)
   → Linear(128, 64) → GELU
-  → Linear(64, 35)
-  → z_timbre = d_hat_standardized (B, 35)
+  → Linear(64, 12)
+  → z_timbre = d_hat_standardized (B, 12)
 ```
 
-- Strict bottleneck: fusion must consume **only** the 35 named concepts.
+- Strict bottleneck: fusion must consume **only** the 12 named concepts.
 - Concatenating `h_audio` with `z_timbre` is forbidden — that would bypass the bottleneck.
 - No sigmoid/softmax: standardized descriptors can be positive or negative.
 - Original acoustic units are recovered with a **training-only** standardizer for explanations.
 - Loss: masked Smooth L1 over valid descriptor cells.
 
-### Frozen 35-feature order (`FEATURE_COLUMNS`)
+### Frozen 12-feature order (`FEATURE_COLUMNS`)
 
-Spectral shape (7): centroid/bandwidth mean+std, contrast, flatness, rolloff.
-Harmonic/noise (2): HNR dB, inharmonicity.
-MFCC envelope (26): mfcc_01..13 mean and std.
+Spectral shape (8): centroid/bandwidth mean+std, skewness, contrast, flatness, rolloff.
+Spectral dynamics (2): spectral flux mean and std.
+Harmonic/noise (2): HNR dB and inharmonicity.
 
 ### What the branch returns
 
-The model returns a tensor `(B, 35)`. Inference helper:
+The model returns a tensor `(B, 12)`. Inference helper:
 
 ```python
 {"z_timbre", "d_hat_standardized", "d_hat_original_units", "feature_names"}
@@ -96,9 +89,9 @@ There is **no `fusion_token`**.
 
 ### Data note
 
-7,324 selected tracks have a complete 35-column target table (gitignored CSV). Real encoder embeddings are still required for paper training.
+7,324 selected tracks have a complete 12-column target table (gitignored CSV). Real encoder embeddings are still required for paper training.
 
-Main also removed the old hosted Colab/Kaggle notebook set in that merge. Proposed-architecture.md now lists timbre supervision as **35** descriptors, not 6 or 32.
+Main also removed the old hosted Colab/Kaggle notebook set in that merge. Proposed-architecture.md now lists timbre supervision as **12** descriptors, not 6 or 32.
 
 ---
 
@@ -106,13 +99,13 @@ Main also removed the old hosted Colab/Kaggle notebook set in that merge. Propos
 
 | | First fusion contract | After Senindu v2 |
 |---|---|---|
-| Timbre `C_k` | Provisional **6** | Frozen **35** |
-| Timbre fusion input | Branch-owned `fusion_token (B,64)` | `z_timbre (B,35)` standardized |
-| Who owns `Linear(35,64)` | Assumed inside the branch | **Fusion** (`TokenAssembler.timbre_projection`) |
+| Timbre `C_k` | Provisional **6** | Frozen **12** |
+| Timbre fusion input | Branch-owned `fusion_token (B,64)` | `z_timbre (B,12)` standardized |
+| Who owns `Linear(12,64)` | Assumed inside the branch | **Fusion** (`TokenAssembler.timbre_projection`) |
 | `h_audio` into fusion | Not specified | **Rejected** (bypasses the bottleneck) |
 | Feature order | Unspecified | `TIMBRE_FEATURES` loaded from Senindu’s `constants.py` |
 
-Current instrument handling uses fusion-owned `Linear(41,64)`.
+Instrument handling is unchanged: still fusion-owned `Linear(41,64)`.
 
 Rhythm still supplies a provisional 64D token. Harmony now has a published
 integration candidate described below.
@@ -142,7 +135,7 @@ shared encoder
     ├── pooled song (B,128) → Instrument v2 → 41 probs → Linear(41,64)
     ├── ordered features (B,T,128) → Rhythm v1 → token (B,64)
     │                                      └→ 10 AB regression predictions
-    ├── pooled song (B,128) → Timbre v2 → 35 values → Linear(35,64)
+    ├── pooled song (B,128) → Timbre v2 → 12 values → Linear(12,64)
     └── ordered features → Harmony v1 → embedding (B,D) → Linear(D,64)
                                       └→ temporal chroma/chord auxiliary losses
                     ↓
@@ -150,7 +143,7 @@ shared encoder
                     ↓
      dropout p=0.15 → LayerNorm → gated / concat / attention
                     ↓
-            fused (B, 128) → 6 genre logits → independent sigmoid
+            fused (B, 128) → 87 genre logits → independent sigmoid
 ```
 
 Ingest helpers:
@@ -166,7 +159,7 @@ python -m pytest tests -q
 python scripts/run_all_fusion.py --quick
 ```
 
-Next live wiring requires representative-cohort rows, Dehan's `song_repr` for instrument
+Next live wiring requires the frozen 7,324 project rows, Dehan's `song_repr` for instrument
 and timbre, and ordered encoder features plus accepted pseudo-labels for harmony.
 
 Related: [ADR](adr/0001-concept-fusion-architecture.md), [fusion runbook](concept-fusion-runbook.md), [instrument README](../instrument_branch/README.md), [timbre README](../timbre_branch/README.md).

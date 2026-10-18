@@ -6,7 +6,9 @@ import csv
 LOGMEL_SCHEMA_VERSION = "mtg_full_audio_logmel_windows_v1"
 LOGMEL_N_MELS = 96
 LOGMEL_WINDOW_FRAMES = 1366
-LOGMEL_MAX_WINDOWS = 12
+LOGMEL_WINDOW_SECONDS = 15
+LOGMEL_MAX_TRACK_SECONDS = 4 * 60
+LOGMEL_MAX_WINDOWS = LOGMEL_MAX_TRACK_SECONDS // LOGMEL_WINDOW_SECONDS  # 16 complete windows
 LOGMEL_SAMPLE_RATE = 12000
 LOGMEL_HOP_LENGTH = 256
 
@@ -74,10 +76,10 @@ def _canonical_logmel(raw, n_mels: int):
 
 
 def _selected_chunk_indices(frame_count: int, n_frames: int, max_windows: int):
-    if frame_count < 1 or n_frames < 1 or max_windows < 0:
-        raise ValueError("frame counts must be positive and window limit nonnegative")
+    if frame_count < 1 or n_frames < 1 or max_windows < 1:
+        raise ValueError("frame counts and window limits must be positive")
     n_chunks = (frame_count + n_frames - 1) // n_frames
-    if max_windows == 0 or n_chunks <= max_windows:
+    if n_chunks <= max_windows:
         return np.arange(n_chunks, dtype=int)
     return np.linspace(0, n_chunks - 1, max_windows, dtype=int)
 
@@ -115,11 +117,10 @@ def segment_logmel_with_metadata(raw, *, n_mels: int, n_frames: int, max_windows
         full, n_mels=n_mels, n_frames=n_frames, max_windows=max_windows,
     )
 
-    output_windows = len(plan) if max_windows == 0 else max_windows
-    windows = np.zeros((output_windows, n_mels, n_frames), dtype=np.float32)
-    mask = np.zeros(output_windows, dtype=np.float32)
-    valid_frames = np.zeros(output_windows, dtype=np.int64)
-    start_seconds = np.zeros(output_windows, dtype=np.float32)
+    windows = np.zeros((max_windows, n_mels, n_frames), dtype=np.float32)
+    mask = np.zeros(max_windows, dtype=np.float32)
+    valid_frames = np.zeros(max_windows, dtype=np.int64)
+    start_seconds = np.zeros(max_windows, dtype=np.float32)
     for item in plan:
         output_index = item["window_index"]
         start = item["frame_start"]

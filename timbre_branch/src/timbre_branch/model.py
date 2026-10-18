@@ -5,26 +5,27 @@ from typing import Any, Mapping
 
 import torch
 from torch import Tensor, nn
+from shared_encoder.architecture import activation
 
 
 @dataclass(frozen=True)
 class TimbreBranchConfig:
     input_dim: int = 128
-    hidden_dim: int = 128
-    bottleneck_hidden_dim: int = 64
-    output_dim: int = 35
-    dropout: float = 0.20
+    hidden_dim: int = 64
+    output_dim: int = 12
+    dropout: float = 0.15
+    activation: str = "gelu"
 
     def __post_init__(self) -> None:
-        for name in ("input_dim", "hidden_dim", "bottleneck_hidden_dim", "output_dim"):
+        for name in ("input_dim", "hidden_dim", "output_dim"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
         if not 0.0 <= self.dropout < 1.0:
             raise ValueError("dropout must be in [0, 1)")
         if self.input_dim != 128:
             raise ValueError("The shared encoder contract requires input_dim=128")
-        if self.output_dim != 35:
-            raise ValueError("The timbre concept contract requires output_dim=35")
+        if self.output_dim != 12:
+            raise ValueError("The timbre concept contract requires output_dim=12")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -35,7 +36,7 @@ class TimbreBranchConfig:
 
 
 class TimbreBranch(nn.Module):
-    """Predict 35 standardized, named timbre concepts from a 128-D embedding.
+    """Predict 12 standardized, named timbre concepts from a 128-D embedding.
 
     The returned tensor is both ``d_hat`` and ``z_timbre``. There is deliberately
     no path that passes the unrestricted shared embedding around this output.
@@ -47,11 +48,9 @@ class TimbreBranch(nn.Module):
         self.network = nn.Sequential(
             nn.Linear(self.config.input_dim, self.config.hidden_dim),
             nn.LayerNorm(self.config.hidden_dim),
-            nn.GELU(),
+            activation(self.config.activation),
             nn.Dropout(self.config.dropout),
-            nn.Linear(self.config.hidden_dim, self.config.bottleneck_hidden_dim),
-            nn.GELU(),
-            nn.Linear(self.config.bottleneck_hidden_dim, self.config.output_dim),
+            nn.Linear(self.config.hidden_dim, self.config.output_dim),
         )
 
     def forward(self, h_audio: Tensor) -> Tensor:

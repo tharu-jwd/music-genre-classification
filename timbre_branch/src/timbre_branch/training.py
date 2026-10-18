@@ -5,8 +5,9 @@ from typing import Any
 
 import numpy as np
 import torch
+from torch import nn
 
-from .constants import ARCHITECTURE_VERSION, FEATURE_COLUMNS
+from .constants import FEATURE_COLUMNS
 from .losses import masked_smooth_l1_loss
 from .model import TimbreBranch, TimbreBranchConfig
 from .preprocessing import TimbreStandardizer
@@ -87,8 +88,8 @@ def save_checkpoint(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "format_version": 2,
-        "architecture": ARCHITECTURE_VERSION,
+        "format_version": 1,
+        "architecture": "strict_timbre_concept_bottleneck_v2",
         "model_config": model.config.to_dict(),
         "model_state_dict": model.state_dict(),
         "feature_names": list(FEATURE_COLUMNS),
@@ -107,10 +108,10 @@ def load_checkpoint(
     device: torch.device | str = "cpu",
 ) -> tuple[TimbreBranch, TimbreStandardizer, dict[str, Any]]:
     payload = torch.load(path, map_location=device, weights_only=False)
-    if payload.get("format_version") != 2 or payload.get("architecture") != ARCHITECTURE_VERSION:
-        raise ValueError("Checkpoint is not a Timbre Branch Architecture V2 checkpoint")
+    if payload.get("architecture") != "strict_timbre_concept_bottleneck_v2":
+        raise ValueError("Checkpoint timbre architecture is incompatible; retrain with v2")
     if tuple(payload["feature_names"]) != FEATURE_COLUMNS:
-        raise ValueError("Checkpoint feature order does not match the 35-D contract")
+        raise ValueError("Checkpoint feature order does not match the 12-D contract")
     model = TimbreBranch(TimbreBranchConfig.from_dict(payload["model_config"]))
     model.load_state_dict(payload["model_state_dict"])
     model.to(device)

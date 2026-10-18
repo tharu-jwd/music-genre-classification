@@ -105,7 +105,7 @@ class HarmonyCPULadderIntegrationTest(unittest.TestCase):
                 "tags": ["instrument---guitar"],
                 "training_config": {
                     "input_schema": "mtg_full_audio_logmel_windows_v1",
-                    "max_windows": 12,
+                    "max_windows": 16,
                 },
             }, checkpoint_path)
             feature_dir = root / "features"

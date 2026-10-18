@@ -8,8 +8,8 @@ embedding / harmony embedding path remains available only as ``embedding_fusion`
 Instrument v2: 41 probabilities + logits, no fusion token. Fusion owns Linear(41, 64).
 Rhythm v2: 10 standardized predictions are primary; the 64D embedding is retained
 for the embedding-fusion ablation. Fusion owns Linear(10, 64) in the primary mode.
-Timbre v2 (merged from `timbre_branch`): 35 standardized concepts, no fusion token.
-Fusion owns Linear(35, 64).
+Timbre v2 (merged from `timbre_branch`): 12 standardized concepts, no fusion token.
+Fusion owns Linear(12, 64).
 Harmony v3: 12 standardized song-level descriptor predictions are primary during
 joint vector-dataset training. Temporal 12-bin chroma logits remain available for
 aligned chroma supervision, and the 32D song embedding remains available for the
@@ -43,12 +43,12 @@ GENRE_TAGS: tuple[str, ...] = (
 )
 N_INSTRUMENT_TAGS = 41
 N_RHYTHM_CONCEPTS = 10
-N_TIMBRE_CONCEPTS = 35
+N_TIMBRE_CONCEPTS = 12
 N_HARMONY_CHROMA = 12
 N_HARMONY_DESCRIPTORS = 12
 N_HARMONY_CHORDS = 25
 DEFAULT_HARMONY_EMBEDDING_DIM = 32
-INSTRUMENT_HIDDEN_DIM = 128
+INSTRUMENT_HIDDEN_DIM = 64
 # Published branches that do not own a 64-D token. Fusion projects them.
 BRANCHES_WITHOUT_FUSION_TOKEN: frozenset[str] = frozenset(
     {"instrument", "timbre", "harmony"}
@@ -72,11 +72,18 @@ def _load_instrument_tags() -> tuple[str, ...]:
 INSTRUMENT_TAGS: tuple[str, ...] = _load_instrument_tags()
 
 HARMONY_FEATURES: tuple[str, ...] = (
-    "tonal_concentration_mean", "tonal_concentration_std",
-    "chroma_entropy_mean", "chroma_entropy_std",
-    "chroma_flux_mean", "chroma_flux_std",
-    "tonnetz_movement_mean", "tonnetz_movement_std",
-    "valid_tonal_ratio", "tonnetz_01_mean", "tonnetz_02_mean", "tonnetz_03_mean",
+    "global_key_strength",
+    "mode_confidence",
+    "key_stability",
+    "chroma_entropy_mean",
+    "chroma_entropy_std",
+    "chroma_flux_mean",
+    "tonnetz_movement_mean",
+    "tonal_centroid_radius_mean",
+    "chroma_recurrence_15s",
+    "chord_strength_mean",
+    "chord_change_rate",
+    "chord_vocabulary_ratio",
 )
 assert len(HARMONY_FEATURES) == N_HARMONY_DESCRIPTORS
 
@@ -147,7 +154,7 @@ DEFAULT_SEEDS = (0, 1, 2)
 class ConceptCounts:
     instrument: int = N_INSTRUMENT_TAGS  # 41
     rhythm: int = N_RHYTHM_CONCEPTS       # 10
-    timbre: int = N_TIMBRE_CONCEPTS        # 35
+    timbre: int = N_TIMBRE_CONCEPTS        # 12
     harmony: int = N_HARMONY_DESCRIPTORS   # 12 song-level harmony descriptors
 
     def for_name(self, name: str) -> int:
