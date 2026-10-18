@@ -73,8 +73,11 @@ modal run --detach modal_paper.py::paper --action run --phase all --run-name $ex
 removals; `--run-name` limits execution to the single named run. Different run
 names can run concurrently. Do not launch the same run twice. Rerunning a command
 skips completed compatible runs; partial runs stop rather than overwrite files.
-Keep the terminal open until the job starts. `--detach` lets the submitted remote
-job continue if your terminal disconnects; reconnect to inspect its results.
+Keep the terminal open until it prints `"status": "submitted"` and a function-call
+ID. The `run` action submits the combined training-and-test job using `.spawn()`;
+the command returns while the job continues in Modal. Keep `--detach` so its App
+also stays alive. Monitor progress through the Modal dashboard App link printed
+by the command. A submission message does not mean the results are ready.
 
 Each run saves a folder such as `paper-v2-full-s42` in `music-genre-runs`:
 
@@ -134,6 +137,31 @@ Analysis runs locally without a GPU. Its most useful outputs are:
 | `concept_summary.csv` | Whether the branches predict their intended concepts accurately |
 | `genre_performance.pdf` | Main genre-performance chart |
 | `branch_removal_heatmap.pdf` | How removing each branch changes performance for each genre |
+
+For clearer paper figures from an existing analysis, run:
+
+```powershell
+python scripts/paper_figures.py --analysis-dir results/paper-analysis-final
+```
+
+This reads the saved tables and bootstrap intervals without rerunning analysis.
+It writes PDF/SVG vector figures and 400-dpi PNG previews into `paper-figures/`,
+preserving the original figures and tables. The four figures cover overall genre
+performance, annotated branch-removal differences, paired confidence intervals,
+and concept prediction quality. Caption text is in `figure_captions.md`.
+
+If a reviewed difference in source fingerprints is the only blocker, add
+`--allow-source-mismatch` to the analysis command. The default remains strict.
+This option prints warnings and records each affected run, file, and original hash
+in `analysis.json`. Dataset hashes, architecture/settings, prediction hashes, track
+alignment, and capacity checks remain enforced. It does not edit downloaded results
+or certify that arbitrary source changes are scientifically equivalent.
+
+For the currently downloaded 21-run study, three differing files were traced to
+line endings. The remaining difference is in the standalone timbre loss module;
+the paper trainer uses the unchanged `concept_fusion/joint_loss.py` implementation
+instead. The old standalone file was not recovered for an exact comparison.
+The explicit override permits analysis while preserving this provenance limitation.
 
 Higher average precision/F1 is better. Lower descriptor MAE/RMSE is better.
 Standard deviation describes variation between training repetitions. A positive

@@ -42,6 +42,7 @@ image = (
         "scikit-learn==1.6.1",
         "torch==2.7.1",
     )
+    .env({"PYTHONPATH": str(PROJECT_DIR)})
     .add_local_dir("concept_fusion", str(PROJECT_DIR / "concept_fusion"))
     .add_local_dir("shared_encoder", str(PROJECT_DIR / "shared_encoder"))
     .add_local_dir("configs", str(PROJECT_DIR / "configs"))
@@ -49,6 +50,7 @@ image = (
     .add_local_dir("timbre_branch/src/timbre_branch", str(PROJECT_DIR / "timbre_branch/src/timbre_branch"))
     .add_local_dir("harmony_branch/src/harmony_branch", str(PROJECT_DIR / "harmony_branch/src/harmony_branch"))
     .add_local_dir("instrument_branch/docs", str(PROJECT_DIR / "instrument_branch/docs"))
+    .add_local_file("scripts/__init__.py", str(PROJECT_DIR / "scripts/__init__.py"))
     .add_local_file("scripts/train_cnn.py", str(PROJECT_DIR / "scripts/train_cnn.py"))
     .add_local_file("scripts/train_joint.py", str(PROJECT_DIR / "scripts/train_joint.py"))
     .add_local_file("scripts/mtg_data_contract.py", str(PROJECT_DIR / "scripts/mtg_data_contract.py"))

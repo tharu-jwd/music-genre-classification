@@ -17,7 +17,14 @@ from tests.test_modular_training import write_dataset
 
 
 @pytest.mark.parametrize("branches,weight", [((), 0), (j.CONCEPT_ORDER, 1), (j.CONCEPT_ORDER, 0)])
-def test_checkpoint_only_evaluation_reproduces_training_and_preserves_weights(tmp_path, branches, weight):
+def test_checkpoint_only_evaluation_reproduces_training_and_preserves_weights(tmp_path, monkeypatch, branches, weight):
+    # Paper training uses JointLossOrchestrator, not the standalone timbre trainer's loss.
+    import timbre_branch
+    import timbre_branch.losses
+    def standalone_loss_must_not_run(*args, **kwargs):
+        pytest.fail("Paper training/evaluation called the standalone timbre loss")
+    monkeypatch.setattr(timbre_branch, "masked_smooth_l1_loss", standalone_loss_must_not_run)
+    monkeypatch.setattr(timbre_branch.losses, "masked_smooth_l1_loss", standalone_loss_must_not_run)
     data = tmp_path / "data"
     write_dataset(data, j.CONCEPT_ORDER)
     frame = pd.read_csv(data / 'dataset.csv', dtype={"TRACK_ID": str})
@@ -118,10 +125,36 @@ def test_analysis_aligns_tracks_and_does_not_ensemble_seeds(tmp_path):
     pairs = [(truth, np.full_like(truth, 0.5, dtype=float), 0.8 * truth + 0.1)] * 3
     result = paired_seed_average_bootstrap(pairs, n_resamples=100)
     assert result["mean_seed_difference"] == pytest.approx(0.5)
+    # Source differences are blocked by default and explicitly recorded on override.
+    metadata_path = folder / "results.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["code_fingerprints"] = {"timbre_branch/src/timbre_branch/losses.py": "different-version"}
+    write_json(metadata_path, metadata)
+    with pytest.raises(ValueError, match="different model/evaluation source"):
+        analyze(path, out_dir=tmp_path / "source-blocked", plots=False)
+    analyze(path, out_dir=tmp_path / "source-override", plots=False, allow_source_mismatch=True)
+    audit = json.loads((tmp_path / "source-override" / "analysis.json").read_text())
+    assert audit["source_consistency_overridden"] is True
+    assert audit["source_reference_run"] == manifest["runs"][0]["run_id"]
+    assert audit["source_mismatches"] == [dict(run_id=run["run_id"],
+        reference_run=manifest["runs"][0]["run_id"], source_fingerprints_missing=False,
+        differences={"timbre_branch/src/timbre_branch/losses.py":
+                     dict(reference_sha256=None, run_sha256="different-version")})]
+    # The source override must not bypass data or prediction integrity checks.
+    first_path = Path(manifest["runs"][0]["config"]["out_dir"]) / "results.json"
+    first = json.loads(first_path.read_text())
+    first["dataset_fingerprints"] = {"dataset": {"sha256": "original-dataset"}}
+    write_json(first_path, first)
+    metadata["dataset_fingerprints"] = {"dataset": {"sha256": "changed-dataset"}}
+    write_json(metadata_path, metadata)
+    with pytest.raises(ValueError, match="Run datasets differ"):
+        analyze(path, out_dir=tmp_path / "dataset-blocked", plots=False, allow_source_mismatch=True)
+    metadata.pop("dataset_fingerprints")
+    write_json(metadata_path, metadata)
     with (folder / "test_predictions.npz").open("ab") as artifact:
         artifact.write(b"changed")
     with pytest.raises(ValueError, match="Prediction file differs"):
-        analyze(path, out_dir=tmp_path / "bad-analysis", plots=False)
+        analyze(path, out_dir=tmp_path / "bad-analysis", plots=False, allow_source_mismatch=True)
 
 
 def test_teammate_archives_combine_without_overwriting_or_unexpected_paths(tmp_path):

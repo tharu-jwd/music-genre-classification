@@ -5,8 +5,11 @@ command starts exactly one configuration/seed run, trains for 30 epochs,
 uses validation genre macro average precision to select the best checkpoint,
 then evaluates that checkpoint on test. Test results do not select checkpoints.
 Training and test evaluation execute within the same remote GPU job.
-Keep the terminal open until Modal confirms the GPU job has started; `--detach`
-lets that remote job continue if the terminal disconnects afterward.
+Keep the terminal open until it prints `"status": "submitted"` and a function-call
+ID. The command then exits; training continues in Modal. The `run` action uses
+`.spawn()` to submit a durable job, and `--detach` keeps its App alive after the
+local command exits. Monitor progress using the Modal dashboard App link printed
+by the command. Submission does not mean training or test evaluation has finished.
 
 Every workspace must use the same project snapshot and manifest, the same
 `vector-dataset.csv` and `track_split_assignments.csv` uploaded to

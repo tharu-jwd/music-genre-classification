@@ -68,7 +68,7 @@ def paired_seed_average_bootstrap(pairs, *, n_resamples=2000, confidence=0.95, s
 
 
 def analyze(manifest_path, *, split="test", out_dir="results/paper-analysis", allow_incomplete=False,
-            n_resamples=0, plots=True, runs_root=None):
+            n_resamples=0, plots=True, runs_root=None, allow_source_mismatch=False):
     manifest = load_manifest(manifest_path)
     destination = Path(out_dir)
     if destination.exists() and any(destination.iterdir()):
@@ -77,6 +77,8 @@ def analyze(manifest_path, *, split="test", out_dir="results/paper-analysis", al
     predictions, reference_ids, reference_targets, reference_names = {}, None, None, None
     dataset_hashes = {}
     source_hashes = None
+    source_reference_run = None
+    source_mismatches = []
     for run in manifest["runs"]:
         directory = Path(runs_root) / run["run_id"] if runs_root else Path(run["config"]["out_dir"])
         path = directory / f"{split}_predictions.npz"
@@ -87,10 +89,24 @@ def analyze(manifest_path, *, split="test", out_dir="results/paper-analysis", al
         metadata = json.loads(result_path.read_text(encoding="utf-8"))
         if metadata["config"].get("architecture") != run["config"].get("architecture"):
             raise ValueError(f"Run architecture differs from the current study config: {run['run_id']}")
-        if source_hashes is None:
+        if source_reference_run is None:
             source_hashes = metadata.get("code_fingerprints")
+            source_reference_run = run["run_id"]
         elif metadata.get("code_fingerprints") != source_hashes:
-            raise ValueError("Runs used different model/evaluation source versions")
+            if not allow_source_mismatch:
+                raise ValueError("Runs used different model/evaluation source versions; "
+                                 "review the differences before using --allow-source-mismatch")
+            current_hashes = metadata.get("code_fingerprints")
+            reference_files, current_files = source_hashes or {}, current_hashes or {}
+            differences = {name: dict(reference_sha256=reference_files.get(name),
+                                      run_sha256=current_files.get(name))
+                           for name in sorted(set(reference_files) | set(current_files))
+                           if reference_files.get(name) != current_files.get(name)}
+            source_mismatches.append(dict(run_id=run["run_id"], reference_run=source_reference_run,
+                                          differences=differences,
+                                          source_fingerprints_missing=current_hashes is None))
+            print(f"WARNING: accepting source mismatch for {run['run_id']}: "
+                  f"{', '.join(differences) or 'missing fingerprints'}", file=sys.stderr)
         for name, fingerprint in metadata.get("dataset_fingerprints", {}).items():
             if name in dataset_hashes and dataset_hashes[name] != fingerprint["sha256"]:
                 raise ValueError(f"Run datasets differ for {name}")
@@ -224,45 +240,21 @@ def analyze(manifest_path, *, split="test", out_dir="results/paper-analysis", al
     (destination / "main_table.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     write_json(destination / "analysis.json", dict(split=split, missing_runs=missing, exploratory=bool(missing),
         metric_version=METRIC_VERSION, bootstrap=intervals,
+        source_consistency_overridden=bool(source_mismatches),
+        source_reference_run=source_reference_run, source_reference_fingerprints=source_hashes,
+        source_mismatches=source_mismatches,
         notes=["Standard deviations describe training-seed variation; bootstrap intervals describe track-sampling variation.",
                "Branch-removal differences include capacity changes.", "F1 uses threshold 0.5.",
                "No classifier-weight causal interpretation or multiple-comparison significance claims."]))
     if plots:
-        make_plots(destination, summary, genre_summary, pd.DataFrame(genre_differences))
+        make_plots(destination, summary, genre_summary, pd.DataFrame(genre_differences),
+                   runs=runs, bootstrap=intervals, concepts=outputs.get("concept_summary"))
     return outputs
 
 
-def make_plots(destination, summary, genres, differences):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    plt.rcParams.update({"font.size": 10})
-    fig, ax = plt.subplots(figsize=(9, 4))
-    x = np.arange(len(summary))
-    ax.bar(x, summary["macro_average_precision_mean"], yerr=summary["macro_average_precision_sd"].fillna(0), capsize=4)
-    ax.set_xticks(x, summary["configuration"], rotation=25, ha="right")
-    ax.set_ylabel("Macro average precision (mean ± seed SD)")
-    ax.set_ylim(0, 1)
-    fig.tight_layout()
-    fig.savefig(destination / "genre_performance.pdf")
-    fig.savefig(destination / "genre_performance.png", dpi=200)
-    plt.close(fig)
-    if not differences.empty:
-        removals = differences[differences["comparison"].str.startswith("removal-")]
-        if not removals.empty:
-            matrix = removals.pivot_table(index="comparison", columns="genre", values="delta_ap")
-            if matrix.empty:
-                return
-            fig, ax = plt.subplots(figsize=(9, 4))
-            limit = max(float(np.nanmax(np.abs(matrix.to_numpy()))), 0.001)
-            im = ax.imshow(matrix, cmap="RdBu", vmin=-limit, vmax=limit)
-            ax.set_xticks(np.arange(len(matrix.columns)), matrix.columns, rotation=25, ha="right")
-            ax.set_yticks(np.arange(len(matrix.index)), matrix.index)
-            fig.colorbar(im, ax=ax, label="Full model AP − branch-removal AP")
-            fig.tight_layout()
-            fig.savefig(destination / "branch_removal_heatmap.pdf")
-            fig.savefig(destination / "branch_removal_heatmap.png", dpi=200)
-            plt.close(fig)
+def make_plots(destination, summary, genres, differences, *, runs=None, bootstrap=None, concepts=None):
+    from scripts.paper_figures import render_figures
+    render_figures(destination, summary, differences, runs=runs, bootstrap=bootstrap, concepts=concepts)
 
 
 def main():
@@ -272,6 +264,9 @@ def main():
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--runs-root", type=Path, help="Downloaded run folders, overriding remote /runs paths")
     parser.add_argument("--allow-incomplete", action="store_true")
+    parser.add_argument("--allow-source-mismatch", action="store_true",
+                        help="Explicitly accept differing source hashes and record them in analysis.json; "
+                             "all dataset, architecture and prediction checks remain enforced")
     parser.add_argument("--n-resamples", type=int, default=0)
     parser.add_argument("--no-plots", action="store_true")
     args = vars(parser.parse_args())

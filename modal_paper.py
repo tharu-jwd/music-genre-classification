@@ -1,7 +1,14 @@
 # Modal entry point for the fixed 21-run paper protocol.
 import json
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from modal_app import (app, train_remote, train_and_evaluate_remote, evaluate_remote, pilot_remote, paper_status_remote,
-                       DATA_MOUNT, AUDIO_MOUNT, RUNS_MOUNT, DATASET_FILENAME)
+                       DATA_MOUNT, AUDIO_MOUNT, RUNS_MOUNT, RUNS_VOLUME_NAME, DATASET_FILENAME)
 
 
 @app.local_entrypoint()
@@ -71,8 +78,11 @@ def paper(action: str = "plan", phase: str = "core", seed: int = 0,
                 architecture=cfg["architecture"],
                 dataset_filename="vector-dataset.csv")
             if action == "run":
-                result = train_and_evaluate_remote.with_options(gpu=gpu).remote(
+                call = train_and_evaluate_remote.with_options(gpu=gpu).spawn(
                     arguments, train_completed=status["state"] == "complete")
+                result = dict(status="submitted", run_name=run["run_id"],
+                              function_call_id=call.object_id,
+                              results_volume=RUNS_VOLUME_NAME)
             else:
                 result = train_remote.with_options(gpu=gpu).remote(**arguments)
         print(json.dumps(result, indent=2), flush=True)
