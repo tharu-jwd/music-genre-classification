@@ -1,4 +1,4 @@
-"""87-logit genre head. Sigmoid is applied exactly once, in metrics — never here."""
+"""Genre logits; sigmoid is applied during evaluation, not in this head."""
 
 from __future__ import annotations
 

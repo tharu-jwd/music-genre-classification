@@ -1,8 +1,16 @@
 # Harmony branch
 
-## Current data contract
+## Current V2 paper configuration
 
-The completed baseline uses **45 interpretable track-level harmony descriptors**
+Joint training predicts **12 harmony descriptors**, selected by the shared
+`HARMONY_FEATURES` contract in `concept_fusion/contract.py`. Architecture settings
+come from `configs/architecture.json`. See the
+[current architecture](../docs/common-concept-architecture.md) and
+[paper workflow](../docs/paper-quickstart.md).
+
+## Earlier descriptor dataset and temporal experiments
+
+The earlier extracted descriptor dataset contains **45 interpretable track-level harmony descriptors**
 extracted from the first `min(track duration, 240 seconds)` of all 7,324 selected
 tracks. The clean table is `../data/harmony_df.csv`; the detailed auditable table
 is `data/harmony_features_raw.csv`.
@@ -32,9 +40,9 @@ harmony_branch/
 └── docs/
 ```
 
-## Contract
+## Legacy temporal contract
 
-For current extracted features, use the
+For the earlier extracted descriptor dataset, use the
 [45-D feature contract](docs/feature-contract.md). See
 [ARCHITECTURE.md](ARCHITECTURE.md) for both the current descriptor boundary and the
 legacy temporal network, tensor, alignment, masking, loss, and fusion design.

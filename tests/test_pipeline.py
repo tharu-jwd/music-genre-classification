@@ -36,10 +36,10 @@ def test_jobs_include_required_matrix():
     assert len(jobs_for(quick=False)) > len(jobs_for(quick=True))
 
 
-def test_thresholds_fit_on_validation_only():
+def test_thresholds_fit_on_validation_only(tmp_path):
     c = make_cohort(n_train=8, n_val=8, n_test=8, seed=2)
     spec = next(s for s in experiment_specs() if s.experiment_id == "F-Gated")
-    rec = train_one(spec, 0, c, PipelineConfig(out_dir=Path("results/proposed/mock_test"), steps=3, batch_size=4))
+    rec = train_one(spec, 0, c, PipelineConfig(out_dir=tmp_path, steps=3, batch_size=4))
     assert rec.split_used_for_selection == "validation"
     assert rec.extra["threshold_split"] == "validation"
     assert rec.extra["test_song_ids"] == c.test.song_ids

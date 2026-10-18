@@ -178,7 +178,7 @@ def render_figures(destination, summary, differences, *, runs=None, bootstrap=No
             bar_width = 0.23
             for offset, (config, source, label, color) in enumerate(selected):
                 subset = concepts[(concepts.configuration == config) & (concepts.source == source)].set_index("branch")
-                if "instrument" in subset.index:
+                if "instrument" in subset.index and pd.notna(subset.loc["instrument", "macro_average_precision_mean"]):
                     row = subset.loc["instrument"]
                     axes[0].bar((offset - 1) * bar_width, row.macro_average_precision_mean * 100,
                                 width=bar_width, color=color,
@@ -187,6 +187,8 @@ def render_figures(destination, summary, differences, *, runs=None, bootstrap=No
                 families = [name for name in ("timbre", "rhythm", "harmony") if name in subset.index]
                 for name in families:
                     row = subset.loc[name]
+                    if pd.isna(row.rmse_standardized_mean):
+                        continue
                     x = ("timbre", "rhythm", "harmony").index(name)
                     axes[1].bar(x + (offset - 1) * bar_width, row.rmse_standardized_mean,
                                 width=bar_width, color=color,

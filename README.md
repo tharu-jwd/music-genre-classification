@@ -1,136 +1,65 @@
-# Concept-Guided Music Genre Classification
+# MuCoNet: Concept-Guided Music Genre Classification
 
-The current joint architecture and parameter-selection rationale are documented in
-[Common concept architecture v2](docs/common-concept-architecture.md).
+MuCoNet predicts six music genres from a shared convolutional audio encoder and
+four supervised concept branches: instruments (41 outputs), timbre (12), rhythm
+(10), and harmony (12). The primary V2 configuration concatenates the concept
+predictions and applies a linear genre classifier. A direct CNN baseline and
+branch-removal comparisons use the same training and evaluation workflow.
 
-Architecture settings are centralized in [configs/architecture.json](configs/architecture.json).
-See [how to edit and check them](docs/architecture-config.md).
+## Current implementation
 
-For the fixed 21-run Modal study, checkpoint evaluation, and analysis commands, see
-[the simple paper quickstart](docs/paper-quickstart.md) or
-[the detailed workflow](docs/paper-experiment-workflow.md).
+- [Architecture and rationale](docs/common-concept-architecture.md)
+- [Editable architecture settings](configs/architecture.json) and
+  [configuration guide](docs/architecture-config.md)
+- [All 21 individual Modal commands](docs/paper-individual-runs.md)
+- [Preparation, training, downloads, and local analysis](docs/paper-quickstart.md)
+- [Detailed experiment workflow](docs/paper-experiment-workflow.md)
+- [Shared encoder tensor and checkpoint contracts](docs/shared-cnn-encoder-architecture.md)
 
-This project is developing an inspectable, multi-label music genre classifier for
-the MTG-Jamendo dataset. The proposed model learns four musical concepts from one
-shared audio representation:
+For the paper experiments, use `data/vector-dataset.csv` and the fixed split table.
+The trainer fits descriptor scaling on training tracks only. The audio cache is
+`mtg-jamendo/logmel_songs` in Modal. Follow the quickstart for workspace setup.
 
-- instruments — what is playing;
-- rhythm — the beat and tempo;
-- timbre — the character of the sound;
-- harmony — pitch classes, tonal movement, and chord changes over time.
+## Main entry points
 
-It learns how much each concept contributes, combines the four representations, and
-predicts every genre that applies to a song.
-
-For CNN-only and selectable concept-branch training, see the
-[modular experiment commands](docs/modular-experiments.md). Use `--branches none`,
-`--branches instrument`, or any subset of `instrument timbre rhythm harmony`.
-
-<p align="center">
-  <img src="docs/diagrams/proposed-concept-guided-architecture.svg" alt="Proposed concept-guided architecture" width="1100">
-</p>
-
-## Current state
-
-The diagram is the target architecture, not a completed implementation. The
-repository contains generated workflows for data preparation, two comparison
-baselines, instrument pretraining, concept-target preparation, standalone instrument,
-timbre, and rhythm branches, and harmony preflight.
-A full clean hosted run has not been proven. The split parser, fixed vocabularies,
-song windowing, cohort consistency, instrument-label availability, bounded harmony
-extractor/branch screening, and GPU runtime gates have CPU-tested implementations.
-The resource-capped harmony CPU ladder now lives under `harmony_branch/scripts/`;
-the retired notebook 06 is not part of the hosted workflow.
-A bounded CPU Essentia chord-baseline generator and evaluator are ready, but their
-external benchmark has not run. The timbre implementation and its synthetic smoke
-test are present, but its real target table and shared-encoder inputs are not tracked.
-The rhythm branch and fusion adapter pass synthetic CPU contract tests, but the real
-AcousticBrainz coverage/interval audit and shared-encoder cache are not tracked.
-Real-audio harmony selection, chord-teacher acceptance, real-branch data loading,
-and a clean end-to-end hosted run remain unresolved before joint-training outputs are
-trustworthy. The temporal harmony/fusion adapter and its CPU integration tests are
-implemented.
-
-The current `main` branch also includes the instrument and timbre workstreams. The
-fixture-tested fusion prototype from `origin/thevindu-concept-fusion` is integrated
-here with a revised harmony contract: temporal predictions remain auxiliary outputs,
-and fusion projects the configurable song embedding to 64D. See the project plan
-before starting real training.
-
-See the [project status and remaining work](docs/project-plan.md) for the exact
-blockers and implementation sequence.
-
-## Documentation
-
-Each document has one purpose:
-
-| Document | Purpose |
+| Purpose | Entry point |
 |---|---|
-| [Architecture](docs/architecture.md) | Existing baselines and the proposed model design |
-| [Shared CNN encoder](docs/shared-cnn-encoder-architecture.md) | Implemented CNN, tensor contract, temporal geometry, masks, and checkpoint compatibility |
-| [Project plan](docs/project-plan.md) | Current status, blockers, ownership boundaries, and remaining work |
-| [Harmony branch](harmony_branch/README.md) | Owned code, tests, documentation, and integration boundary |
-| [Harmony plan](harmony_branch/docs/plan.md) | Step-by-step work owned by the harmony branch |
-| [Harmony integration hand-off](harmony_branch/docs/integration-handoff.md) | Current interface, required artifacts, and executable next commands |
-| [Team standards](docs/team-standards.md) | Shared data, model, artifact, evaluation, and development contracts |
+| One complete paper run: training, validation, and test | `modal_paper.py` |
+| Current joint concept training | `scripts/train_joint.py` |
+| Direct CNN training | `scripts/train_cnn.py` |
+| Local analysis of downloaded run artifacts | `scripts/analyze_paper_runs.py` |
+| Current shared encoder implementation | `shared_encoder/` |
+| Older encoder import path, forwarding to the current implementation | `scripts/shared_audio_encoder.py` |
 
-## Notebook workflows
+Checkpoints and results stay in the configured run directories. Cleanup does not
+change training settings or remove datasets, checkpoints, predictions, or results.
 
-Choose one runtime for the shared data path:
+## Data preparation and optional workflows
 
-- [Google Colab workflow](notebooks/colab/README.md) persists artifacts in Drive.
-- [Kaggle workflow](notebooks/kaggle/README.md) passes saved outputs between notebooks.
+[Colab](notebooks/colab/README.md) and [Kaggle](notebooks/kaggle/README.md) retain
+download, preprocessing, and target-preparation notebooks. Branch packages retain
+standalone training and extraction tools for starting from raw data or running
+separate comparisons.
 
-Only `00` download, `01` preprocessing, and `04` rhythm-target extraction remain.
-The old numbered notebooks `02`–`03` and `05`–`09` are retired; instrument, timbre,
-harmony, and fusion now live in their packages. Generator scripts write only those
-three essential notebooks.
+`scripts/run_all_fusion.py`, `scripts/run_concept_fusion_mock.py`, and the fixture
+pipeline in `concept_fusion/` support synthetic contract checks. Their scores are
+not the paper's real-audio CNN or joint-training results. The optional gated/token
+fusion implementation is retained because it is still selectable in the trainer.
+Harmony chroma/chord screening tools are also retained as a separate legacy route.
 
-## Modal training
+Historical plans and diagrams remain under `docs/` and the branch directories;
+use the V2 architecture document above for the current paper configuration.
+Paper drafting utilities and generated manuscript material live outside this
+repository in the sibling `../paper-writing/` directory.
 
-The joint architecture is configured for `data/vector-dataset-normalized.csv`
-on a persistent Modal GPU runner. See the [Modal training guide](docs/modal-training.md)
-for per-account Volume setup, data upload, smoke-test, full-run, and result-download
-commands.
+## Checks
 
-For an encoder-matched six-genre CNN comparison, see the
-[direct CNN baseline](docs/cnn-baseline.md). Select it with `--model cnn`
-in the local trainer or Modal runner.
+Run the existing tests from this directory:
 
-## Repository structure
-
-```text
-.
-├── README.md
-├── requirements.txt
-├── data/                         # ignored local datasets
-├── docs/
-│   ├── architecture.md
-│   ├── shared-cnn-encoder-architecture.md
-│   ├── project-plan.md
-│   ├── team-standards.md
-│   └── diagrams/
-│       └── proposed-concept-guided-architecture.svg
-├── notebooks/
-│   ├── colab/
-│   ├── kaggle/
-│   └── dataset_split/
-├── instrument_branch/             # 41 instrument concepts from a 128D song input
-├── timbre_branch/                  # 12 standardized timbre concepts from a 128D input
-├── rhythm_branch/                  # 10 learned temporal rhythm concepts
-├── harmony_branch/                 # temporal harmony package, scripts, tests, and docs
-├── shared_encoder/                 # modular shared CNN, geometry, validation, and types
-├── concept_fusion/                # shared contracts, projections, losses, and fusion
-├── scripts/
-│   ├── generate_colab_notebooks.py
-│   ├── generate_kaggle_notebooks.py
-│   ├── shared_audio_encoder.py    # compatibility import for shared_encoder/
-│   ├── freeze_experiment_cohort.py
-│   ├── manage_gpu_budget.py
-│   └── paired_bootstrap_compare.py
-└── tests/
-    └── test_*.py
+```powershell
+python -m pytest
 ```
 
-Large datasets, extracted targets, checkpoints, predictions, and results remain
-outside Git. Their agreed layout and metadata are defined in the team standards.
+Large audio caches, extracted tables, checkpoints, and run artifacts are ignored
+by Git. Generated Python and pytest caches can be removed and are recreated when
+needed.

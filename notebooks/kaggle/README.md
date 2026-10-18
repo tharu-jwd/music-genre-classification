@@ -24,8 +24,13 @@ and evaluation now live in the published packages.
 
 | Retired notebook | Replacement |
 |---|---|
-| `02` direct CNN | `concept_fusion` B1 / `scripts/run_all_fusion.py` |
+| `02` direct CNN | `scripts/train_cnn.py` / `modal_paper.py` (CNN configuration) |
 | `03` instrument pretraining | `instrument_branch/notebooks/03_instrument_branch.ipynb` |
 | `05` timbre targets | `timbre_branch/notebooks/` |
-| `06` harmony targets | `scripts/` harmony CPU ladder |
-| `07`–`09` descriptor fusion | `concept_fusion` + `scripts/run_all_fusion.py` |
+| `06` harmony targets | `harmony_branch/scripts/` (legacy chroma/chord screening) |
+| `07`–`09` descriptor fusion | `scripts/train_joint.py` / `modal_paper.py` |
+
+For the current V2 paper experiments, follow the [paper quickstart](../../docs/paper-quickstart.md).
+The AcousticBrainz notebook and harmony CPU ladder describe older target-preparation
+routes; they do not define the current 10-rhythm/12-harmony feature schema.
+The fusion fixture runner uses synthetic data, not the paper training pipeline.

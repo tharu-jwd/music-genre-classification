@@ -1,4 +1,4 @@
-"""Concept fusion, 87-label genre head, joint loss, metrics, and explainability.
+"""Concept fusion, genre prediction, joint loss, metrics, and explainability.
 
 Built against the v0.3 predicted-concept fusion contract. Integration with real
 branch owners is a shape/mask assertion, not a reshape step.

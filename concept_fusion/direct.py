@@ -1,4 +1,4 @@
-"""Fixture stand-in for B1: song_repr → 87 logits. Not the real Dehan CNN."""
+"""Synthetic-fixture baseline; real CNN experiments use scripts/train_cnn.py."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ class DirectAudioBaseline(nn.Module):
     def __init__(self, song_repr_dim: int = FUSED_DIM, n_tags: int = N_GENRE_TAGS, dropout: float = 0.1):
         super().__init__()
         if n_tags != N_GENRE_TAGS:
-            raise ContractError("genre vocabulary is frozen at 87 tags")
+            raise ContractError(f"genre vocabulary is frozen at {N_GENRE_TAGS} tags")
         self.net = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(song_repr_dim, song_repr_dim),
